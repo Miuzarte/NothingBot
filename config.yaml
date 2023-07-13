@@ -1,0 +1,23 @@
+corpus1:
+  regexp: "(CQ:at,qq=2393827810.*)?/ping"
+  reply: "正在 Ping 114.514.19.19 具有 810 字节的数据:"
+  scene: "a"
+  delay: 
+corpus2:
+  regexp: "(CQ:at,qq=2393827810.*)?/ping"
+  reply: "请求超时。"
+  scene: "a"
+  delay: 3
+corpus3:
+  regexp: "corpus3"
+  reply: "delay: 5s"
+  scene: "a"
+  delay: 5
+corpus4:
+  regexp: "龙图"
+  reply: 
+    - 龙图1
+    - 龙图2
+    - 龙图3
+  scene: "a"
+  delay: 
