@@ -1,0 +1,11 @@
+corpus:
+  -
+    regexp: "/ping"
+    reply: "正在 Ping 114.514.19.19 具有 810 字节的数据:"
+    scene: "a"
+    delay: 0.1
+  -
+    regexp: "/ping"
+    reply: "请求超时。"
+    scene: "a"
+    delay: 4.9
