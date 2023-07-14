@@ -37,7 +37,7 @@ func initOnRegex() { //注册用户语料库
 			}
 		}
 		engine.OnRegex(v.GetString(fmt.Sprintf("corpus.%s.regexp", c)), scene).Handle(func(ctx *zero.Ctx) {
-			time.Sleep(time.Second * time.Duration(v.GetFloat64(fmt.Sprintf("corpus.%s.delay", c))))
+			time.Sleep(time.Millisecond * time.Duration(v.GetInt64(fmt.Sprintf("corpus.%s.delay", c))))
 			switch v.Get(fmt.Sprintf("corpus.%s.reply", c)).(type) {
 			case string:
 				ctx.Send(message.Text(v.GetString(fmt.Sprintf("corpus.%s.reply", c))))

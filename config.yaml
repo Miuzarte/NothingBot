@@ -8,12 +8,12 @@ corpus:
     regexp: "(CQ:at,qq=2393827810.*)?/ping"
     reply: "请求超时。"
     scene: "a"
-    delay: 3
+    delay: 3000
   corpus3:
     regexp: "corpus3"
     reply: "delay: 5s"
     scene: "a"
-    delay: 5
+    delay: 5000
   corpus4:
     regexp: "龙图"
     reply: 
