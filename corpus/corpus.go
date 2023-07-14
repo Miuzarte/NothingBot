@@ -18,32 +18,35 @@ var (
 )
 
 func initOnRegex() { //注册用户语料库
-	logrus.Infof("[corpus] 语料库找到 %d 条", len(v.GetStringMap("corpus")))
+	logrus.Infof("[corpus] 语料库找到 %d 条", len(v.GetStringSlice("corpus")))
 	counts := 0
-	for k := range v.GetStringMap("corpus") {
+	for i := range v.GetStringSlice("corpus") {
+		k := i
 		counts++
-		c := k
-		logrus.Infof("[corpus] Type of corpus.%s.reply: %T", c, v.Get(fmt.Sprintf("corpus.%s.reply", c)))
+		duration := float64(v.GetFloat64(fmt.Sprintf("corpus.%d.delay", k)) * 1000) //yaml里写小数
+		logrus.Infof("[corpus] Type of corpus.%d.reply: %T", k, v.Get(fmt.Sprintf("corpus.%d.reply", k)))
 		scene := func(ctx *zero.Ctx) bool {
-			switch v.GetString(fmt.Sprintf("corpus.%s.scene", c)) {
-			case "a": // 全部
+			switch v.GetString(fmt.Sprintf("corpus.%d.scene", k)) {
+			case "a", "all": // 全部
 				return true
-			case "g": // 群
-				return v.GetString(fmt.Sprintf("corpus.%s.scene", c)) == "g" && ctx.Event.DetailType == "group"
-			case "p": // 私聊
-				return v.GetString(fmt.Sprintf("corpus.%s.scene", c)) == "p" && ctx.Event.DetailType == "private"
+			case "g", "group": // 群
+				return v.GetString(fmt.Sprintf("corpus.%d.scene", k)) == "g" && ctx.Event.DetailType == "group"
+			case "p", "private": // 私
+				return v.GetString(fmt.Sprintf("corpus.%d.scene", k)) == "p" && ctx.Event.DetailType == "private"
 			default:
 				return false
 			}
 		}
-		engine.OnRegex(v.GetString(fmt.Sprintf("corpus.%s.regexp", c)), scene).Handle(func(ctx *zero.Ctx) {
-			time.Sleep(time.Millisecond * time.Duration(v.GetInt64(fmt.Sprintf("corpus.%s.delay", c))))
-			switch v.Get(fmt.Sprintf("corpus.%s.reply", c)).(type) {
-			case string:
-				ctx.Send(message.Text(v.GetString(fmt.Sprintf("corpus.%s.reply", c))))
-			case []string, []any:
-				ctx.Send(message.Text(v.GetString(fmt.Sprintf("corpus.%s.reply.%d", c, rand.Intn(len(v.GetStringSlice(fmt.Sprintf("%s.reply", c))))))))
-			}
+		engine.OnRegex(v.GetString(fmt.Sprintf("corpus.%d.regexp", k)), scene).Handle(func(ctx *zero.Ctx) {
+			go func() {
+				time.Sleep(time.Millisecond * time.Duration(duration))
+				switch v.Get(fmt.Sprintf("corpus.%d.reply", k)).(type) {
+				case string:
+					ctx.Send(message.Text(v.GetString(fmt.Sprintf("corpus.%d.reply", k))))
+				case []string, []any:
+					ctx.Send(message.Text(v.GetString(fmt.Sprintf("corpus.%d.reply.%d", k, rand.Intn(len(v.GetStringSlice(fmt.Sprintf("%d.reply", k))))))))
+				}
+			}()
 		})
 	}
 	logrus.Infof("[corpus] 语料库注册 %d 条", counts)
