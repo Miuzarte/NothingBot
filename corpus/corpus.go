@@ -3,7 +3,10 @@ package corpus
 import (
 	"fmt"
 	"math/rand"
+	"os"
 	"time"
+
+	"example/corpus/datas"
 
 	"github.com/fsnotify/fsnotify"
 	"github.com/sirupsen/logrus"
@@ -13,9 +16,18 @@ import (
 )
 
 var (
-	engine = zero.New()
-	v      = viper.New()
+	engine     = zero.New()
+	v          = viper.New()
+	configPath = "./corpus/config.yaml"
 )
+
+func initConfig() { //初始化配置文件
+	_, err := os.Stat(configPath)
+	if err != nil {
+		fmt.Println("生成默认语料库配置文件")
+		os.WriteFile(configPath, datas.Data, 0644)
+	}
+}
 
 func initOnRegex() { //注册用户语料库
 	logrus.Infof("[corpus] 语料库找到 %d 条", len(v.GetStringSlice("corpus")))
@@ -42,9 +54,12 @@ func initOnRegex() { //注册用户语料库
 				time.Sleep(time.Millisecond * time.Duration(duration))
 				switch v.Get(fmt.Sprintf("corpus.%d.reply", k)).(type) {
 				case string:
-					ctx.Send(message.Text(v.GetString(fmt.Sprintf("corpus.%d.reply", k))))
+					ctx.Send(message.Text(
+						v.GetString(fmt.Sprintf("corpus.%d.reply", k))))
 				case []string, []any:
-					ctx.Send(message.Text(v.GetString(fmt.Sprintf("corpus.%d.reply.%d", k, rand.Intn(len(v.GetStringSlice(fmt.Sprintf("%d.reply", k))))))))
+					ctx.Send(message.Text(
+						v.GetString(fmt.Sprintf("corpus.%d.reply.%d", k, rand.Intn(
+							len(v.GetStringSlice(fmt.Sprintf("%d.reply", k))))))))
 				}
 			}()
 		})
@@ -53,11 +68,12 @@ func initOnRegex() { //注册用户语料库
 }
 
 func init() {
+	initConfig()
 	logrus.Infoln("[corpus] 读取语料库配置")
 	v.SetConfigName("config")
 	v.SetConfigType("yaml")
 	v.AddConfigPath(".")
-	v.SetConfigFile("./config.yaml")
+	v.SetConfigFile(configPath)
 	v.ReadInConfig()
 	v.WatchConfig()
 
