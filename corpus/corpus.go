@@ -34,7 +34,7 @@ func initOnRegex() { //注册用户语料库
 	for i := range v.GetStringSlice("corpus") {
 		k := i
 		counts++
-		duration := float64(v.GetFloat64(fmt.Sprintf("corpus.%d.delay", k)) * 1000) //yaml里写小数
+		duration := int64(v.GetFloat64(fmt.Sprintf("corpus.%d.delay", k)) * 1000) //yaml里写小数
 		logrus.Infof("[corpus] Type of corpus.%d.reply: %T", k, v.Get(fmt.Sprintf("corpus.%d.reply", k)))
 		logrus.Infof("[corpus] Count of corpus.%d.reply: %d", k, len(v.GetStringSlice(fmt.Sprintf("corpus.%d.reply", k))))
 		scene := func(ctx *zero.Ctx) bool {
