@@ -17,9 +17,11 @@ corpus:
   -
     regexp: "龙图"
     reply: 
-      - 龙图1
-      - 龙图2
-      - 龙图3
+      - "[CQ:image,file=../long/AAQARGUGRBAQ.jpg]"
+      - "[CQ:image,file=../long/ACUJRGGOVGFB.jpg]"
+      - "[CQ:image,file=../long/AFMJHFTOVSPAEK.jpg]"
+      - "[CQ:image,file=../long/ALEJDQJRMU.jpg]"
+      - "[CQ:image,file=../long/ANRETTZJKOH.png]"
     scene: "a"
     delay: 
   -
