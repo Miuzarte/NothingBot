@@ -23,7 +23,7 @@ var (
 func initConfig() { //初始化配置文件
 	_, err := os.Stat(configPath)
 	if err != nil {
-		fmt.Println("生成默认语料库配置文件")
+		logrus.Infoln("[corpus] 生成默认语料库配置文件")
 		os.WriteFile(configPath, datas.Data, 0644)
 	}
 }
@@ -50,28 +50,29 @@ func initOnRegex() { //注册用户语料库
 			}
 		}
 		engine.OnRegex(v.GetString(fmt.Sprintf("corpus.%d.regexp", k)), scene).Handle(func(ctx *zero.Ctx) {
+			/**
+			getFuncAndID := func() (func(int64, any) int64, int64) {
+				if ctx.Event.GroupID != 0 {
+					return ctx.SendGroupMessage, ctx.Event.GroupID
+				}
+				return ctx.SendPrivateMessage, ctx.Event.UserID
+			}
+			sendMessage, id := getFuncAndID()
+			*/
+			sendMessage, id := func() (func(int64, any) int64, int64) { // 匿名函数
+				if ctx.Event.GroupID != 0 {
+					return ctx.SendGroupMessage, ctx.Event.GroupID
+				}
+				return ctx.SendPrivateMessage, ctx.Event.UserID
+			}()
 			go func(k int) {
 				time.Sleep(time.Millisecond * time.Duration(duration))
-				if ctx.Event.GroupID == 0 {
-					switch v.Get(fmt.Sprintf("corpus.%d.reply", k)).(type) {
-					case string:
-						ctx.SendPrivateMessage(
-							ctx.Event.UserID, v.GetString(fmt.Sprintf("corpus.%d.reply", k)))
-					case []string, []any:
-						ctx.SendPrivateMessage(
-							ctx.Event.UserID, v.GetString(fmt.Sprintf("corpus.%d.reply.%d", k, rand.Intn(
-								len(v.GetStringSlice(fmt.Sprintf("corpus.%d.reply", k)))))))
-					}
-				} else {
-					switch v.Get(fmt.Sprintf("corpus.%d.reply", k)).(type) {
-					case string:
-						ctx.SendGroupMessage(
-							ctx.Event.GroupID, v.GetString(fmt.Sprintf("corpus.%d.reply", k)))
-					case []string, []any:
-						ctx.SendGroupMessage(
-							ctx.Event.GroupID, v.GetString(fmt.Sprintf("corpus.%d.reply.%d", k, rand.Intn(
-								len(v.GetStringSlice(fmt.Sprintf("corpus.%d.reply", k)))))))
-					}
+				switch v.Get(fmt.Sprintf("corpus.%d.reply", k)).(type) {
+				case string:
+					sendMessage(id, v.GetString(fmt.Sprintf("corpus.%d.reply", k)))
+				case []string, []any:
+					sendMessage(id, v.GetString(fmt.Sprintf("corpus.%d.reply.%d", k, rand.Intn(
+						len(v.GetStringSlice(fmt.Sprintf("corpus.%d.reply", k)))))))
 				}
 			}(k)
 		})
@@ -82,17 +83,35 @@ func initOnRegex() { //注册用户语料库
 
 func init() {
 	initConfig()
-	logrus.Infoln("[corpus] 读取语料库配置")
 	v.SetConfigName("config")
 	v.SetConfigType("yaml")
 	v.AddConfigPath(".")
 	v.SetConfigFile(configPath)
 	v.ReadInConfig()
 	v.WatchConfig()
-
-	initOnRegex()
-	v.OnConfigChange(func(in fsnotify.Event) {
-		engine.Delete()
+	engine.OnCommand("禁用语料库", zero.OnlyToMe).SetBlock(true).SetPriority(10).
+		Handle(func(ctx *zero.Ctx) {
+			engine.Delete()
+			ctx.Send("已禁用")
+		})
+	engine.OnCommand("启用语料库", zero.OnlyToMe).SetBlock(true).SetPriority(10).
+		Handle(func(ctx *zero.Ctx) {
+			initOnRegex()
+			v.OnConfigChange(func(in fsnotify.Event) {
+				engine.Delete()
+				initOnRegex()
+			})
+			ctx.Send("已启用")
+		})
+	disableondefault := false
+	if disableondefault {
+		logrus.Infoln("语料库禁用")
+	} else {
+		logrus.Infoln("语料库启用")
 		initOnRegex()
-	})
+		v.OnConfigChange(func(in fsnotify.Event) {
+			engine.Delete()
+			initOnRegex()
+		})
+	}
 }
