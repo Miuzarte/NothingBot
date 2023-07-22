@@ -3,12 +3,12 @@ main:
   admin:  #主人QQ
   #控制台日志等级, 越大输出越多
   #Panic = 0
-	#Fatal = 1
-	#Error = 2
-	#Warn  = 3
-	#Info  = 4
-	#Debug = 5
-	#Trace = 6
+  #Fatal = 1
+  #Error = 2
+  #Warn  = 3
+  #Info  = 4
+  #Debug = 5
+  #Trace = 6
   logLevel: 4
 corpus:
   -
