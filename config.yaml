@@ -1,16 +1,16 @@
-main:
+main: #冷更新
   websocket: "ws://127.0.0.1:9820" #go-cqhttp
-  admin:  #主人QQ
+  admin:  #管理者QQ  int / []int
   #控制台日志等级, 越大输出越多
   #Panic = 0
-  #Fatal = 1
-  #Error = 2
-  #Warn  = 3
-  #Info  = 4
-  #Debug = 5
-  #Trace = 6
+	#Fatal = 1
+	#Error = 2
+	#Warn  = 3
+	#Info  = 4
+	#Debug = 5
+	#Trace = 6
   logLevel: 4
-corpus:
+corpus: #热更新
   -
     regexp: "(CQ:at,qq=.*)?/ping"
     reply: "正在 Ping 114.514.19.19 具有 810 字节的数据:"
@@ -71,37 +71,39 @@ corpus:
     reply: "0.5"
     scene: "p"
     delay: 0.5
-push: #热更新
+push: #热更新，但最起码不要在5s内保存多次，发起直播监听连接需要时间，直播间越多越久
   settings:
     dynamicUpdateInterval: 3 #拉取更新间隔
-    liveUpdateInterval: 10 #拉取直播间隔（TODO）
     #通过拉取动态流进行推送，必须设置B站cookie，且需要关注想要推送的up
     cookie: ""
   list:
   # - #模板
   # uid: #up的uid  int ONLY
+  # live: #up的直播间号，存在则监听并推送直播  int ONLY
   # user: #推送到的用户  int / []int
   # group: #推送到的群组  int / []int
-  # at: #推送到群组时消息末尾at的人  int / []int
+  # at: #推送到群组时消息末尾at的人  int / []int    --------（有点鸡肋，之后想想怎么改又能不用群号当键）
   # filter: #此键存在内容时仅推送包含在内的动态类型（白名单） []string
   #     - "DYNAMIC_TYPE_WORD" #文本动态（包括投票/预约）
   #     - "DYNAMIC_TYPE_DRAW" #图文动态（包括投票/预约）
   #     - "DYNAMIC_TYPE_AV" #视频投稿（包括动态视频）
   #     - "DYNAMIC_TYPE_ARTICLE" #文章投稿
-  # live: #是否推送直播（TODO）  bool
     - #謬纱特
       uid: 59442895
-      user: 
-      group: 
-      at: 
+      live: 4626545
+      group:
+        - 
     - #岁己SUI
       uid: 1954091502
-      user:
-        -
-        -
+      live: 25788785
       group: 
         - 
         - 
-      at: 
-        - 
-        - 
+    - #神崎 • H • 亚里亚
+      uid: 898411
+      live: 25788785
+      group: 
+      filter:
+      - "DYNAMIC_TYPE_WORD"
+      - "DYNAMIC_TYPE_DRAW"
+      - "DYNAMIC_TYPE_ARTICLE"

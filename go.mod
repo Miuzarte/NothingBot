@@ -3,7 +3,9 @@ module NothingBot
 go 1.20
 
 require (
+	github.com/andybalholm/brotli v1.0.5
 	github.com/fsnotify/fsnotify v1.6.0
+	github.com/gorilla/websocket v1.5.0
 	github.com/sirupsen/logrus v1.9.3
 	github.com/spf13/viper v1.16.0
 	github.com/t-tomalak/logrus-easy-formatter v0.0.0-20190827215021-c074f06c5816

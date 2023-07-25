@@ -63,7 +63,22 @@ var headers = struct { //请求头
 	"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Safari/537.36 Edg/114.0.1823.86",
 }
 
-type gocqPostType string //上报类型: "message"消息, "message_sent"消息发送, "request"请求, "notice"通知, "meta_event"
+type gocqMetaEvent struct {
+	meta_event_type string //元事件类型: "lifecycle"生命周期, "heartbeat"心跳包
+	self_id         int    //bot账号
+}
+
+type gocqNotice struct {
+	notice_type           string //通知类型 https://docs.go-cqhttp.org/reference/data_struct.html#post-notice-type
+	notice_notify_subtype string //系统通知子类型: "honor"群荣誉变更, "poke"戳一戳, "lucky_king"群红包幸运王, "title"群成员头衔变更
+}
+
+type gocqRequest struct {
+	request_type string //请求类型: "friend"好友请求, "group"群请求
+}
+
+type gocqMessageSent struct {
+}
 
 type gocqMessage struct {
 	message_type    string //消息类型: "private"私聊消息, "group"群消息
@@ -81,30 +96,16 @@ type gocqMessage struct {
 	sender_rold     string //群身份: "owner", "admin", "member"
 }
 
-type gocqMessageSent struct {
-}
+type gocqPostType string //上报类型: "message"消息, "message_sent"消息发送, "request"请求, "notice"通知, "meta_event"
 
-type gocqRequest struct {
-	request_type string //请求类型: "friend"好友请求, "group"群请求
-}
-
-type gocqNotice struct {
-	notice_type           string //通知类型 https://docs.go-cqhttp.org/reference/data_struct.html#post-notice-type
-	notice_notify_subtype string //系统通知子类型: "honor"群荣誉变更, "poke"戳一戳, "lucky_king"群红包幸运王, "title"群成员头衔变更
-}
-
-type gocqMetaEvent struct {
-	meta_event_type string //元事件类型: "lifecycle"生命周期, "heartbeat"心跳包
-	self_id         int    //bot账号
-}
-
-var conn *websocket.Conn
+var gocqConn *websocket.Conn
 
 func connect(url string) {
 	for {
 		c, err := websocket.Dial(url, "", "http://127.0.0.1")
 		if err == nil {
-			conn = c
+			log.Infoln("[main] 与go-cqhttp建立ws连接成功")
+			gocqConn = c
 			break
 		}
 		log.Errorln("[main] 与go-cqhttp建立ws连接失败, 5秒后重试")
@@ -112,7 +113,7 @@ func connect(url string) {
 	}
 	for {
 		var rawPost string
-		err := websocket.Message.Receive(conn, &rawPost)
+		err := websocket.Message.Receive(gocqConn, &rawPost)
 		if err == io.EOF {
 			break
 		}
@@ -145,7 +146,6 @@ func connect(url string) {
 				sender_card:     jsonPost.Get("sender.card").Str(),
 				sender_rold:     jsonPost.Get("sender.role").Str(),
 			}
-			log.Debugln("[gocq] msg:", msg)
 			log.Infoln("[gocq] 收到消息:", msg.message)
 			go corpusChecker(msg)
 		case "message_sent":
@@ -164,7 +164,7 @@ func connect(url string) {
 	}
 }
 
-func httpsGet(url string, cookie string) string { //网络请求
+func httpsGet(url string, cookie string) string {
 	log.Traceln("[push] 发起了请求:", url)
 	method := "GET"
 	client := &http.Client{}
@@ -200,7 +200,7 @@ func httpsGet(url string, cookie string) string { //网络请求
 	return string(body)
 }
 
-func sendMsg(msg string, at string, userID []int, groupID []int) { // 确定发送目标群聊、用户，进行分发
+func sendMsg(msg string, at string, userID []int, groupID []int) {
 	if len(userID) != 0 { //有私聊发私聊，不带at
 		for _, user := range userID {
 			g := gson.NewFrom("")
@@ -209,7 +209,7 @@ func sendMsg(msg string, at string, userID []int, groupID []int) { // 确定发�
 				"group_id": user,
 				"message":  msg,
 			})
-			conn.Write([]byte(g.JSON("", "")))
+			gocqConn.Write([]byte(g.JSON("", "")))
 			log.Infoln("[push] 发送消息到用户:", user, "   内容:", msg)
 		}
 	}
@@ -222,7 +222,7 @@ func sendMsg(msg string, at string, userID []int, groupID []int) { // 确定发�
 				"group_id": group,
 				"message":  msg,
 			})
-			conn.Write([]byte(g.JSON("", "")))
+			gocqConn.Write([]byte(g.JSON("", "")))
 			log.Infoln("[push] 发送消息到群聊:", group, "   内容:", msg)
 		}
 	}
@@ -237,7 +237,7 @@ func sendMsgSingle(msg string, user int, group int) {
 			"user_id": user,
 			"message": msg,
 		})
-		conn.Write([]byte(g.JSON("", "")))
+		gocqConn.Write([]byte(g.JSON("", "")))
 		log.Infoln("[push] 发送消息到用户:", user, "   内容:", msg)
 	}
 	if group != 0 { //有群聊也发群聊，消息追加at
@@ -247,18 +247,31 @@ func sendMsgSingle(msg string, user int, group int) {
 			"group_id": group,
 			"message":  msg,
 		})
-		conn.Write([]byte(g.JSON("", "")))
+		gocqConn.Write([]byte(g.JSON("", "")))
 		log.Infoln("[push] 发送消息到群聊:", group, "   内容:", msg)
 	}
 	return
 }
 
+func timeFormatter(timeS int) string {
+	seconds := timeS % 60 / 1
+	minutes := ((timeS - (seconds * 1)) % 3600) / 60
+	hours := ((timeS - ((seconds * 1) + (minutes * 60))) % 216000) / 3600
+	days := (timeS - ((seconds * 1) + (minutes * 60) + (hours * 3600))) / 86400
+	switch {
+	case days > 0:
+		return strconv.Itoa(days) + "天" + strconv.Itoa(hours) + "小时" + strconv.Itoa(minutes) + "分钟" + strconv.Itoa(seconds) + "秒"
+	case hours > 0:
+		return strconv.Itoa(hours) + "小时" + strconv.Itoa(minutes) + "分钟" + strconv.Itoa(seconds) + "秒"
+	case minutes > 0:
+		return strconv.Itoa(minutes) + "分钟" + strconv.Itoa(seconds) + "秒"
+	default:
+		return strconv.Itoa(timeS) + "秒"
+	}
+}
+
 func main() {
-	fmt.Println("        ")
-	fmt.Println("  Powered      ")
-	fmt.Println("         by    ")
-	fmt.Println("           GO  ")
-	fmt.Println("        ")
+	fmt.Println("        \n  Powered      \n         by    \n           GO  \n        ")
 	log.SetFormatter(&easy.Formatter{
 		TimestampFormat: "2006-01-02 15:04:05",
 		LogFormat:       "[%time%] [%lvl%] %msg%\n",
@@ -292,7 +305,7 @@ func main() {
 			adminID = append(adminID, admin)
 		}
 	}
-	log.Infoln("[main] 超管QQ:", adminID)
+	log.Infoln("[init] 管理者QQ:", adminID)
 	initCorpus()
 	initPush()
 	connect(v.GetString("main.websocket"))

@@ -2,7 +2,6 @@ package main
 
 import (
 	"fmt"
-	"net/url"
 	"strconv"
 
 	"time"
@@ -13,25 +12,150 @@ import (
 )
 
 var cookie string
+var liveListUID []int
+var liveList []int
+var liveState = make(map[int]int)
+var configChange bool
 
-func initPush() {
+func initPush() { //初始化推送
 	cookie = v.GetString("push.settings.cookie")
 	log.Traceln("[push] cookie:\n", cookie)
 	if cookie == "" || cookie == "<nil>" {
 		log.Warningln("[push] 未配置cookie!")
 	} else {
 		go dynamicMonitor()
-		//go liveMonitor()
 	}
+	go liveMonitor()
 }
 
-func liveMonitor() { // 不知道怎么做热更新 先摆了
-	v.OnConfigChange(func(in fsnotify.Event) {
-		go liveMonitor()
+func initLiveList() { //初始化直播监听列表
+	liveListUID = []int{} //清空
+	liveList = []int{}
+	j := 0
+	k := 0
+	for i := 0; i < len(v.GetStringSlice("push.list")); i++ {
+		var uid int
+		var roomID int
+		if v.GetInt(fmt.Sprintf("push.list.%d.live", i)) != 0 {
+			uid = v.GetInt(fmt.Sprintf("push.list.%d.uid", i))
+			roomID = v.GetInt(fmt.Sprintf("push.list.%d.live", i))
+			log.Debugln("[push] uid为", uid, "的直播间", roomID, "加入监听列表")
+			liveListUID = append(liveListUID, uid)
+			liveList = append(liveList, roomID)
+			k += 1
+		}
+		j += 1
+	}
+	log.Infoln("[push] 动态推送", j, "个")
+	log.Infoln("[push] 直播间监听", k, "个")
+}
+
+func liveMonitor() { //建立监听连接
+	initLiveList()
+	for i := 0; i < len(liveList); i++ {
+		go connectDanmu(liveListUID[i], liveList[i])
+		time.Sleep(time.Second)
+	}
+	v.OnConfigChange(func(in fsnotify.Event) { //获取监听列表
+		initLiveList()
+		configChange = true
+		for i := 0; i < len(liveList); i++ {
+			go connectDanmu(liveListUID[i], liveList[i])
+			time.Sleep(time.Second)
+		}
+		time.Sleep(time.Second * 5)
+		configChange = false
 	})
 }
 
-func dynamicMonitor() {
+func liveChecker(pktJson gson.JSON) { //判断数据包类型
+	cmd := pktJson.Get("cmd").Str() //"LIVE"/"PREPARING"
+	switch cmd {
+	case "LIVE":
+		roomID := pktJson.Get("roomid").Int()
+		for i := 0; i < len(v.GetStringSlice("push.list")); i++ {
+			if roomID == v.GetInt(fmt.Sprintf("push.list.%d.live", i)) {
+				liveState[roomID] = int(time.Now().Unix()) //缓存开播时间
+				uid := v.GetInt(fmt.Sprintf("push.list.%d.uid", i))
+				log.Infoln("[push] 推送开播:", uid)
+				log.Infoln("[push] 直播间号:", roomID)
+				log.Infoln("[push] 记录开播时间:", time.Unix(int64(liveState[roomID]), 0).Format("2006-01-02 15:04:05"))
+				liveJson := getLiveJson(uid)
+				log.Debugln("[push] LiveJson:", liveJson)
+				name := liveJson.Get("uname").Str()
+				cover := "[CQ:image,file=" + liveJson.Get("cover_from_user").Str() + "]"
+				title := liveJson.Get("title").Str()
+				msg := name + "开播了！\n" + cover + title + "\nlive.bilibili.com/" + strconv.Itoa(roomID)
+				userID, groupID, at := sendListGen(i)
+				sendMsg(msg, userID, groupID, at)
+				return
+			}
+		}
+	case "PREPARING":
+		roomID, _ := strconv.Atoi(pktJson.Get("roomid").Str())
+		for i := 0; i < len(v.GetStringSlice("push.list")); i++ {
+			if roomID == v.GetInt(fmt.Sprintf("push.list.%d.live", i)) {
+				uid := v.GetInt(fmt.Sprintf("push.list.%d.uid", i))
+				log.Infoln("[push] 推送下播:", uid)
+				log.Infoln("[push] 直播间号:", roomID)
+				log.Infoln("[push] 缓存的开播时间:", time.Unix(int64(liveState[roomID]), 0).Format("2006-01-02 15:04:05"))
+				liveJson := getLiveJson(uid)
+				name := liveJson.Get("uname").Str()
+				cover := "[CQ:image,file=" + liveJson.Get("keyframe").Str() + "]"
+				title := liveJson.Get("title").Str()
+				msg := name + "下播了~\n" + cover + title
+				if liveState[roomID] != 0 {
+					msg += "\n本次直播持续了" + timeFormatter(int(time.Now().Unix())-liveState[roomID])
+					delete(liveState, roomID)
+				}
+				userID, groupID, at := sendListGen(i)
+				sendMsg(msg, userID, groupID, at)
+				return
+			}
+		}
+	}
+}
+
+func getLiveJson(uid int) gson.JSON { //获取直播间数据
+	url := fmt.Sprintf("https://api.live.bilibili.com/room/v1/Room/get_status_info_by_uids?uids[]=%d", uid)
+	body := httpsGet(url, "")
+	raw := gson.NewFrom(body)
+	data, _ := raw.Gets("data", strconv.Itoa(uid))
+	return data
+}
+
+func sendListGen(i int) (string, []int, []int) { //生成发送队列
+	userID := []int{} // 用户列表
+	userList := v.GetStringSlice(fmt.Sprintf("push.list.%d.user", i))
+	if len(userList) != 0 {
+		for _, each := range userList { //[]string to []int
+			user, _ := strconv.Atoi(each)
+			userID = append(userID, user)
+		}
+	}
+	log.Debugln("[push] 推送用户:", userID)
+	groupID := []int{} // 群组列表
+	groupList := v.GetStringSlice(fmt.Sprintf("push.list.%d.group", i))
+	if len(groupList) != 0 {
+		for _, each := range groupList { //[]string to []int
+			group, _ := strconv.Atoi(each)
+			groupID = append(groupID, group)
+		}
+	}
+	log.Debugln("[push] 推送群组:", groupID)
+	at := "" // at序列
+	atList := v.GetStringSlice(fmt.Sprintf("push.list.%d.at", i))
+	if len(atList) != 0 {
+		at += "\n"
+		for _, each := range atList {
+			at += "[CQ:at,qq=" + each + "]"
+		}
+	}
+	log.Debugln("[push] at:", atList)
+	return at, userID, groupID
+}
+
+func dynamicMonitor() { //监听动态流
 	var (
 		update_num      = "0" //更新数
 		update_baseline = "0" //更新基线
@@ -45,12 +169,12 @@ func dynamicMonitor() {
 		update_num = getUpdate(update_baseline)
 		switch update_num {
 		case "-1":
-			log.Errorln("[push] 获取update_num时出现错误")
-			log.Infof("update_num = %s\nupdate_baseline = %s\n", update_num, update_baseline)
-			//sendErrToAdmin
-			time.Sleep(time.Second * 30) //可能黑名单了吧
+			errInfo := fmt.Sprintf("[push] 获取update_num时出现错误    update_num = %s    update_baseline = %s", update_num, update_baseline)
+			log.Errorln(errInfo)
+			//sendMsg(errInfo, "", adminID, []int{})
+			time.Sleep(time.Second * 60) //可能黑名单了吧
 		case "0":
-			log.Infof("[push] 没有新动态    update_num = %s    update_baseline = %s", update_num, update_baseline)
+			log.Debugf("[push] 没有新动态    update_num = %s    update_baseline = %s", update_num, update_baseline)
 		default:
 			new_baseline = getBaseline()
 			log.Infof("[push] 有新动态！    update_num = %s    update_baseline = %s => %s", update_num, update_baseline, new_baseline)
@@ -59,12 +183,13 @@ func dynamicMonitor() {
 				rawJson := getDynamicJson(dynamicID)
 				switch rawJson.Get("code").Int() {
 				case 4101131: //动态已删除，不推送
+					sendMsg(fmt.Sprintf("[Info] [push] 记录到一条已删除的动态，dynamicID = %s", dynamicID), "", adminID, []int{})
 					break
 				case 404: //网络请求错误
 					break
 				default:
 					mainJson := rawJson.Get("data.item")
-					log.Debugln("[push] mainJson:\n", mainJson)
+					log.Debugln("[push] mainJson:", mainJson.JSON("", ""))
 					dynamicChecker(mainJson)
 				}
 			}(new_baseline)
@@ -79,57 +204,31 @@ func getBaseline() string { //返回baseline用于监听更新
 	if body == errJson404 {
 		return "-1"
 	}
-	g := gson.NewFrom(body)
-	return g.Get("data.update_baseline").Str()
+	return gson.NewFrom(body).Get("data.update_baseline").Str()
 }
 
 func getUpdate(update_baseline string) string { //是否有新动态
-	if update_baseline == "-1" {
-		return "-1"
-	}
-	u, err := url.Parse("https://api.bilibili.com/x/polymer/web-dynamic/v1/feed/all/update?")
-	if err != nil {
-		log.Errorf("[push] getUpdate().url.Parse()发生错误: %v\n", err)
-		return "-1"
-	}
-	values := url.Values{}
-	values.Add("update_baseline", update_baseline)
-	u.RawQuery = values.Encode()
-	body := httpsGet(u.String(), cookie)
+	url := fmt.Sprintf("https://api.bilibili.com/x/polymer/web-dynamic/v1/feed/all/update?update_baseline=%s", update_baseline)
+	body := httpsGet(url, cookie)
 	if body == errJson404 {
 		return "-1"
 	}
-	g := gson.NewFrom(body)
-	return g.Get("data.update_num").Str()
+	return gson.NewFrom(body).Get("data.update_num").Str()
 }
 
-func getDynamicJson(dynamicID string) gson.JSON { //获取动态信息
-	u, err := url.Parse("https://api.bilibili.com/x/polymer/web-dynamic/v1/detail?")
-	if err != nil {
-		log.Errorf("[push] getDynamicJson().url.Parse()发生错误: %v\n", err)
-		return gson.NewFrom(errJson404)
-	}
-	values := url.Values{}
-	values.Add("id", dynamicID)
-	u.RawQuery = values.Encode()
-	body := httpsGet(u.String(), cookie)
+func getDynamicJson(dynamicID string) gson.JSON { //获取动态数据
+	url := fmt.Sprintf("https://api.bilibili.com/x/polymer/web-dynamic/v1/detail?id=%s", dynamicID)
+	body := httpsGet(url, cookie)
 	return gson.NewFrom(body)
 }
 
-func getVoteJson(voteID string) gson.JSON { //获取投票信息
-	u, err := url.Parse("https://api.vc.bilibili.com/vote_svr/v1/vote_svr/vote_info?")
-	if err != nil {
-		log.Errorf("[push] getVoteJson().url.Parse()发生错误: %v\n", err)
-		return gson.NewFrom(errJson404)
-	}
-	values := url.Values{}
-	values.Add("vote_id", voteID)
-	u.RawQuery = values.Encode()
-	body := httpsGet(u.String(), cookie)
+func getVoteJson(voteID int) gson.JSON { //获取投票数据
+	url := fmt.Sprintf("https://api.vc.bilibili.com/vote_svr/v1/vote_svr/vote_info?vote_id=%d", voteID)
+	body := httpsGet(url, cookie)
 	return gson.NewFrom(body)
 }
 
-func dynamicChecker(mainJson gson.JSON) { //判断是否推送, mainJson = data.item
+func dynamicChecker(mainJson gson.JSON) { //mainJson = data.item
 	uid := mainJson.Get("modules.module_author.mid").Int()
 	dynamicType := mainJson.Get("type").Str()
 	for i := 0; i < len(v.GetStringSlice("push.list")); i++ { //循环匹配
@@ -147,43 +246,17 @@ func dynamicChecker(mainJson gson.JSON) { //判断是否推送, mainJson = data.
 		}
 		if uidMatch && filterMatch {
 			log.Debugln("[push] up uid:", uid)
-			log.Infof("[push] 处于推送列表: %d", uid)
-			userID := []int{} // 用户列表
-			userList := v.GetStringSlice(fmt.Sprintf("push.list.%d.user", i))
-			if len(userList) != 0 {
-				for _, each := range userList { //[]string to []int
-					user, _ := strconv.Atoi(each)
-					userID = append(userID, user)
-				}
-			}
-			log.Debugln("[push] 推送用户:", userID)
-			groupID := []int{} // 群组列表
-			groupList := v.GetStringSlice(fmt.Sprintf("push.list.%d.group", i))
-			if len(groupList) != 0 {
-				for _, each := range groupList { //[]string to []int
-					group, _ := strconv.Atoi(each)
-					groupID = append(groupID, group)
-				}
-			}
-			log.Debugln("[push] 推送群组:", groupID)
-			at := "" // at序列
-			atList := v.GetStringSlice(fmt.Sprintf("push.list.%d.at", i))
-			if len(atList) != 0 {
-				at += "\n"
-				for _, each := range atList {
-					at += "[CQ:at,qq=" + each + "]"
-				}
-			}
-			log.Debugln("[push] at:", atList)
+			log.Infoln("[push] 处于推送列表:", uid)
+			at, userID, groupID := sendListGen(i)
 			sendMsg(dynamicFormatter(mainJson), at, userID, groupID)
 			return
 		}
 	}
-	log.Infof("[push] 不处于推送列表: %d", uid)
+	log.Infoln("[push] 不处于推送列表:", uid)
 	return
 }
 
-func dynamicFormatter(json gson.JSON) string { //动态格式化, 主动态"data.item", 转发原动态"data.item.orig"
+func dynamicFormatter(json gson.JSON) string { //主动态"data.item", 转发原动态"data.item.orig"
 	majorType := json.Get("modules.module_dynamic.major.type").Str()                       //暂时滞留
 	dynamicType := json.Get("type").Str()                                                  //动态类型
 	dynamic := json.Get("modules.module_dynamic")                                          //动态
@@ -198,7 +271,7 @@ func dynamicFormatter(json gson.JSON) string { //动态格式化, 主动态"data
 	id := json.Get("id_str").Str()
 	name := author.Get("name").Str()
 	head := "t.bilibili.com/" + id + "\n" + name + "：\n"
-	appendVote := func(voteID string) string { //投票格式化
+	appendVote := func(voteID int) string { //投票格式化
 		voteJson := getVoteJson(voteID).Get("data.info")
 		name := voteJson.Get("name").Str()   //发起者
 		title := voteJson.Get("title").Str() //标题
@@ -236,7 +309,7 @@ func dynamicFormatter(json gson.JSON) string { //动态格式化, 主动态"data
 			first += "#" + topic + "#\n"
 		}
 		if additionalType == "ADDITIONAL_TYPE_VOTE" {
-			after += appendVote(strconv.Itoa(vote.Get("vote_id").Int()))
+			after += appendVote(vote.Get("vote_id").Int())
 		}
 		if additionalType == "ADDITIONAL_TYPE_RESERVE" {
 			title := reserve.Get("title").Str()
@@ -258,7 +331,7 @@ func dynamicFormatter(json gson.JSON) string { //动态格式化, 主动态"data
 			first += "#" + topic + "#\n"
 		}
 		if additionalType == "ADDITIONAL_TYPE_VOTE" {
-			after += appendVote(strconv.Itoa(vote.Get("vote_id").Int()))
+			after += appendVote(vote.Get("vote_id").Int())
 		}
 		if additionalType == "ADDITIONAL_TYPE_RESERVE" {
 			title := reserve.Get("title").Str()
@@ -279,10 +352,13 @@ func dynamicFormatter(json gson.JSON) string { //动态格式化, 主动态"data
 		bvid := archive.Get("bvid").Str()            //bv号
 		//desc := archive.Get("desc").Str() //简介
 		first := action + "\n\n"
-		after := text + "\n[CQ:image,file=" + cover + "]\nav" + aid + "\n" + title + "\n" + play + "播放  " + danmaku + "弹幕" + "\nb23.tv/" + bvid
 		if !dynamic.Get("topic.name").Nil() {
 			first += "#" + topic + "#\n"
 		}
+		if dynamic.Get("desc.text").Nil() {
+			text = ""
+		}
+		after := text + "\n[CQ:image,file=" + cover + "]\nav" + aid + "\n" + title + "\n" + play + "播放  " + danmaku + "弹幕" + "\nb23.tv/" + bvid
 		return head + first + after
 	case "DYNAMIC_TYPE_ARTICLE": //文章
 		action := author.Get("pub_action").Str()           //"投稿了文章"
@@ -304,6 +380,8 @@ func dynamicFormatter(json gson.JSON) string { //动态格式化, 主动态"data
 		whatched := live.Get("live_play_info.watched_show.text_large").Str() //xxx人看过
 		id := strconv.Itoa(live.Get("live_play_info.room_id").Int())         //房间号
 		return head + action + "\n[CQ:image,file=" + cover + "]\n" + title + "\n" + parent_area + " - " + area + "\n" + whatched + "\nlive.bilibili.com/" + id
+	case "DYNAMIC_TYPE_COMMON_SQUARE": //应用装扮同步动态
+		return head + "应用装扮同步动态"
 	}
 	switch majorType { //主内容类型, 应该用不到
 	case "<nil>": //文本 ↑
@@ -312,14 +390,15 @@ func dynamicFormatter(json gson.JSON) string { //动态格式化, 主动态"data
 	case "MAJOR_TYPE_ARTICLE": //文章 ↑
 	case "MAJOR_TYPE_LIVE_RCMD": //直播 ↑
 	case "MAJOR_TYPE_NONE": //转发的动态已删除 ↑
+	default: //"MAJOR_TYPE_COMMON"
 	}
-	return "未知的动态类型"
+	return head + "未知的动态类型"
 }
 
-func articleFormatter(json gson.JSON) string {
+func articleFormatter(json gson.JSON) string { //文章格式化
 	return ""
 }
 
-func archiveFormatter(json gson.JSON) string {
+func archiveFormatter(json gson.JSON) string { //视频格式化
 	return ""
 }

@@ -18,7 +18,7 @@ func corpusChecker(msg gocqMessage) { //msg.message_type: "private"/"group"
 		log.Traceln("[corpus] 匹配语料库:", i)
 		reg := v.GetString(fmt.Sprintf("corpus.%d.regexp", i))
 		scene := v.GetString(fmt.Sprintf("corpus.%d.scene", i))
-		log.Traceln("[corpus] reg:", reg)
+		log.Traceln("[corpus] 正则:", reg)
 		matcher := func() bool {
 			result := regexp.MustCompile(reg).FindAllStringSubmatch(msg.message, -1)
 			if result != nil {
@@ -33,7 +33,7 @@ func corpusChecker(msg gocqMessage) { //msg.message_type: "private"/"group"
 			}
 			return false
 		}()
-		log.Traceln("[corpus] matcher:", matcher)
+		log.Traceln("[corpus] 匹配结果:", matcher)
 		if matcher {
 			go func(i int) {
 				time.Sleep(time.Millisecond * time.Duration(int64(v.GetFloat64(fmt.Sprintf("corpus.%d.delay", i))*1000)))
