@@ -9,8 +9,6 @@
 
 参照[Tsuk1ko/cq-picsearcher-bot](https://github.com/Tsuk1ko/cq-picsearcher-bot)的语料库实现，在其基础上多了并发、延迟发送
 
-TODO: 捕获组
-
 ### 哔哩哔哩动态/直播推送
 
 **动态：**
@@ -22,6 +20,12 @@ TODO: 捕获组
 通过建立直播间弹幕ws连接实现监听开播，[录播姬](https://github.com/BililiveRecorder/BililiveRecorder)同款
 
 数据包解码[danmaku.go](danmaku.go)由[@moxcomic](https://github.com/moxcomic)编写
+
+### TODO:
+
+1. [ ] 语料库捕获组
+
+2. [ ] 哔哩哔哩链接解析
 
 [@moxcomic](https://github.com/moxcomic) :
 
