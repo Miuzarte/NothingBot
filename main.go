@@ -120,11 +120,6 @@ type gocqPoke struct {
 	targetID int
 }
 
-type gocqNotice struct {
-	notice_type           string //通知类型 https://docs.go-cqhttp.org/reference/data_struct.html#post-notice-type
-	notice_notify_subtype string //系统通知子类型: "honor"群荣誉变更, "poke"戳一戳, "lucky_king"群红包幸运王, "title"群成员头衔变更
-}
-
 type gocqRequest struct {
 	request_type string //请求类型: "friend"好友请求, "group"群请求
 }
@@ -172,11 +167,9 @@ func connect(url string) {
 			continue
 		}
 		jsonPost := gson.NewFrom(rawPost)
-		log.Debugln("[gocq] raw:", rawPost)
 		var msg gocqMessage
 		var msgSent gocqMessageSent
 		var request gocqRequest
-		var notice gocqNotice
 		switch jsonPost.Get("post_type").Str() { //上报类型: "message"消息, "message_sent"消息发送, "request"请求, "notice"通知, "meta_event"
 		case "message":
 			msg = gocqMessage{ //消息内容
@@ -222,8 +215,6 @@ func connect(url string) {
 			default:
 				log.Infoln("[gocq] notice", rawPost)
 			}
-			notice = gocqNotice{}
-			_ = notice
 		case "meta_event":
 			switch jsonPost.Get("meta_event_type").Str() { //"lifecycle"/"heartbeat"
 			case "heartbeat":
@@ -241,6 +232,8 @@ func connect(url string) {
 			default:
 				log.Infoln("[gocq] meta_event", jsonPost)
 			}
+		default:
+			log.Debugln("[gocq] raw:", rawPost)
 		}
 	}
 }

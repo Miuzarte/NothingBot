@@ -245,7 +245,9 @@ func RecvLoop(conn *websocket.Conn) {
 			case !pktJson.Get("cmd").Nil():
 				log.Debugln("[danmaku] 接收数据: \"cmd\":", pktJson.Get("cmd").Str())
 			default:
-				log.Debugln("[danmaku] 原始数据:", string(pkt.Body))
+				if len(string(pkt.Body)) > 4 { //过滤奇怪的数据包导致控制台发声
+					log.Debugln("[danmaku] 原始数据:", string(pkt.Body))
+				}
 			}
 			go liveChecker(pktJson)
 		}
