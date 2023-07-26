@@ -114,7 +114,7 @@ func liveChecker(pktJson gson.JSON) { //判断数据包类型
 					msg += "\n本次直播持续了" + timeFormatter(int(time.Now().Unix())-liveState[roomID])
 					delete(liveState, roomID)
 				} else {
-					msg += "\n本次直播未记录开播时间"
+					msg += "\n未记录本次开播时间"
 				}
 				userID, groupID, at := sendListGen(i)
 				sendMsg(msg, userID, groupID, at)

@@ -108,7 +108,8 @@ func ParseJson(reader io.ReadCloser) *viper.Viper {
 func GetRoomInfo(roomid int) *viper.Viper {
 	resp, err := http.Get(fmt.Sprintf("https://api.live.bilibili.com/xlive/web-room/v1/index/getDanmuInfo?id=%d&type=0", roomid))
 	if err != nil {
-		panic(err)
+		log.Println("[danmaku] GerRoomInfo().http.Get发生错误:", err)
+		return nil
 	}
 	return ParseJson(resp.Body)
 }
@@ -193,6 +194,8 @@ func connectDanmu(uid int, roomID int) {
 	roomInfo := GetRoomInfo(roomID)
 	if roomInfo == nil {
 		log.Errorln("[danmaku] room info is invalid.")
+		disconnected = true
+		return
 	}
 	host := []string{"broadcastlv.chat.bilibili.com"}
 	for _, h := range roomInfo.Get("data.host_list").([]any) {
@@ -201,14 +204,20 @@ func connectDanmu(uid int, roomID int) {
 	token := roomInfo.GetString("data.token")
 	if token == "" {
 		log.Errorln("[danmaku] token is invalid.")
+		disconnected = true
+		return
 	}
 	conn, _, err := websocket.DefaultDialer.Dial(fmt.Sprintf("wss://%s/sub", host[0]), nil)
 	if err != nil {
-		log.Errorln("[danmaku] failed to establish websocket connection.")
+		log.Errorln("[danmaku] failed to establish websocket connection:", err)
+		disconnected = true
+		return
 	}
 	err = SendEnterPacket(conn, uid, roomID, token)
 	if err != nil {
-		log.Errorln("[danmaku] can not enter room.")
+		log.Errorln("[danmaku] can not enter room:", err)
+		disconnected = true
+		return
 	}
 	go RecvLoop(conn)
 	go HeartBeatLoop(conn)
