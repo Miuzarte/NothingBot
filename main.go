@@ -5,6 +5,7 @@ import (
 	"io"
 	"io/ioutil"
 	"net/http"
+	"os"
 	"strconv"
 
 	"time"
@@ -18,6 +19,45 @@ import (
 
 const errJson404 string = `{"code": 404,"message": "错误: 网络请求异常","ttl": 1}`
 
+const defaultConfig string = `main: #冷更新
+  websocket: "ws://127.0.0.1:9820" #go-cqhttp
+  admin:  #管理者QQ  int / []int
+  #控制台日志等级，越大输出越多
+  #Panic = 0
+  #Fatal = 1
+  #Error = 2
+  #Warn  = 3
+  #Info  = 4
+  #Debug = 5
+  #Trace = 6
+  logLevel: 4
+  #语料库、推送配置请参照: https://github.com/Miuzarte/NothingBot/blob/main/config.yaml
+corpus: #热更新
+# - #模板
+#   regexp: "" #正则表达式
+#   reply: "" #回复内容
+#   scene: "" #触发场景 "a"/"all" / "g"/"group" / "p"/"private"
+#   delay:  #延迟回复（秒）  支持小数
+push: #热更新，但最起码不要在5s内保存多次，发起直播监听连接需要时间，直播间越多越久
+  settings:
+    dynamicUpdateInterval: 3 #拉取更新间隔
+    resetCheckInterval: 15 #直播监听重连检测间隔（秒）
+    #通过拉取动态流进行推送，必须设置B站cookie，且需要关注想要推送的up
+    cookie: ""
+  list:
+  # - #模板
+  # uid: #up的uid  int ONLY
+  # live: #up的直播间号，存在则监听并推送直播  int ONLY
+  # user: #推送到的用户  int / []int
+  # group: #推送到的群组  int / []int
+  # at: #推送到群组时消息末尾at的人  int / []int    --------（有点鸡肋，之后想想怎么改又能不用群号当键）
+  # filter: #此键存在内容时仅推送包含在内的动态类型（白名单） []string
+  #     - "DYNAMIC_TYPE_WORD" #文本动态（包括投票/预约）
+  #     - "DYNAMIC_TYPE_DRAW" #图文动态（包括投票/预约）
+  #     - "DYNAMIC_TYPE_AV" #视频投稿（包括动态视频）
+  #     - "DYNAMIC_TYPE_ARTICLE" #文章投稿
+`
+
 const (
 	PanicLevel = 0
 	FatalLevel = 1
@@ -29,6 +69,7 @@ const (
 )
 
 var (
+	block      = make(chan any)  //main阻塞
 	logLever   = DebugLevel      //日志等级
 	configPath = "./config.yaml" //配置路径
 	v          = viper.New()     //配置体
@@ -310,18 +351,29 @@ func timeFormatter(timeS int) string {
 	}
 }
 
+func initConfig() {
+	v.SetConfigName("config")
+	v.SetConfigType("yaml")
+	v.AddConfigPath(".")
+	v.SetConfigFile(configPath)
+	_, err := os.Stat(configPath)
+	if err != nil {
+		os.WriteFile(configPath, []byte(defaultConfig), 0644)
+		log.Errorln("缺失配置文件，已生成默认配置", configPath, "请修改保存后重启程序")
+		log.Errorln("参考: github.com/Miuzarte/NothingBot/blob/main/config.yaml")
+		os.Exit(0)
+	}
+	v.ReadInConfig()
+	v.WatchConfig()
+}
+
 func main() {
 	fmt.Println("        \n  Powered      \n         by    \n           GO  \n        ")
 	log.SetFormatter(&easy.Formatter{
 		TimestampFormat: "2006-01-02 15:04:05",
 		LogFormat:       "[%time%] [%lvl%] %msg%\n",
 	})
-	v.SetConfigName("config")
-	v.SetConfigType("yaml")
-	v.AddConfigPath(".")
-	v.SetConfigFile(configPath)
-	v.ReadInConfig()
-	v.WatchConfig()
+	initConfig()
 	switch v.GetInt("main.logLevel") {
 	case 0:
 		log.SetLevel(log.PanicLevel)
@@ -346,7 +398,8 @@ func main() {
 		}
 	}
 	log.Infoln("[init] 管理者QQ:", adminID)
+	go connect(v.GetString("main.websocket"))
 	initCorpus()
 	initPush()
-	connect(v.GetString("main.websocket"))
+	<-block
 }

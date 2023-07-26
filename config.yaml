@@ -1,7 +1,7 @@
 main: #冷更新
   websocket: "ws://127.0.0.1:9820" #go-cqhttp
   admin:  #管理者QQ  int / []int
-  #控制台日志等级, 越大输出越多
+  #控制台日志等级，越大输出越多
   #Panic = 0
   #Fatal = 1
   #Error = 2
@@ -11,6 +11,11 @@ main: #冷更新
   #Trace = 6
   logLevel: 4
 corpus: #热更新
+# - #模板
+#   regexp: "" #正则表达式
+#   reply: "" #回复内容
+#   scene: "" #触发场景 "a"/"all" / "g"/"group" / "p"/"private"
+#   delay:  #延迟回复（秒）  支持小数
   -
     regexp: "(CQ:at,qq=.*)?/ping"
     reply: "正在 Ping 114.514.19.19 具有 810 字节的数据:"
@@ -74,6 +79,7 @@ corpus: #热更新
 push: #热更新，但最起码不要在5s内保存多次，发起直播监听连接需要时间，直播间越多越久
   settings:
     dynamicUpdateInterval: 3 #拉取更新间隔
+    resetCheckInterval: 15 #直播监听重连检测间隔（秒）
     #通过拉取动态流进行推送，必须设置B站cookie，且需要关注想要推送的up
     cookie: ""
   list:
