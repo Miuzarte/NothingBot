@@ -163,11 +163,32 @@ func sendListGen(i int) (string, []int, []int) { //生成发送队列
 	return at, userID, groupID
 }
 
+func cookieChecker() bool { //检测cookie有效性
+	url := "https://passport.bilibili.com/x/passport-login/web/cookie/info"
+	body := httpsGet(url, cookie)
+	bodyJson := gson.NewFrom(body)
+	switch bodyJson.Get("code").Int() {
+	case 0:
+		log.Warningln("[push] cookie未过期但触发了有效性检测")
+		sendMsg2Admin("[NothingBot] [push] cookie未过期但触发了有效性检测")
+		return true
+	case -101:
+		log.Errorln("[push] cookie已过期")
+		sendMsg2Admin("[NothingBot] [push] cookie已过期")
+		return false
+	default:
+		log.Errorln("[push] 非正常cookie状态:", body)
+		sendMsg2Admin("[NothingBot] [push] 非正常cookie状态: " + body)
+		return false
+	}
+}
+
 func dynamicMonitor() { //监听动态流
 	var (
 		update_num      = "0" //更新数
 		update_baseline = "0" //更新基线
 		new_baseline    = "0" //新基线
+		failureCount    = 0
 	)
 	update_baseline = getBaseline()
 	if update_baseline == "-1" {
@@ -179,8 +200,19 @@ func dynamicMonitor() { //监听动态流
 		case "-1":
 			errInfo := fmt.Sprintf("[push] 获取update_num时出现错误    update_num = %s    update_baseline = %s", update_num, update_baseline)
 			log.Errorln(errInfo)
-			//sendMsg(errInfo, "", adminID, []int{})
-			time.Sleep(time.Second * 60) //可能黑名单了吧
+			if !cookieChecker() {
+				log.Errorln("[push] 停止拉取动态更新")
+				<-block
+			}
+			failureCount++
+			if failureCount >= 10 {
+				println("[push] 尝试更新失败", failureCount, "次, 停止拉取动态更新")
+				sendMsg2Admin("[NothingBot] [push] 连续更新失败十次但cookie未失效, 已停止拉取动态更新")
+				<-block
+			}
+			duration := time.Duration(failureCount * 30)
+			println("[push] 获取更新失败", failureCount, "次, 将在", duration, "秒后重试")
+			time.Sleep(time.Second * duration)
 		case "0":
 			log.Debugf("[push] 没有新动态    update_num = %s    update_baseline = %s", update_num, update_baseline)
 		default:
@@ -212,7 +244,12 @@ func getBaseline() string { //返回baseline用于监听更新
 	if body == errJson404 {
 		return "-1"
 	}
-	return gson.NewFrom(body).Get("data.update_baseline").Str()
+	update_baseline := gson.NewFrom(body).Get("data.update_baseline").Str()
+	if update_baseline == "<nil>" {
+		log.Error("[push] 未知数据:", body)
+		return "-1"
+	}
+	return update_baseline
 }
 
 func getUpdate(update_baseline string) string { //是否有新动态
@@ -221,7 +258,12 @@ func getUpdate(update_baseline string) string { //是否有新动态
 	if body == errJson404 {
 		return "-1"
 	}
-	return gson.NewFrom(body).Get("data.update_num").Str()
+	update_num := gson.NewFrom(body).Get("data.update_num").Str()
+	if update_num == "<nil>" {
+		log.Error("[push] 未知数据:", body)
+		return "-1"
+	}
+	return update_num
 }
 
 func getDynamicJson(dynamicID string) gson.JSON { //获取动态数据

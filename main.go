@@ -90,18 +90,18 @@ var headers = struct { //请求头
 	SecFetchSite    string
 	UserAgent       string
 }{
-	"application/json, text/plain, */*",
-	"zh-CN,zh;q=0.9,en;q=0.8,en-GB;q=0.7,en-US;q=0.6",
-	"1",
-	"https://t.bilibili.com",
-	"https://t.bilibili.com/",
-	"\"Not.A/Brand\";v=\"8\", \"Chromium\";v=\"114\", \"Microsoft Edge\";v=\"114\"",
-	"?0",
-	"\"Windows\"",
-	"empty",
-	"cors",
-	"same-site",
-	"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Safari/537.36 Edg/114.0.1823.86",
+	Accept:          "application/json, text/plain, */*",
+	AcceptLanguage:  "zh-CN,zh;q=0.9,en;q=0.8,en-GB;q=0.7,en-US;q=0.6",
+	Dnt:             "1",
+	Origin:          "https://t.bilibili.com",
+	Referer:         "https://t.bilibili.com/",
+	SecChUa:         "\"Not/A)Brand\";v=\"99\", \"Microsoft Edge\";v=\"115\", \"Chromium\";v=\"115\"",
+	SecChUaMobile:   "?0",
+	SecChUaPlatform: "\"Windows\"",
+	SecFetchDest:    "empty",
+	SecFetchMode:    "cors",
+	SecFetchSite:    "same-site",
+	UserAgent:       "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36 Edg/115.0.1901.183",
 }
 
 type gocqHeartbeat struct {
@@ -272,6 +272,10 @@ func httpsGet(url string, cookie string) string {
 		return errJson404
 	}
 	return string(body)
+}
+
+func sendMsg2Admin(msg string) {
+	sendMsg(msg, "", adminID, []int{})
 }
 
 func sendMsg(msg string, at string, userID []int, groupID []int) {
