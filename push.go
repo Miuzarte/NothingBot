@@ -15,7 +15,8 @@ var cookie string
 var liveListUID []int
 var liveList []int
 var liveState = make(map[int]int)
-var configChange bool
+var disconnected bool
+var configChanged bool
 
 func initPush() { //初始化推送
 	cookie = v.GetString("push.settings.cookie")
@@ -25,7 +26,30 @@ func initPush() { //初始化推送
 	} else {
 		go dynamicMonitor()
 	}
+	disconnected = true
 	go liveMonitor()
+	v.OnConfigChange(func(in fsnotify.Event) { //获取监听列表
+		configChanged = true
+	})
+}
+
+func liveMonitor() { //建立监听连接
+	for {
+		log.Debugln("[push] 检测直播监听重连    disconnected:", disconnected, "   configChanged:", configChanged)
+		if disconnected || configChanged {
+			disconnected = false
+			configChanged = false
+			log.Infoln("[push] 开始建立监听连接")
+			initLiveList()
+			log.Traceln("[push] len(liveList):", len(liveList))
+			for i := 0; i < len(liveList); i++ {
+				log.Traceln("[push] 建立监听连接    uid:", liveListUID[i], " roomID:", liveList[i])
+				go connectDanmu(liveListUID[i], liveList[i])
+				time.Sleep(time.Second * 1)
+			}
+		}
+		time.Sleep(time.Millisecond * time.Duration(int64(v.GetFloat64("push.settings.resetCheckInterval")*1000)))
+	}
 }
 
 func initLiveList() { //初始化直播监听列表
@@ -48,24 +72,6 @@ func initLiveList() { //初始化直播监听列表
 	}
 	log.Infoln("[push] 动态推送", j, "个")
 	log.Infoln("[push] 直播间监听", k, "个")
-}
-
-func liveMonitor() { //建立监听连接
-	initLiveList()
-	for i := 0; i < len(liveList); i++ {
-		go connectDanmu(liveListUID[i], liveList[i])
-		time.Sleep(time.Second)
-	}
-	v.OnConfigChange(func(in fsnotify.Event) { //获取监听列表
-		initLiveList()
-		configChange = true
-		for i := 0; i < len(liveList); i++ {
-			go connectDanmu(liveListUID[i], liveList[i])
-			time.Sleep(time.Second)
-		}
-		time.Sleep(time.Second * 5)
-		configChange = false
-	})
 }
 
 func liveChecker(pktJson gson.JSON) { //判断数据包类型
@@ -107,6 +113,8 @@ func liveChecker(pktJson gson.JSON) { //判断数据包类型
 				if liveState[roomID] != 0 {
 					msg += "\n本次直播持续了" + timeFormatter(int(time.Now().Unix())-liveState[roomID])
 					delete(liveState, roomID)
+				} else {
+					msg += "\n本次直播未记录开播时间"
 				}
 				userID, groupID, at := sendListGen(i)
 				sendMsg(msg, userID, groupID, at)
@@ -350,7 +358,7 @@ func dynamicFormatter(json gson.JSON) string { //主动态"data.item", 转发原
 		play := archive.Get("stat.play").Str()       //再生
 		danmaku := archive.Get("stat.danmaku").Str() //弹幕
 		bvid := archive.Get("bvid").Str()            //bv号
-		//desc := archive.Get("desc").Str() //简介
+		//desc := archive.Get("desc").Str()                      //简介
 		first := action + "\n\n"
 		if !dynamic.Get("topic.name").Nil() {
 			first += "#" + topic + "#\n"

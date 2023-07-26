@@ -63,9 +63,20 @@ var headers = struct { //请求头
 	"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Safari/537.36 Edg/114.0.1823.86",
 }
 
-type gocqMetaEvent struct {
-	meta_event_type string //元事件类型: "lifecycle"生命周期, "heartbeat"心跳包
-	self_id         int    //bot账号
+type gocqHeartbeat struct {
+	selfID   int
+	interval int
+}
+
+type gocqLifecycle struct {
+	selfID     int
+	postMethod int
+}
+
+type gocqPoke struct {
+	groupID  int
+	senderID int
+	targetID int
 }
 
 type gocqNotice struct {
@@ -96,8 +107,6 @@ type gocqMessage struct {
 	sender_rold     string //群身份: "owner", "admin", "member"
 }
 
-type gocqPostType string //上报类型: "message"消息, "message_sent"消息发送, "request"请求, "notice"通知, "meta_event"
-
 var gocqConn *websocket.Conn
 
 func connect(url string) {
@@ -123,13 +132,11 @@ func connect(url string) {
 		}
 		jsonPost := gson.NewFrom(rawPost)
 		log.Debugln("[gocq] raw:", rawPost)
-		post_type := gocqPostType(jsonPost.Get("post_type").Str())
 		var msg gocqMessage
 		var msgSent gocqMessageSent
 		var request gocqRequest
 		var notice gocqNotice
-		var metaEvent gocqMetaEvent
-		switch post_type { //上报类型: "message"消息, "message_sent"消息发送, "request"请求, "notice"通知, "meta_event"
+		switch jsonPost.Get("post_type").Str() { //上报类型: "message"消息, "message_sent"消息发送, "request"请求, "notice"通知, "meta_event"
 		case "message":
 			msg = gocqMessage{ //消息内容
 				message_type:    jsonPost.Get("message_type").Str(),
@@ -151,15 +158,48 @@ func connect(url string) {
 		case "message_sent":
 			msgSent = gocqMessageSent{}
 			_ = msgSent
+			log.Infoln("[gocq] message_sent", rawPost)
 		case "request":
 			request = gocqRequest{}
 			_ = request
+			log.Infoln("[gocq] request", rawPost)
 		case "notice":
+			switch jsonPost.Get("notice_type").Str() { //https://docs.go-cqhttp.org/reference/data_struct.html#post-notice-type
+			case "notify":
+				switch jsonPost.Get("sub_type").Str() {
+				case "poke":
+					poke := gocqPoke{
+						groupID:  jsonPost.Get("group_id").Int(),
+						senderID: jsonPost.Get("sender_id").Int(),
+						targetID: jsonPost.Get("target_id").Int(),
+					}
+					log.Infoln("[gocq] 收到", poke.senderID, "对", poke.targetID, "的戳一戳")
+				default:
+					log.Infoln("[gocq] notice", rawPost)
+					log.Infoln("[gocq] notice.notify.sub_type:", jsonPost.Get("sub_type").Str())
+				}
+			default:
+				log.Infoln("[gocq] notice", rawPost)
+			}
 			notice = gocqNotice{}
 			_ = notice
 		case "meta_event":
-			metaEvent = gocqMetaEvent{}
-			_ = metaEvent
+			switch jsonPost.Get("meta_event_type").Str() { //"lifecycle"/"heartbeat"
+			case "heartbeat":
+				heartbeat := gocqHeartbeat{
+					selfID:   jsonPost.Get("self_id").Int(),
+					interval: jsonPost.Get("interval").Int(),
+				}
+				log.Infoln("[gocq] heartbeat", heartbeat)
+			case "lifecycle":
+				lifecycle := gocqLifecycle{
+					selfID:     jsonPost.Get("self_id").Int(),
+					postMethod: jsonPost.Get("_post_method").Int(),
+				}
+				log.Infoln("[gocq] lifecycle", lifecycle)
+			default:
+				log.Infoln("[gocq] meta_event", jsonPost)
+			}
 		}
 	}
 }

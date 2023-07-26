@@ -121,19 +121,6 @@ func SendEnterPacket(conn *websocket.Conn, uid, roomID int, token string) error 
 	return nil
 }
 
-func HeartBeatLoop(conn *websocket.Conn) {
-	pkt := NewPacket(Plain, HeartBeat, nil).Build()
-	for {
-		<-time.After(time.Second * 30)
-		if err := conn.WriteMessage(websocket.BinaryMessage, pkt); err != nil {
-			log.Errorln("[danmaku] heartbeat error:", err)
-		}
-		if configChange { //配置文件更新 断开重新发起
-			break
-		}
-	}
-}
-
 func NewPacketFromBytes(data []byte) *Packet {
 	packLen := binary.BigEndian.Uint32(data[0:4])
 	// 校验包长度
@@ -202,32 +189,6 @@ func brotliParser(b []byte) ([]byte, error) {
 	return rdBuf, nil
 }
 
-func RecvLoop(conn *websocket.Conn) {
-	var pktJson gson.JSON
-	for {
-		msgType, data, err := conn.ReadMessage()
-		if err == io.EOF {
-			break
-		}
-		if err != nil {
-			log.Errorln("[danmaku] get error message:", err)
-			continue
-		}
-		if msgType != websocket.BinaryMessage {
-			log.Errorln("[danmaku] packet not binary.")
-			continue
-		}
-		for _, pkt := range NewPacketFromBytes(data).Parse() {
-			log.Debugln("[danmaku] 接收数据:", string(pkt.Body))
-			pktJson = gson.NewFrom(string(pkt.Body))
-			go liveChecker(pktJson)
-		}
-		if configChange { //配置文件更新 断开重新发起
-			break
-		}
-	}
-}
-
 func connectDanmu(uid int, roomID int) {
 	roomInfo := GetRoomInfo(roomID)
 	if roomInfo == nil {
@@ -251,4 +212,57 @@ func connectDanmu(uid int, roomID int) {
 	}
 	go RecvLoop(conn)
 	go HeartBeatLoop(conn)
+}
+
+func RecvLoop(conn *websocket.Conn) {
+	var pktJson gson.JSON
+	for {
+		if disconnected || configChanged {
+			break
+		}
+		msgType, data, err := conn.ReadMessage()
+		if err == io.EOF {
+			log.Errorln("[danmaku] disconnected:", err)
+			disconnected = true
+			break
+		}
+		if err != nil {
+			log.Errorln("[danmaku] get error message:", err)
+			disconnected = true
+			break
+		}
+		if msgType != websocket.BinaryMessage {
+			log.Errorln("[danmaku] packet not binary.")
+			time.Sleep(time.Second * 10)
+			continue
+		}
+		for _, pkt := range NewPacketFromBytes(data).Parse() {
+			pktJson = gson.NewFrom(string(pkt.Body))
+			log.Traceln("[danmaku] 接收数据包:", string(pkt.Body))
+			switch {
+			case !pktJson.Get("code").Nil():
+				log.Debugln("[danmaku] 接收数据: \"code\":", pktJson.Get("code").Str())
+			case !pktJson.Get("cmd").Nil():
+				log.Debugln("[danmaku] 接收数据: \"cmd\":", pktJson.Get("cmd").Str())
+			default:
+				log.Debugln("[danmaku] 原始数据:", string(pkt.Body))
+			}
+			go liveChecker(pktJson)
+		}
+	}
+}
+
+func HeartBeatLoop(conn *websocket.Conn) {
+	pkt := NewPacket(Plain, HeartBeat, nil).Build()
+	for {
+		if disconnected || configChanged {
+			break
+		}
+		<-time.After(time.Second * 30)
+		if err := conn.WriteMessage(websocket.BinaryMessage, pkt); err != nil {
+			log.Errorln("[danmaku] heartbeat error:", err)
+			disconnected = true
+			break
+		}
+	}
 }
