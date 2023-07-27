@@ -105,19 +105,19 @@ var headers = struct { //请求头
 }
 
 type gocqHeartbeat struct {
-	selfID   int
+	self_id  int
 	interval int
 }
 
 type gocqLifecycle struct {
-	selfID     int
-	postMethod int
+	self_id      int
+	_post_method int
 }
 
 type gocqPoke struct {
-	groupID  int
-	senderID int
-	targetID int
+	group_id  int
+	sender_id int
+	target_id int
 }
 
 type gocqRequest struct {
@@ -167,6 +167,7 @@ func connect(url string) {
 			continue
 		}
 		jsonPost := gson.NewFrom(rawPost)
+		log.Traceln("[gocq] 上报:", rawPost)
 		var msg gocqMessage
 		var msgSent gocqMessageSent
 		var request gocqRequest
@@ -187,8 +188,14 @@ func connect(url string) {
 				sender_card:     jsonPost.Get("sender.card").Str(),
 				sender_rold:     jsonPost.Get("sender.role").Str(),
 			}
-			log.Infoln("[gocq] 收到消息:", msg.message)
+			switch msg.message_type {
+			case "private":
+				log.Infoln("[gocq] 收到", msg.sender_nickname, "(", msg.user_id, ")的私聊消息", msg.message)
+			case "group":
+				log.Infoln("[gocq] 在", msg.group_id, "收到", msg.sender_card, "(", msg.sender_nickname, msg.user_id, ")的群聊消息", msg.message)
+			}
 			go corpusChecker(msg)
+			go parseChecker(msg)
 		case "message_sent":
 			msgSent = gocqMessageSent{}
 			_ = msgSent
@@ -203,11 +210,11 @@ func connect(url string) {
 				switch jsonPost.Get("sub_type").Str() {
 				case "poke":
 					poke := gocqPoke{
-						groupID:  jsonPost.Get("group_id").Int(),
-						senderID: jsonPost.Get("sender_id").Int(),
-						targetID: jsonPost.Get("target_id").Int(),
+						group_id:  jsonPost.Get("group_id").Int(),
+						sender_id: jsonPost.Get("sender_id").Int(),
+						target_id: jsonPost.Get("target_id").Int(),
 					}
-					log.Infoln("[gocq] 收到", poke.senderID, "对", poke.targetID, "的戳一戳")
+					log.Infoln("[gocq] 收到", poke.sender_id, "对", poke.target_id, "的戳一戳")
 				default:
 					log.Infoln("[gocq] notice", rawPost)
 					log.Infoln("[gocq] notice.notify.sub_type:", jsonPost.Get("sub_type").Str())
@@ -219,14 +226,14 @@ func connect(url string) {
 			switch jsonPost.Get("meta_event_type").Str() { //"lifecycle"/"heartbeat"
 			case "heartbeat":
 				heartbeat := gocqHeartbeat{
-					selfID:   jsonPost.Get("self_id").Int(),
+					self_id:  jsonPost.Get("self_id").Int(),
 					interval: jsonPost.Get("interval").Int(),
 				}
 				log.Infoln("[gocq] heartbeat", heartbeat)
 			case "lifecycle":
 				lifecycle := gocqLifecycle{
-					selfID:     jsonPost.Get("self_id").Int(),
-					postMethod: jsonPost.Get("_post_method").Int(),
+					self_id:      jsonPost.Get("self_id").Int(),
+					_post_method: jsonPost.Get("_post_method").Int(),
 				}
 				log.Infoln("[gocq] lifecycle", lifecycle)
 			default:
@@ -275,40 +282,17 @@ func httpsGet(url string, cookie string) string {
 }
 
 func sendMsg2Admin(msg string) {
-	sendMsg(msg, "", adminID, []int{})
-}
-
-func sendMsg(msg string, at string, userID []int, groupID []int) {
-	if len(userID) != 0 { //有私聊发私聊，不带at
-		for _, user := range userID {
-			g := gson.NewFrom("")
-			g.Set("action", "send_private_msg")
-			g.Set("params", map[string]any{
-				"group_id": user,
-				"message":  msg,
-			})
-			gocqConn.Write([]byte(g.JSON("", "")))
-			log.Infoln("[push] 发送消息到用户:", user, "   内容:", msg)
-		}
+	if msg == "" {
+		return
 	}
-	if len(groupID) != 0 { //有群聊也发群聊，消息追加at
-		msg += at
-		for _, group := range groupID {
-			g := gson.NewFrom("")
-			g.Set("action", "send_group_msg")
-			g.Set("params", map[string]any{
-				"group_id": group,
-				"message":  msg,
-			})
-			gocqConn.Write([]byte(g.JSON("", "")))
-			log.Infoln("[push] 发送消息到群聊:", group, "   内容:", msg)
-		}
-	}
-	return
+	sendMsg("[NothingBot] "+msg, "", adminID, []int{})
 }
 
 func sendMsgSingle(msg string, user int, group int) {
-	if user != 0 { //有私聊发私聊，不带at
+	if msg == "" {
+		return
+	}
+	if user != 0 {
 		g := gson.NewFrom("")
 		g.Set("action", "send_private_msg")
 		g.Set("params", map[string]any{
@@ -316,9 +300,9 @@ func sendMsgSingle(msg string, user int, group int) {
 			"message": msg,
 		})
 		gocqConn.Write([]byte(g.JSON("", "")))
-		log.Infoln("[push] 发送消息到用户:", user, "   内容:", msg)
+		log.Infoln("[main] 发送消息到用户:", user, "   内容:", msg)
 	}
-	if group != 0 { //有群聊也发群聊，消息追加at
+	if group != 0 {
 		g := gson.NewFrom("")
 		g.Set("action", "send_group_msg")
 		g.Set("params", map[string]any{
@@ -326,7 +310,25 @@ func sendMsgSingle(msg string, user int, group int) {
 			"message":  msg,
 		})
 		gocqConn.Write([]byte(g.JSON("", "")))
-		log.Infoln("[push] 发送消息到群聊:", group, "   内容:", msg)
+		log.Infoln("[main] 发送消息到群聊:", group, "   内容:", msg)
+	}
+	return
+}
+
+func sendMsg(msg string, at string, userID []int, groupID []int) {
+	if msg == "" {
+		return
+	}
+	if len(userID) != 0 { //有私聊发私聊，不带at
+		for _, user := range userID {
+			sendMsgSingle(msg, user, 0)
+		}
+	}
+	if len(groupID) != 0 { //有群聊也发群聊，消息追加at
+		msg += at
+		for _, group := range groupID {
+			sendMsgSingle(msg, 0, group)
+		}
 	}
 	return
 }

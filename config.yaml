@@ -76,10 +76,15 @@ corpus: #热更新
     reply: "0.5"
     scene: "p"
     delay: 0.5
-push: #热更新，但最起码不要在5s内保存多次，发起直播监听连接需要时间，直播间越多越久
+parse: #热更新
+  video: #视频
+    #过长的简介保留长度，英文字符1单位，汉字3单位，建议要么0不显示简介要么拉满全显示，遇到中英混合的字符串容易把汉字砍掉半个导致乱码
+    descTruncationLength: 0
+push: #热更新
   settings:
     dynamicUpdateInterval: 3 #拉取更新间隔
     resetCheckInterval: 15 #直播监听重连检测间隔（秒）
+    cookieCheckInterval: 60 #cookie失效检测间隔（秒）
     #通过拉取动态流进行推送，必须设置B站cookie，且需要关注想要推送的up
     cookie: ""
   list:
