@@ -39,19 +39,19 @@ func extractor(str string) (id string, kind string) {
 	log.Traceln("[parse] roomID:", roomID)
 	switch {
 	case len(dynamicID) > 0:
-		log.Debugln("[parse] 解析到一个动态, dynamicID[0][2]:", dynamicID[0][2])
+		log.Debugln("[parse] 识别到一个动态, dynamicID[0][2]:", dynamicID[0][2])
 		return dynamicID[0][2], "DYNAMIC"
 	case len(aid) > 0:
-		log.Debugln("[parse] 解析到一个视频(a), aid[0][1]:", aid[0][1])
+		log.Debugln("[parse] 识别到一个视频(a), aid[0][1]:", aid[0][1])
 		return aid[0][1], "ARCHIVEa"
 	case len(bvid) > 0:
-		log.Debugln("[parse] 解析到一个视频(b), bvid[0][1]:", bvid[0][1])
+		log.Debugln("[parse] 识别到一个视频(b), bvid[0][1]:", bvid[0][1])
 		return bvid[0][1], "ARCHIVEb"
 	case len(cvid) > 0:
-		log.Debugln("[parse] 解析到一个专栏, cvid[0][2]:", cvid[0][2])
+		log.Debugln("[parse] 识别到一个专栏, cvid[0][2]:", cvid[0][2])
 		return cvid[0][2], "ARTICLE"
 	case len(roomID) > 0:
-		log.Debugln("[parse] 解析到一个直播, roomID[0][1]:", roomID[0][1])
+		log.Debugln("[parse] 识别到一个直播, roomID[0][1]:", roomID[0][1])
 		return roomID[0][1], "LIVE"
 	default:
 		return str, ""
@@ -71,14 +71,14 @@ func deShortLink(slug string) string { //短链解析
 	var statusCode string
 	if len(resp.Header["Location"]) > 0 {
 		location = resp.Header["Location"][0]
+		log.Debugln("[parse] 短链解析结果:", location[0:50])
 	}
 	if len(resp.Header["Bili-Status-Code"]) > 0 {
 		statusCode = resp.Header["Bili-Status-Code"][0]
 	}
-	log.Debugln("[parse] resp.Header[\"Location\"]", resp.Header["Location"])
-	log.Debugln("[parse] resp.Header[\"Bili-Status-Code\"]", resp.Header["Bili-Status-Code"])
 	switch statusCode {
 	case "-404":
+		log.Warningln("[parse] 短链解析失败:", statusCode)
 		return ""
 	}
 	return location
@@ -112,7 +112,7 @@ func parseChecker(msg gocqMessage) {
 	result := regexp.MustCompile(biliLinkRegexp.SHORT).FindAllStringSubmatch(msg.message, -1)
 	if len(result) > 0 {
 		slug = result[0][2]
-		log.Debugln("[parse] 取得短链:", slug)
+		log.Debugln("[parse] 识别到短链:", slug)
 		message = normalParse(slug, "SHORT")
 	} else {
 		message = normalParse(extractor(msg.message))
