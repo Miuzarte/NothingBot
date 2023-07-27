@@ -13,6 +13,7 @@ var biliLinkRegexp = struct {
 	ARCHIVEa string
 	ARCHIVEb string
 	ARTICLE  string
+	SPACE    string
 	LIVE     string
 	SHORT    string
 }{
@@ -20,6 +21,7 @@ var biliLinkRegexp = struct {
 	ARCHIVEa: `video/av([0-9]{1,10})`,                        //9位 预留10
 	ARCHIVEb: `video/(BV[1-9A-HJ-NP-Za-km-z]{10})`,           //恒定BV + 10位base58
 	ARTICLE:  `(read/cv|read/mobile/)([0-9]{1,9})`,           //8位 预留9
+	SPACE:    `space\.bilibili\.com/([0-9]{1,16})`,           //新uid 16位
 	LIVE:     `live\.bilibili\.com/([0-9]{1,9})`,             //8位 预留9
 	SHORT:    `(b23|acg)\.tv/([0-9A-Za-z]{7})`,               //暂时应该只有7位
 }
@@ -31,11 +33,13 @@ func extractor(str string) (id string, kind string) {
 	aid := regexp.MustCompile(biliLinkRegexp.ARCHIVEa).FindAllStringSubmatch(str, -1)
 	bvid := regexp.MustCompile(biliLinkRegexp.ARCHIVEb).FindAllStringSubmatch(str, -1)
 	cvid := regexp.MustCompile(biliLinkRegexp.ARTICLE).FindAllStringSubmatch(str, -1)
+	uid := regexp.MustCompile(biliLinkRegexp.SPACE).FindAllStringSubmatch(str, -1)
 	roomID := regexp.MustCompile(biliLinkRegexp.LIVE).FindAllStringSubmatch(str, -1)
 	log.Traceln("[parse] dynamicID:", dynamicID)
 	log.Traceln("[parse] aid:", aid)
 	log.Traceln("[parse] bvid:", bvid)
 	log.Traceln("[parse] cvid:", cvid)
+	log.Traceln("[parse] uid:", uid)
 	log.Traceln("[parse] roomID:", roomID)
 	switch {
 	case len(dynamicID) > 0:
@@ -50,6 +54,9 @@ func extractor(str string) (id string, kind string) {
 	case len(cvid) > 0:
 		log.Debugln("[parse] 识别到一个专栏, cvid[0][2]:", cvid[0][2])
 		return cvid[0][2], "ARTICLE"
+	case len(uid) > 0:
+		log.Debugln("[parse] 识别到一个用户空间, uid[0][1]:", uid[0][1])
+		return uid[0][1], "SPACE"
 	case len(roomID) > 0:
 		log.Debugln("[parse] 识别到一个直播, roomID[0][1]:", roomID[0][1])
 		return roomID[0][1], "LIVE"
@@ -94,6 +101,8 @@ func normalParse(id string, kind string) string { //拿到id直接解析
 		return formatArchive(getArchiveJsonB(id).Get("data"))
 	case "ARTICLE":
 		return formatArticle(getArticleJson(id).Get("data"), id) //文章信息拿不到自己的cv号
+	case "SPACE":
+		return formatSpace(getSpaceJson(id).Get("data.card"))
 	case "LIVE":
 		roomID, _ := strconv.Atoi(id)
 		uid := getRoomJsonRoomID(roomID).Get("data.uid").Int()

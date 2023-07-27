@@ -13,14 +13,24 @@ func getDynamicJson(dynamicID string) gson.JSON { //获取动态数据
 	url := fmt.Sprintf("https://api.bilibili.com/x/polymer/web-dynamic/v1/detail?id=%s", dynamicID)
 	body := httpsGet(url, cookie)
 	log.Traceln("[bilibili] rawDynamicJson:", body)
-	return gson.NewFrom(body)
+	dynamicJson := gson.NewFrom(body)
+	if dynamicJson.Get("code").Int() != 0 {
+		log.Errorln("[parse] 动态", dynamicID, "信息获取错误:", body)
+		return gson.JSON{}
+	}
+	return dynamicJson
 }
 
-func getVoteJson(voteID int) gson.JSON { //获取投票数据
+func getVoteJson(voteID int) gson.JSON { //.Get("data.info")
 	url := fmt.Sprintf("https://api.vc.bilibili.com/vote_svr/v1/vote_svr/vote_info?vote_id=%d", voteID)
 	body := httpsGet(url, cookie)
 	log.Traceln("[bilibili] rawVoteJson:", body)
-	return gson.NewFrom(body)
+	voteJson := gson.NewFrom(body)
+	if voteJson.Get("code").Int() != 0 {
+		log.Errorln("[parse] 投票", voteID, "信息获取错误:", body)
+		return gson.JSON{}
+	}
+	return voteJson
 }
 
 func formatDynamic(json gson.JSON) string { //主动态"data.item", 转发原动态"data.item.orig"
@@ -154,7 +164,7 @@ func formatDynamic(json gson.JSON) string { //主动态"data.item", 转发原动
 	return head + "未知的动态类型"
 }
 
-func getArchiveJsonA(aid string) gson.JSON {
+func getArchiveJsonA(aid string) gson.JSON { //.Get("data"))
 	url := fmt.Sprintf("https://api.bilibili.com/x/web-interface/view?aid=%s", aid)
 	body := httpsGet(url, "")
 	log.Traceln("[bilibili] rawVideoJsonA", body)
@@ -166,7 +176,7 @@ func getArchiveJsonA(aid string) gson.JSON {
 	return videoJson
 }
 
-func getArchiveJsonB(bvid string) gson.JSON {
+func getArchiveJsonB(bvid string) gson.JSON { //.Get("data"))
 	url := fmt.Sprintf("https://api.bilibili.com/x/web-interface/view?bvid=%s", bvid)
 	body := httpsGet(url, "")
 	log.Traceln("[bilibili] rawVideoJsonB", body)
@@ -204,9 +214,10 @@ func formatArchive(videoJson gson.JSON) string {
 	return content
 }
 
-func getArticleJson(cvid string) gson.JSON {
+func getArticleJson(cvid string) gson.JSON { //.Get("data")
 	url := fmt.Sprintf("https://api.bilibili.com/x/article/viewinfo?id=%s", cvid)
 	body := httpsGet(url, "")
+	log.Traceln("[bilibili] rawArticleJson:", body)
 	articleJson := gson.NewFrom(body)
 	if articleJson.Get("code").Int() != 0 {
 		log.Errorln("[parse] 文章", cvid, "信息获取错误:", body)
@@ -233,21 +244,53 @@ func formatArticle(articleJson gson.JSON, cvid string) string { //文章信息�
 	return content
 }
 
-func getRoomJsonUID(uid int) gson.JSON { //uid获取直播间数据
+func getSpaceJson(uid string) gson.JSON { //.Get("data.card")
+	url := fmt.Sprintf("https://api.bilibili.com/x/web-interface/card?mid=%s", uid)
+	body := httpsGet(url, "")
+	log.Traceln("[bilibili] rawSpaceJson:", body)
+	spaceJson := gson.NewFrom(body)
+	if spaceJson.Get("code").Int() != 0 {
+		log.Errorln("[parse] 空间", uid, "信息获取错误:", body)
+		return gson.JSON{}
+	}
+	return spaceJson
+}
+
+func formatSpace(spaceJson gson.JSON) string {
+	var content string
+	face := spaceJson.Get("face").Str()                                    //头像
+	name := spaceJson.Get("name").Str()                                    //用户名
+	level := strconv.Itoa(spaceJson.Get("level_info.current_level").Int()) //账号等级
+	pendant_name := spaceJson.Get("pendant.name").Str()                    //头像框所属装扮
+	pendant_pid := strconv.Itoa(spaceJson.Get("pendant.pid").Int())        //装扮专属编号
+	sign := spaceJson.Get("sign").Str()                                    //签名
+	attention := strconv.Itoa(spaceJson.Get("attention").Int())            //关注
+	fans := strconv.Itoa(spaceJson.Get("fans").Int())                      //粉丝
+	mid := spaceJson.Get("mid").Str()                                      //uid
+	content += "[CQ:image,file=" + face + "]\n" + name + "（LV" + level + "）\n"
+	if pendant_name != "" && pendant_pid != "0" {
+		content += "头像框：" + pendant_name + "（" + pendant_pid + "）\n"
+	}
+	if sign != "" {
+		content += sign + "\n"
+	}
+	content += attention + "关注  " + fans + "粉丝\nspace.bilibili.com/" + mid
+	return content
+}
+
+func getRoomJsonUID(uid int) gson.JSON { //uid获取直播间数据  .Gets("data", strconv.Itoa(uid))
 	url := fmt.Sprintf("https://api.live.bilibili.com/room/v1/Room/get_status_info_by_uids?uids[]=%d", uid)
 	body := httpsGet(url, "")
 	log.Traceln("[bilibili] rawRoomJson:", body)
 	liveJson := gson.NewFrom(body)
-	//data, _ := raw.Gets("data", strconv.Itoa(uid))
 	return liveJson
 }
 
-func getRoomJsonRoomID(roomID int) gson.JSON { //房间号获取直播间数据（拿不到UP用户名）
+func getRoomJsonRoomID(roomID int) gson.JSON { //房间号获取直播间数据（拿不到UP用户名）  .Get("data")
 	url := fmt.Sprintf("https://api.live.bilibili.com/room/v1/Room/get_info?room_id=%d", roomID)
 	body := httpsGet(url, "")
 	log.Traceln("[bilibili] rawRoomJson:", body)
 	liveJson := gson.NewFrom(body)
-	//data := raw.Get("data")
 	return liveJson
 }
 
