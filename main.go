@@ -69,11 +69,15 @@ const (
 )
 
 var (
-	block      = make(chan any)  //main阻塞
-	logLever   = DebugLevel      //日志等级
-	configPath = "./config.yaml" //配置路径
-	v          = viper.New()     //配置体
-	adminID    = []int{}         //超管QQ
+	gocqConn          *websocket.Conn   //
+	block             = make(chan any)  //main阻塞
+	logLever          = DebugLevel      //日志等级
+	configPath        = "./config.yaml" //配置路径
+	v                 = viper.New()     //配置体
+	heartbeatInterval = 0               //
+	heartbeatLive     = 0               //
+	heartbeatOK       = false           //
+	adminID           = []int{}         //超管QQ
 )
 
 var headers = struct { //请求头
@@ -143,14 +147,15 @@ type gocqMessage struct {
 	sender_rold     string //群身份: "owner", "admin", "member"
 }
 
-var gocqConn *websocket.Conn
-
 func connect(url string) {
 	for {
 		c, err := websocket.Dial(url, "", "http://127.0.0.1")
 		if err == nil {
 			log.Infoln("[main] 与go-cqhttp建立ws连接成功")
+			heartbeatOK = true
+			heartbeatLive = 5
 			gocqConn = c
+			go heartbeatCheck()
 			break
 		}
 		log.Errorln("[main] 与go-cqhttp建立ws连接失败, 5秒后重试")
@@ -160,6 +165,9 @@ func connect(url string) {
 		var rawPost string
 		err := websocket.Message.Receive(gocqConn, &rawPost)
 		if err == io.EOF {
+			break
+		}
+		if !heartbeatOK {
 			break
 		}
 		if err != nil {
@@ -229,6 +237,8 @@ func connect(url string) {
 					self_id:  jsonPost.Get("self_id").Int(),
 					interval: jsonPost.Get("interval").Int(),
 				}
+				heartbeatLive = 5
+				heartbeatInterval = heartbeat.interval
 				log.Infoln("[gocq] heartbeat", heartbeat)
 			case "lifecycle":
 				lifecycle := gocqLifecycle{
@@ -241,6 +251,21 @@ func connect(url string) {
 			}
 		default:
 			log.Debugln("[gocq] raw:", rawPost)
+		}
+	}
+}
+
+func heartbeatCheck() {
+	time.Sleep(time.Second * 60)
+	for {
+		time.Sleep(time.Millisecond * (time.Duration(heartbeatInterval)))
+		heartbeatLive -= 1
+		if heartbeatLive <= 0 {
+			heartbeatOK = false
+			log.Errorln("[main] 连续五次丢失心跳包, 5秒后尝试重连")
+			time.Sleep(time.Second * 5)
+			go connect(v.GetString("main.websocket"))
+			break
 		}
 	}
 }

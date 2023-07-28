@@ -190,25 +190,26 @@ func getArchiveJsonB(bvid string) gson.JSON { //.Get("data"))
 
 func formatArchive(videoJson gson.JSON) string {
 	var content string
-	truncationLen := v.GetInt("parse.video.descTruncationLength")  //简介截断长度
-	pic := videoJson.Get("pic").Str()                              //封面
-	aid := strconv.Itoa(videoJson.Get("aid").Int())                //av号数字
-	title := videoJson.Get("title").Str()                          //标题
-	up := videoJson.Get("owner.name").Str()                        //up主
-	desc := videoJson.Get("desc").Str()                            //简介
-	view := strconv.Itoa(videoJson.Get("stat.view").Int())         //再生
-	danmaku := strconv.Itoa(videoJson.Get("stat.danmaku").Int())   //弹幕
-	reply := strconv.Itoa(videoJson.Get("stat.reply").Int())       //回复
-	like := strconv.Itoa(videoJson.Get("stat.like").Int())         //点赞
-	coin := strconv.Itoa(videoJson.Get("stat.coin").Int())         //投币
-	favorite := strconv.Itoa(videoJson.Get("stat.favorite").Int()) //收藏
-	bvid := videoJson.Get("bvid").Str()                            //bv号
+	truncationLength := v.GetInt("parse.video.descTruncationLength") //简介截断长度
+	pic := videoJson.Get("pic").Str()                                //封面
+	aid := strconv.Itoa(videoJson.Get("aid").Int())                  //av号数字
+	title := videoJson.Get("title").Str()                            //标题
+	up := videoJson.Get("owner.name").Str()                          //up主
+	desc := videoJson.Get("desc").Str()                              //简介
+	view := strconv.Itoa(videoJson.Get("stat.view").Int())           //再生
+	danmaku := strconv.Itoa(videoJson.Get("stat.danmaku").Int())     //弹幕
+	reply := strconv.Itoa(videoJson.Get("stat.reply").Int())         //回复
+	like := strconv.Itoa(videoJson.Get("stat.like").Int())           //点赞
+	coin := strconv.Itoa(videoJson.Get("stat.coin").Int())           //投币
+	favorite := strconv.Itoa(videoJson.Get("stat.favorite").Int())   //收藏
+	bvid := videoJson.Get("bvid").Str()                              //bv号
 	content += "[CQ:image,file=" + pic + "]\nav" + aid + "\n" + title + "\nUP：" + up + "\n"
-	if desc != "<nil>" && truncationLen > 0 {
-		if len(desc) > truncationLen {
-			desc = desc[0:truncationLen]
+	if (desc != "<nil>" && desc != "-") && truncationLength > 0 {
+		if len([]rune(desc)) > truncationLength {
+			content += "简介：" + string([]rune(desc)[0:truncationLength]) + "......\n"
+		} else {
+			content += "简介：" + string([]rune(desc)) + "\n"
 		}
-		content += "简介：" + desc + "······\n"
 	}
 	content += view + "播放  " + danmaku + "弹幕  " + reply + "回复\n" + like + "点赞  " + coin + "投币  " + favorite + "收藏\nwww.bilibili.com/video/" + bvid
 	return content
