@@ -17,13 +17,13 @@ var biliLinkRegexp = struct {
 	LIVE     string
 	SHORT    string
 }{
-	DYNAMIC:  `(t.bilibili.com|dynamic|opus)/([0-9]{18,19})`, //应该不会有17位的，可能要有19位
-	ARCHIVEa: `video/av([0-9]{1,10})`,                        //9位 预留10
-	ARCHIVEb: `video/(BV[1-9A-HJ-NP-Za-km-z]{10})`,           //恒定BV + 10位base58
-	ARTICLE:  `(read/cv|read/mobile/)([0-9]{1,9})`,           //8位 预留9
-	SPACE:    `space\.bilibili\.com/([0-9]{1,16})`,           //新uid 16位
-	LIVE:     `live\.bilibili\.com/([0-9]{1,9})`,             //8位 预留9
-	SHORT:    `(b23|acg)\.tv/([0-9A-Za-z]{7})`,               //暂时应该只有7位
+	DYNAMIC:  `(t.bilibili.com|dynamic|opus)/([0-9]{18,19})`,                            //应该不会有17位的，可能要有19位
+	ARCHIVEa: `video/av([0-9]{1,10})`,                                                   //9位 预留10
+	ARCHIVEb: `video/(BV[1-9A-HJ-NP-Za-km-z]{10})`,                                      //恒定BV + 10位base58
+	ARTICLE:  `(read/cv|read/mobile/)([0-9]{1,9})`,                                      //8位 预留9
+	SPACE:    `space\.bilibili\.com/([0-9]{1,16})`,                                      //新uid 16位
+	LIVE:     `live\.bilibili\.com/([0-9]{1,9})`,                                        //8位 预留9
+	SHORT:    `(b23|acg)\.tv/(BV[1-9A-HJ-NP-Za-km-z]{10}|av[0-9]{1,10}|[0-9A-Za-z]{7})`, //暂时应该只有7位  也有可能是av/bv号
 }
 
 // base58: 123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz
@@ -78,7 +78,7 @@ func deShortLink(slug string) string { //短链解析
 	var statusCode string
 	if len(resp.Header["Location"]) > 0 {
 		location = resp.Header["Location"][0]
-		log.Debugln("[parse] 短链解析结果:", location[0:50])
+		log.Debugln("[parse] 短链解析结果:", location[0:32])
 	}
 	if len(resp.Header["Bili-Status-Code"]) > 0 {
 		statusCode = resp.Header["Bili-Status-Code"][0]
@@ -86,6 +86,7 @@ func deShortLink(slug string) string { //短链解析
 	switch statusCode {
 	case "-404":
 		log.Warningln("[parse] 短链解析失败:", statusCode)
+		log.Warningln("[parse] location:", location)
 		return ""
 	}
 	return location
