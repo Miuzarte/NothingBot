@@ -398,22 +398,7 @@ func main() {
 		LogFormat:       "[%time%] [%lvl%] %msg%\n",
 	})
 	initConfig()
-	switch v.GetInt("main.logLevel") {
-	case 0:
-		log.SetLevel(log.PanicLevel)
-	case 1:
-		log.SetLevel(log.FatalLevel)
-	case 2:
-		log.SetLevel(log.ErrorLevel)
-	case 3:
-		log.SetLevel(log.WarnLevel)
-	case 4:
-		log.SetLevel(log.InfoLevel)
-	case 5:
-		log.SetLevel(log.DebugLevel)
-	case 6:
-		log.SetLevel(log.TraceLevel)
-	}
+	log.SetLevel(log.Level(v.GetInt("main.logLevel")))
 	adminList := v.GetStringSlice("main.admin")
 	if len(adminList) != 0 {
 		for _, each := range adminList { //[]string to []int

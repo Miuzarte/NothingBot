@@ -19,13 +19,13 @@ var biliLinkRegexp = struct {
 	LIVE     string
 	SHORT    string
 }{
-	DYNAMIC:  `(t.bilibili.com|dynamic|opus)/([0-9]{18,19})`,                            //应该不会有17位的，可能要有19位
-	ARCHIVEa: `video/av([0-9]{1,10})`,                                                   //9位 预留10
-	ARCHIVEb: `video/(BV[1-9A-HJ-NP-Za-km-z]{10})`,                                      //恒定BV + 10位base58
-	ARTICLE:  `(read/cv|read/mobile/)([0-9]{1,9})`,                                      //8位 预留9
-	SPACE:    `space\.bilibili\.com/([0-9]{1,16})`,                                      //新uid 16位
-	LIVE:     `live\.bilibili\.com/([0-9]{1,9})`,                                        //8位 预留9
-	SHORT:    `(b23|acg)\.tv/(BV[1-9A-HJ-NP-Za-km-z]{10}|av[0-9]{1,10}|[0-9A-Za-z]{7})`, //暂时应该只有7位  也有可能是av/bv号
+	DYNAMIC:  `(t.bilibili.com|dynamic|opus)\\?/([0-9]{18,19})`,                            //应该不会有17位的，可能要有19位
+	ARCHIVEa: `video\\?/av([0-9]{1,10})`,                                                   //9位 预留10
+	ARCHIVEb: `video\\?/(BV[1-9A-HJ-NP-Za-km-z]{10})`,                                      //恒定BV + 10位base58
+	ARTICLE:  `(read\\?/cv|read\\?/mobile\\?/)([0-9]{1,9})`,                                //8位 预留9
+	SPACE:    `space\.bilibili\.com\\?/([0-9]{1,16})`,                                      //新uid 16位
+	LIVE:     `live\.bilibili\.com\\?/([0-9]{1,9})`,                                        //8位 预留9
+	SHORT:    `(b23|acg)\.tv\\?/(BV[1-9A-HJ-NP-Za-km-z]{10}|av[0-9]{1,10}|[0-9A-Za-z]{7})`, //暂时应该只有7位  也有可能是av/bv号
 }
 
 var parseHistoryList = make(map[string]parseHistory) //av/bv : group/user, time

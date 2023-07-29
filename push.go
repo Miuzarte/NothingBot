@@ -110,7 +110,7 @@ func dynamicMonitor() { //监听动态流
 				<-block
 			}
 			duration := time.Duration(failureCount * 30)
-			println("[push] 获取更新失败", failureCount, "次, 将在", duration, "秒后重试")
+			log.Errorln("[push] 获取更新失败", failureCount, "次, 将在", duration, "秒后重试")
 			time.Sleep(time.Second * duration)
 		case "0":
 			log.Debugln("[push] 没有新动态    update_num =", update_num, "   update_baseline =", update_baseline)
