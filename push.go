@@ -139,8 +139,9 @@ func dynamicMonitor() { //监听动态流
 	}
 }
 
-func dynamicChecker(mainJson gson.JSON) { //mainJson = data.item
+func dynamicChecker(mainJson gson.JSON) { //mainJson：data.item
 	uid := mainJson.Get("modules.module_author.mid").Int()
+	name := mainJson.Get("modules.module_author.name").Str()
 	dynamicType := mainJson.Get("type").Str()
 	for i := 0; i < len(v.GetStringSlice("push.list")); i++ { //循环匹配
 		log.Tracef("push.list.%d.uid: %d", i, v.GetInt(fmt.Sprintf("push.list.%d.uid", i)))
@@ -156,14 +157,13 @@ func dynamicChecker(mainJson gson.JSON) { //mainJson = data.item
 			}
 		}
 		if uidMatch && filterMatch {
-			log.Debugln("[push] up uid:", uid)
-			log.Infoln("[push] 处于推送列表:", uid)
+			log.Infoln("[push] 处于推送列表:", name, uid)
 			at, userID, groupID := sendListGen(i)
 			sendMsg(userID, groupID, at, formatDynamic(mainJson))
 			return
 		}
 	}
-	log.Infoln("[push] 不处于推送列表:", uid)
+	log.Infoln("[push] 不处于推送列表:", name, uid)
 	return
 }
 
@@ -214,7 +214,7 @@ func liveChecker(pktJson gson.JSON, uid int, roomID int) { //判断数据包类�
 	case "LIVE":
 		for i := 0; i < len(v.GetStringSlice("push.list")); i++ {
 			if roomID == v.GetInt(fmt.Sprintf("push.list.%d.live", i)) {
-				if (int(time.Now().Unix()) - liveState[roomID]) < 60 { //防止重复推送开播
+				if int(time.Now().Unix())-liveState[roomID] < 60 { //防止重复推送开播
 					log.Warningln("[push] 屏蔽了一次间隔小于 60 秒的开播推送")
 					return
 				}

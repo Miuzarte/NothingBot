@@ -101,6 +101,9 @@ func deShortLink(slug string) string { //短链解析
 }
 
 func normalParse(id string, kind string, msg gocqMessage) string { //拿到id直接解析
+	if kind == "" {
+		return ""
+	}
 	duration := int64(v.GetFloat64("parse.settings.sameParseInterval")*1000) / 1000
 	where := 0
 	switch msg.message_type {
@@ -110,7 +113,7 @@ func normalParse(id string, kind string, msg gocqMessage) string { //拿到id直
 		where = msg.user_id
 	}
 	if (time.Now().Unix()-int64(parseHistoryList[id].time) < duration) && where == parseHistoryList[id].where {
-		log.Infoln("[parse] 在", where, "屏蔽了一次小于", duration, "秒的相同解析", id)
+		log.Infoln("[parse] 在", where, "屏蔽了一次小于", duration, "秒的相同解析", kind, id)
 		return ""
 	}
 	if kind != "SHORT" {
