@@ -190,6 +190,12 @@ func brotliParser(b []byte) ([]byte, error) {
 	return rdBuf, nil
 }
 
+type connection struct {
+	conn   *websocket.Conn
+	uid    int
+	roomID int
+}
+
 func connectDanmu(uid int, roomID int) {
 	roomInfo := GetRoomInfo(roomID)
 	if roomInfo == nil {
@@ -219,17 +225,22 @@ func connectDanmu(uid int, roomID int) {
 		disconnected = true
 		return
 	}
-	go RecvLoop(conn)
+	connection := connection{
+		conn,
+		uid,
+		roomID,
+	}
+	go RecvLoop(connection)
 	go HeartBeatLoop(conn)
 }
 
-func RecvLoop(conn *websocket.Conn) {
+func RecvLoop(connection connection) {
 	var pktJson gson.JSON
 	for {
 		if disconnected || configChanged {
 			break
 		}
-		msgType, data, err := conn.ReadMessage()
+		msgType, data, err := connection.conn.ReadMessage()
 		if err == io.EOF {
 			log.Errorln("[danmaku] disconnected:", err)
 			disconnected = true
@@ -249,16 +260,54 @@ func RecvLoop(conn *websocket.Conn) {
 			pktJson = gson.NewFrom(string(pkt.Body))
 			log.Traceln("[danmaku] 接收数据包:", string(pkt.Body))
 			switch {
-			case !pktJson.Get("code").Nil():
-				log.Debugln("[danmaku] 接收数据: \"code\":", pktJson.Get("code").Str())
 			case !pktJson.Get("cmd").Nil():
-				log.Debugln("[danmaku] 接收数据: \"cmd\":", pktJson.Get("cmd").Str())
+				cmd := pktJson.Get("cmd").Str()
+				switch cmd {
+				case "AREA_RANK_CHANGED":
+				case "COMBO_END":
+				case "COMMON_NOTICE_DANMAKU":
+				case "DANMU_MSG":
+				case "ENTRY_EFFECT":
+				case "ENTRY_EFFECT_MUST_RECEIVE":
+				case "INTERACT_WORD":
+				case "LIKE_INFO_V3_CLICK":
+				case "LIKE_INFO_V3_UPDATE":
+				//case "LIVE":
+				case "NOTICE_MSG":
+				case "ONLINE_RANK_V2":
+				case "ONLINE_RANK_COUNT":
+				case "PK_BATTLE_END":
+				case "PK_BATTLE_FINAL_PROCESS":
+				case "PK_BATTLE_PRE":
+				case "PK_BATTLE_PRE_NEW":
+				case "PK_BATTLE_START":
+				case "PK_BATTLE_START_NEW":
+				case "PK_BATTLE_PROCESS":
+				case "PK_BATTLE_PROCESS_NEW":
+				case "PK_BATTLE_SETTLE":
+				case "PK_BATTLE_SETTLE_USER":
+				case "PK_BATTLE_SETTLE_V2":
+				case "POPULAR_RANK_CHANGED":
+				//case "PREPARING":
+				//case "ROOM_CHANGE":
+				case "ROOM_REAL_TIME_MESSAGE_UPDATE":
+				case "SEND_GIFT":
+				case "STOP_LIVE_ROOM_LIST":
+				case "WATCHED_CHANGE":
+				case "WIDGET_BANNER":
+				default:
+					cmd := pktJson.Get("cmd").Str()
+					log.Debugln("[danmaku] 直播间", connection.roomID, "接收数据: \"cmd\":", cmd)
+				}
+			case !pktJson.Get("code").Nil():
+				code := pktJson.Get("code").Str()
+				log.Debugln("[danmaku] 直播间", connection.roomID, "接收数据: \"code\":", code)
 			default:
 				if len(string(pkt.Body)) > 4 { //过滤奇怪的数据包导致控制台发声
-					log.Debugln("[danmaku] 原始数据:", string(pkt.Body))
+					log.Debugln("[danmaku] 直播间", connection.roomID, "原始数据:", string(pkt.Body))
 				}
 			}
-			go liveChecker(pktJson)
+			go liveChecker(pktJson, connection.uid, connection.roomID)
 		}
 	}
 }

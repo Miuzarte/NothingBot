@@ -1,9 +1,11 @@
 package main
 
 import (
+	"fmt"
 	"net/http"
 	"regexp"
 	"strconv"
+	"time"
 
 	log "github.com/sirupsen/logrus"
 )
@@ -26,7 +28,14 @@ var biliLinkRegexp = struct {
 	SHORT:    `(b23|acg)\.tv/(BV[1-9A-HJ-NP-Za-km-z]{10}|av[0-9]{1,10}|[0-9A-Za-z]{7})`, //暂时应该只有7位  也有可能是av/bv号
 }
 
-// base58: 123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz
+var parseHistoryList = make(map[string]parseHistory) //av/bv : group/user, time
+
+type parseHistory struct {
+	where int
+	time  int
+}
+
+//base58: 123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz
 
 func extractor(str string) (id string, kind string) {
 	dynamicID := regexp.MustCompile(biliLinkRegexp.DYNAMIC).FindAllStringSubmatch(str, -1)
@@ -67,7 +76,6 @@ func extractor(str string) (id string, kind string) {
 
 func deShortLink(slug string) string { //短链解析
 	url := "https://b23.tv/" + slug
-	//base58: 123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz
 	client := &http.Client{
 		CheckRedirect: func(req *http.Request, via []*http.Request) error {
 			return http.ErrUseLastResponse
@@ -92,7 +100,26 @@ func deShortLink(slug string) string { //短链解析
 	return location
 }
 
-func normalParse(id string, kind string) string { //拿到id直接解析
+func normalParse(id string, kind string, msg gocqMessage) string { //拿到id直接解析
+	duration := int64(v.GetFloat64("parse.settings.sameParseInterval")*1000) / 1000
+	where := 0
+	switch msg.message_type {
+	case "group":
+		where = msg.group_id
+	case "private":
+		where = msg.user_id
+	}
+	if (time.Now().Unix()-int64(parseHistoryList[id].time) < duration) && where == parseHistoryList[id].where {
+		log.Infoln("[parse] 在", where, "屏蔽了一次小于", duration, "秒的相同解析", id)
+		return ""
+	}
+	if kind != "SHORT" {
+		log.Traceln("[parse] 记录了一次在", where, "的解析", id)
+		parseHistoryList[id] = parseHistory{
+			where,
+			int(time.Now().Unix()),
+		}
+	}
 	switch kind {
 	case "DYNAMIC":
 		return formatDynamic(getDynamicJson(id).Get("data.item"))
@@ -105,32 +132,38 @@ func normalParse(id string, kind string) string { //拿到id直接解析
 	case "SPACE":
 		return formatSpace(getSpaceJson(id).Get("data.card"))
 	case "LIVE":
-		roomID, _ := strconv.Atoi(id)
+		roomID, err := strconv.Atoi(id)
+		if err != nil {
+			log.Errorln("[strconv.Atoi]", err)
+			return fmt.Sprintln("[NothingBot] [ERROR] [strconv.Atoi]", err)
+		}
 		uid := getRoomJsonRoomID(roomID).Get("data.uid").Int()
 		roomJson, _ := getRoomJsonUID(uid).Gets("data", strconv.Itoa(uid))
 		return formatLive(roomJson)
 	case "SHORT":
-		return normalParse(extractor(deShortLink(id)))
+		i, k := extractor(deShortLink(id))
+		return normalParse(i, k, msg)
 	default:
 		return ""
 	}
 }
 
-func parseChecker(msg gocqMessage) {
+func checkParse(msg gocqMessage) {
 	var slug string
 	var message string
 	result := regexp.MustCompile(biliLinkRegexp.SHORT).FindAllStringSubmatch(msg.message, -1)
 	if len(result) > 0 {
 		slug = result[0][2]
 		log.Debugln("[parse] 识别到短链:", slug)
-		message = normalParse(slug, "SHORT")
+		message = normalParse(slug, "SHORT", msg)
 	} else {
-		message = normalParse(extractor(msg.message))
+		i, k := extractor(msg.message)
+		message = normalParse(i, k, msg)
 	}
 	switch msg.message_type {
 	case "group":
-		sendMsgSingle(message, 0, msg.group_id)
+		sendMsgSingle(0, msg.group_id, message)
 	case "private":
-		sendMsgSingle(message, msg.user_id, 0)
+		sendMsgSingle(msg.user_id, 0, message)
 	}
 }

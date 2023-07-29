@@ -77,14 +77,16 @@ corpus: #热更新
     scene: "p"
     delay: 0.5
 parse: #热更新
-  video: #视频
-    #过长的简介保留长度（中英字符）
-    descTruncationLength: 0
+  settings:
+    #同一会话重复解析同一链接的间隔（秒）
+    sameParseInterval: 60
+    #过长的视频简介保留长度（中英字符）
+    descTruncationLength: 32
 push: #热更新
   settings:
-    dynamicUpdateInterval: 3 #拉取更新间隔
+    dynamicUpdateInterval: 3 #拉取更新间隔（秒）
     resetCheckInterval: 15 #直播监听重连检测间隔（秒）
-    cookieCheckInterval: 60 #cookie失效检测间隔（秒）
+    roomChangeInfo: false #直播监控推送房间名更新（如果主播开播同时改房间名会导致推送两条）
     #通过拉取动态流进行推送，必须设置B站cookie，且需要关注想要推送的up
     cookie: ""
   list:

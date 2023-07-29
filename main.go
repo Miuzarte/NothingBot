@@ -202,8 +202,8 @@ func connect(url string) {
 			case "group":
 				log.Infoln("[gocq] 在", msg.group_id, "收到", msg.sender_card, "(", msg.sender_nickname, msg.user_id, ")的群聊消息", msg.message)
 			}
-			go corpusChecker(msg)
-			go parseChecker(msg)
+			go checkCorpus(msg)
+			go checkParse(msg)
 		case "message_sent":
 			msgSent = gocqMessageSent{}
 			_ = msgSent
@@ -239,7 +239,7 @@ func connect(url string) {
 				}
 				heartbeatLive = 5
 				heartbeatInterval = heartbeat.interval
-				log.Infoln("[gocq] heartbeat", heartbeat)
+				log.Debugln("[gocq] heartbeat", heartbeat)
 			case "lifecycle":
 				lifecycle := gocqLifecycle{
 					self_id:      jsonPost.Get("self_id").Int(),
@@ -310,10 +310,28 @@ func sendMsg2Admin(msg string) {
 	if msg == "" {
 		return
 	}
-	sendMsg("[NothingBot] "+msg, "", adminID, []int{})
+	sendMsg(adminID, []int{}, "", msg)
 }
 
-func sendMsgSingle(msg string, user int, group int) {
+func sendMsg(userID []int, groupID []int, at string, msg string) {
+	if msg == "" {
+		return
+	}
+	if len(userID) != 0 { //有私聊发私聊，不带at
+		for _, user := range userID {
+			sendMsgSingle(user, 0, msg)
+		}
+	}
+	if len(groupID) != 0 { //有群聊也发群聊，消息追加at
+		msg += at
+		for _, group := range groupID {
+			sendMsgSingle(0, group, msg)
+		}
+	}
+	return
+}
+
+func sendMsgSingle(user int, group int, msg string) {
 	if msg == "" {
 		return
 	}
@@ -336,24 +354,6 @@ func sendMsgSingle(msg string, user int, group int) {
 		})
 		gocqConn.Write([]byte(g.JSON("", "")))
 		log.Infoln("[main] 发送消息到群聊:", group, "   内容:", msg)
-	}
-	return
-}
-
-func sendMsg(msg string, at string, userID []int, groupID []int) {
-	if msg == "" {
-		return
-	}
-	if len(userID) != 0 { //有私聊发私聊，不带at
-		for _, user := range userID {
-			sendMsgSingle(msg, user, 0)
-		}
-	}
-	if len(groupID) != 0 { //有群聊也发群聊，消息追加at
-		msg += at
-		for _, group := range groupID {
-			sendMsgSingle(msg, 0, group)
-		}
 	}
 	return
 }
@@ -417,7 +417,10 @@ func main() {
 	adminList := v.GetStringSlice("main.admin")
 	if len(adminList) != 0 {
 		for _, each := range adminList { //[]string to []int
-			admin, _ := strconv.Atoi(each)
+			admin, err := strconv.Atoi(each)
+			if err != nil {
+				log.Panicln("[strconv.Atoi]", err)
+			}
 			adminID = append(adminID, admin)
 		}
 	}

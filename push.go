@@ -76,7 +76,7 @@ func cookieChecker() bool { //检测cookie有效性
 		return false
 	default:
 		log.Errorln("[push] 非正常cookie状态:", body)
-		sendMsg2Admin("[push] 非正常cookie状态: " + body)
+		sendMsg2Admin("[push] 非正常cookie状态：" + body)
 		return false
 	}
 }
@@ -99,31 +99,34 @@ func dynamicMonitor() { //监听动态流
 			errInfo := fmt.Sprintf("[push] 获取update_num时出现错误    update_num = %s    update_baseline = %s", update_num, update_baseline)
 			log.Errorln(errInfo)
 			if !cookieChecker() {
-				log.Errorln("[push] 停止拉取动态更新")
+				log.Errorln("[push] cookie失效, 停止拉取动态更新")
+				sendMsg2Admin("[push] cookie失效，停止拉取动态更新")
 				<-block
 			}
 			failureCount++
 			if failureCount >= 10 {
-				println("[push] 尝试更新失败", failureCount, "次, 停止拉取动态更新")
-				sendMsg2Admin("[push] 连续更新失败十次但cookie未失效, 已停止拉取动态更新")
+				log.Errorln("[push] 尝试更新失败", failureCount, "次, 停止拉取动态更新")
+				sendMsg2Admin("[push] 连续更新失败十次但cookie未失效，已停止拉取动态更新")
 				<-block
 			}
 			duration := time.Duration(failureCount * 30)
 			println("[push] 获取更新失败", failureCount, "次, 将在", duration, "秒后重试")
 			time.Sleep(time.Second * duration)
 		case "0":
-			log.Debugf("[push] 没有新动态    update_num = %s    update_baseline = %s", update_num, update_baseline)
+			log.Debugln("[push] 没有新动态    update_num =", update_num, "   update_baseline =", update_baseline)
 		default:
 			new_baseline = getBaseline()
-			log.Infof("[push] 有新动态！    update_num = %s    update_baseline = %s => %s", update_num, update_baseline, new_baseline)
+			log.Infoln("[push] 有新动态！    update_num =", update_num, "   update_baseline =", update_baseline, "=>", new_baseline)
 			update_baseline = new_baseline
 			go func(dynamicID string) { //异步检测推送
 				rawJson := getDynamicJson(dynamicID)
 				switch rawJson.Get("code").Int() {
 				case 4101131: //动态已删除，不推送
-					sendMsg(fmt.Sprintf("[Info] [push] 记录到一条已删除的动态，dynamicID = %s", dynamicID), "", adminID, []int{})
+					log.Warningln("[push] 记录到一条已删除的动态, dynamicID =", dynamicID)
+					sendMsg2Admin(fmt.Sprintf("[push] 记录到一条已删除的动态，dynamicID = %s", dynamicID))
 					break
-				case 404: //网络请求错误
+				case 500: //加载错误，请稍后再试
+					update_num = "-1"
 					break
 				default:
 					mainJson := rawJson.Get("data.item")
@@ -156,7 +159,7 @@ func dynamicChecker(mainJson gson.JSON) { //mainJson = data.item
 			log.Debugln("[push] up uid:", uid)
 			log.Infoln("[push] 处于推送列表:", uid)
 			at, userID, groupID := sendListGen(i)
-			sendMsg(formatDynamic(mainJson), at, userID, groupID)
+			sendMsg(userID, groupID, at, formatDynamic(mainJson))
 			return
 		}
 	}
@@ -188,7 +191,7 @@ func initLiveList() { //初始化直播监听列表
 
 func liveMonitor() { //建立监听连接
 	for {
-		log.Debugln("[push] 检测直播监听重连    disconnected:", disconnected, "   configChanged:", configChanged)
+		log.Debugln("[push] 直播监听    disconnected:", disconnected, "   configChanged:", configChanged)
 		if disconnected || configChanged {
 			disconnected = false
 			configChanged = false
@@ -205,19 +208,17 @@ func liveMonitor() { //建立监听连接
 	}
 }
 
-func liveChecker(pktJson gson.JSON) { //判断数据包类型
+func liveChecker(pktJson gson.JSON, uid int, roomID int) { //判断数据包类型
 	cmd := pktJson.Get("cmd").Str() //"LIVE"/"PREPARING"
 	switch cmd {
 	case "LIVE":
-		roomID := pktJson.Get("roomid").Int()
 		for i := 0; i < len(v.GetStringSlice("push.list")); i++ {
 			if roomID == v.GetInt(fmt.Sprintf("push.list.%d.live", i)) {
 				if (int(time.Now().Unix()) - liveState[roomID]) < 60 { //防止重复推送开播
-					log.Warningln("[push] 屏蔽了一次间隔小于60秒的开播推送")
+					log.Warningln("[push] 屏蔽了一次间隔小于 60 秒的开播推送")
 					return
 				}
 				liveState[roomID] = int(time.Now().Unix()) //记录开播时间
-				uid := v.GetInt(fmt.Sprintf("push.list.%d.uid", i))
 				log.Infoln("[push] 推送", uid, "的直播间", roomID, "开播")
 				log.Infoln("[push] 记录开播时间:", time.Unix(int64(liveState[roomID]), 0).Format("2006-01-02 15:04:05"))
 				roomJson, _ := getRoomJsonUID(uid).Gets("data", strconv.Itoa(uid))
@@ -225,16 +226,14 @@ func liveChecker(pktJson gson.JSON) { //判断数据包类型
 				cover := roomJson.Get("cover_from_user").Str()
 				title := roomJson.Get("title").Str()
 				msg := name + "开播了！\n[CQ:image,file=" + cover + "]\n" + title + "\nlive.bilibili.com/" + strconv.Itoa(roomID)
-				userID, groupID, at := sendListGen(i)
-				sendMsg(msg, userID, groupID, at)
+				at, userID, groupID := sendListGen(i)
+				sendMsg(userID, groupID, at, msg)
 				return
 			}
 		}
 	case "PREPARING":
-		roomID, _ := strconv.Atoi(pktJson.Get("roomid").Str())
 		for i := 0; i < len(v.GetStringSlice("push.list")); i++ {
 			if roomID == v.GetInt(fmt.Sprintf("push.list.%d.live", i)) {
-				uid := v.GetInt(fmt.Sprintf("push.list.%d.uid", i))
 				log.Infoln("[push] 推送", uid, "的直播间", roomID, "下播")
 				log.Infoln("[push] 缓存的开播时间:", time.Unix(int64(liveState[roomID]), 0).Format("2006-01-02 15:04:05"))
 				roomJson, _ := getRoomJsonUID(uid).Gets("data", strconv.Itoa(uid))
@@ -248,8 +247,26 @@ func liveChecker(pktJson gson.JSON) { //判断数据包类型
 				} else {
 					msg += "\n未记录本次开播时间"
 				}
-				userID, groupID, at := sendListGen(i)
-				sendMsg(msg, userID, groupID, at)
+				at, userID, groupID := sendListGen(i)
+				sendMsg(userID, groupID, at, msg)
+				return
+			}
+		}
+	case "ROOM_CHANGE":
+		if !v.GetBool("push.settings.roomChangeInfo") {
+			return
+		}
+		for i := 0; i < len(v.GetStringSlice("push.list")); i++ {
+			if roomID == v.GetInt(fmt.Sprintf("push.list.%d.live", i)) {
+				log.Infoln("[push] 推送", uid, "的直播间", roomID, "房间信息更新")
+				roomJson, _ := getRoomJsonUID(uid).Gets("data", strconv.Itoa(uid))
+				name := roomJson.Get("uname").Str()
+				title := roomJson.Get("title").Str()
+				area_parent_name := roomJson.Get("area_v2_parent_name").Str()
+				area_name := roomJson.Get("area_v2_name").Str()
+				msg := name + "更改了房间信息\n房间名：" + title + "\n分区：" + area_parent_name + " - " + area_name + "\nlive.bilibili.com/" + strconv.Itoa(roomID)
+				at, userID, groupID := sendListGen(i)
+				sendMsg(userID, groupID, at, msg)
 				return
 			}
 		}
@@ -261,7 +278,11 @@ func sendListGen(i int) (string, []int, []int) { //生成发送队列
 	userList := v.GetStringSlice(fmt.Sprintf("push.list.%d.user", i))
 	if len(userList) != 0 {
 		for _, each := range userList { //[]string to []int
-			user, _ := strconv.Atoi(each)
+			user, err := strconv.Atoi(each)
+			if err != nil {
+				log.Errorln("[strconv.Atoi]", err)
+				sendMsg2Admin(fmt.Sprintln("[NothingBot] [ERROR] [strconv.Atoi]", err))
+			}
 			userID = append(userID, user)
 		}
 	}
@@ -270,7 +291,11 @@ func sendListGen(i int) (string, []int, []int) { //生成发送队列
 	groupList := v.GetStringSlice(fmt.Sprintf("push.list.%d.group", i))
 	if len(groupList) != 0 {
 		for _, each := range groupList { //[]string to []int
-			group, _ := strconv.Atoi(each)
+			group, err := strconv.Atoi(each)
+			if err != nil {
+				log.Errorln("[strconv.Atoi]", err)
+				sendMsg2Admin(fmt.Sprintln("[NothingBot] [ERROR] [strconv.Atoi]", err))
+			}
 			groupID = append(groupID, group)
 		}
 	}
