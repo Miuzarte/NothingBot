@@ -104,7 +104,7 @@ func normalParse(id string, kind string, msg gocqMessage) string { //拿到id直
 	if kind == "" {
 		return ""
 	}
-	duration := int64(v.GetFloat64("parse.settings.sameParseInterval")*1000) / 1000
+	duration := int64(v.GetFloat64("parse.settings.sameParseInterval"))
 	where := 0
 	switch msg.message_type {
 	case "group":

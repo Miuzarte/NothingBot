@@ -213,8 +213,8 @@ func liveChecker(pktJson gson.JSON, uid int, roomID int) { //判断数据包类�
 	case "LIVE":
 		for i := 0; i < len(v.GetStringSlice("push.list")); i++ {
 			if roomID == v.GetInt(fmt.Sprintf("push.list.%d.live", i)) {
-				if int(time.Now().Unix())-liveState[roomID] < int(v.GetFloat64("push.settings.dynamicUpdateInterval")*1000) { //防止重复推送开播
-					log.Warningln("[push] 屏蔽了一次间隔小于", int(v.GetFloat64("push.settings.dynamicUpdateInterval")*1000), "秒的开播推送")
+				if int(time.Now().Unix())-liveState[roomID] < int(v.GetFloat64("push.settings.livePushMinimumInterval")) { //防止重复推送开播
+					log.Warningln("[push] 屏蔽了一次间隔小于", int(v.GetFloat64("push.settings.livePushMinimumInterval")), "秒的开播推送")
 					return
 				}
 				liveState[roomID] = int(time.Now().Unix()) //记录开播时间
