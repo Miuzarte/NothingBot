@@ -202,6 +202,18 @@ func connect(url string) {
 			case "group":
 				log.Infoln("[gocq] 在", msg.group_id, "收到", msg.sender_card, "(", msg.sender_nickname, msg.user_id, ")的群聊消息", msg.message)
 			}
+			for i := 0; i < len(v.GetStringSlice("main.ban.private")); i++ { //私聊黑名单
+				if msg.user_id == v.GetInt(fmt.Sprintf("main.ban.private.%d", i)) {
+					log.Infoln("[gocq] 黑名单用户:", msg.sender_nickname, "(", msg.user_id, ")")
+					return
+				}
+			}
+			for i := 0; i < len(v.GetStringSlice("main.ban.group")); i++ { //群聊黑名单
+				if msg.user_id == v.GetInt(fmt.Sprintf("main.ban.group.%d", i)) {
+					log.Infoln("[gocq] 黑名单群组:", msg.sender_nickname, "(", msg.user_id, ")")
+					return
+				}
+			}
 			go checkCorpus(msg)
 			go checkParse(msg)
 		case "message_sent":
@@ -310,7 +322,7 @@ func sendMsg2Admin(msg string) {
 	if msg == "" {
 		return
 	}
-	sendMsg(adminID, []int{}, "", msg)
+	sendMsg(adminID, []int{}, "", "[NothingBot] "+msg)
 }
 
 func sendMsg(userID []int, groupID []int, at string, msg string) {
@@ -359,10 +371,10 @@ func sendMsgSingle(user int, group int, msg string) {
 }
 
 func timeFormatter(timeS int) string {
-	seconds := timeS % 60 / 1
-	minutes := ((timeS - (seconds * 1)) % 3600) / 60
-	hours := ((timeS - ((seconds * 1) + (minutes * 60))) % 216000) / 3600
-	days := (timeS - ((seconds * 1) + (minutes * 60) + (hours * 3600))) / 86400
+	seconds := (timeS % 60) / 1
+	minutes := (timeS - (seconds*1)%3600) / 60
+	hours := (timeS - (seconds * 1) - (minutes*60)%216000) / 3600
+	days := (timeS - (seconds * 1) - (minutes * 60) - (hours * 3600)) / 86400
 	switch {
 	case days > 0:
 		return strconv.Itoa(days) + "天" + strconv.Itoa(hours) + "小时" + strconv.Itoa(minutes) + "分钟" + strconv.Itoa(seconds) + "秒"

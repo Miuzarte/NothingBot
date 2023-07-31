@@ -1,4 +1,4 @@
-main: #冷更新
+main: #除特殊标注以外是冷更新
   websocket: "ws://127.0.0.1:9820" #go-cqhttp
   admin:  #管理者QQ  int / []int
   #控制台日志等级，越大输出越多
@@ -10,6 +10,11 @@ main: #冷更新
   #Debug = 5
   #Trace = 6
   logLevel: 4
+  ban: #热更新
+    private:
+      - 
+    group:
+      -
 corpus: #热更新
 # - #模板
 #   regexp: "" #正则表达式
