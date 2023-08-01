@@ -38,7 +38,6 @@ var streamState = struct {
 
 func initPush() { //初始化推送
 	cookie = v.GetString("push.settings.cookie")
-	iheaders["cookie"] = v.GetString("push.settings.cookie")
 	log.Traceln("[push] cookie:\n", cookie)
 	if cookie == "" || cookie == "<nil>" {
 		log.Warnln("[push] 未配置cookie!")
@@ -49,14 +48,13 @@ func initPush() { //初始化推送
 	go liveMonitor()
 	v.OnConfigChange(func(in fsnotify.Event) {
 		cookie = v.GetString("push.settings.cookie")
-		iheaders["cookie"] = v.GetString("push.settings.cookie")
 		configChanged = true
 	})
 }
 
 func getBaseline() string { //返回baseline用于监听更新
 	body := ihttp.New().WithUrl("https://api.bilibili.com/x/polymer/web-dynamic/v1/feed/all").
-		WithHeaders(iheaders).WithHeader("Cookie", cookie).Get().
+		WithHeaders(iheaders).WithCookie(cookie).Get().
 		WithError(func(err error) { log.Errorln("[bilibili] getBaseline().ihttp请求错误:", err) }).ToString()
 	g := gson.NewFrom(body)
 	update_baseline := g.Get("data.update_baseline").Str()
@@ -69,7 +67,7 @@ func getBaseline() string { //返回baseline用于监听更新
 
 func getUpdate(update_baseline string) string { //是否有新动态
 	body := ihttp.New().WithUrl("https://api.bilibili.com/x/polymer/web-dynamic/v1/feed/all/update").
-		WithAddQuery("update_baseline", update_baseline).WithHeaders(iheaders).WithHeader("Cookie", cookie).Get().
+		WithAddQuery("update_baseline", update_baseline).WithHeaders(iheaders).WithCookie(cookie).Get().
 		WithError(func(err error) { log.Errorln("[bilibili] getUpdate().ihttp请求错误:", err) }).ToString()
 	g := gson.NewFrom(body)
 	update_num := g.Get("data.update_num").Str()
@@ -82,7 +80,7 @@ func getUpdate(update_baseline string) string { //是否有新动态
 
 func cookieChecker() bool { //检测cookie有效性
 	body := ihttp.New().WithUrl("https://passport.bilibili.com/x/passport-login/web/cookie/info").
-		WithHeaders(iheaders).WithHeader("Cookie", cookie).Get().
+		WithHeaders(iheaders).WithCookie(cookie).Get().
 		WithError(func(err error) { log.Errorln("[bilibili] cookieChecker().ihttp请求错误:", err) }).ToString()
 	g := gson.NewFrom(body)
 	switch g.Get("code").Int() {

@@ -48,7 +48,7 @@ func biliSearch(search string, kind string) string {
 	g := ihttp.New().
 		WithUrl("https://api.bilibili.com/x/web-interface/search/type").
 		WithAddQuerys(map[string]string{"search_type": search_type, "keyword": search}).
-		WithHeaders(iheaders).WithHeader("Cookie", cookie).
+		WithHeaders(iheaders).WithCookie(cookie).
 		Get().WithError(func(err error) { log.Errorln("[ihttp] 请求错误:", err) }).ToGson()
 	resultCount := len(g.Get("data.result").Arr())
 	log.Traceln(g)

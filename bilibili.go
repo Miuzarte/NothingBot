@@ -24,7 +24,7 @@ func getDynamicJson(dynamicID string) gson.JSON { //获取动态数据
 
 func getVoteJson(voteID string) gson.JSON { //.Get("data.info")
 	body := ihttp.New().WithUrl("https://api.vc.bilibili.com/vote_svr/v1/vote_svr/vote_info").
-		WithAddQuery("vote_id", voteID).WithHeaders(iheaders).Get().
+		WithAddQuery("vote_id", voteID).WithHeaders(iheaders).Get().WithCookie(cookie).
 		WithError(func(err error) { log.Errorln("[bilibili] getVoteJson().ihttp请求错误:", err) }).ToString()
 	log.Traceln("[bilibili] rawVoteJson:", body)
 	voteJson := gson.NewFrom(body)
@@ -34,171 +34,289 @@ func getVoteJson(voteID string) gson.JSON { //.Get("data.info")
 	return voteJson
 }
 
-func formatDynamic(json gson.JSON) string { //主动态"data.item", 转发原动态"data.item.orig"
-	var head string
-	var content string
-	id := fmt.Sprintf("t.bilibili.com/%s\n", json.Get("id_str").Str())
-	name := fmt.Sprintf("%s：\n", json.Get("modules.module_author.name").Str())
-	head = id + name
-	truncationLength := v.GetInt("parse.settings.descTruncationLength") //简介截断长度
-	dynamicType := json.Get("type").Str()                               //动态类型
-	dynamic := json.Get("modules.module_dynamic")                       //动态
-	author := json.Get("modules.module_author")                         //发布
-	draw := json.Get("modules.module_dynamic.major.draw")               //图片
-	archive := json.Get("modules.module_dynamic.major.archive")         //视频
-	article := json.Get("modules.module_dynamic.major.article")         //文章
-	additionalType := dynamic.Get("additional.type").Str()              //动态子项类型 投票/预约
-	vote := dynamic.Get("additional.vote")                              //投票
-	reserve := dynamic.Get("additional.reserve")                        //预约
-	live := gson.NewFrom(json.Get(                                      //直播
+func formatDynamic(g gson.JSON) string { //主动态"data.item", 转发原动态"data.item.orig"
+	truncationLength := v.GetInt( //简介截断长度
+		"parse.settings.descTruncationLength")
+	live := gson.NewFrom(g.Get( //直播
 		"modules.module_dynamic.major.live_rcmd.content").Str())
-	appendVote := func(voteID string) string { //投票格式化
-		var content string
-		rawVoteJson := getVoteJson(voteID)
-		if rawVoteJson.Get("code").Int() != 0 {
-			return "投票信息获取错误"
-		}
-		voteJson := rawVoteJson.Get("data.info")
-		start := fmt.Sprintf("%s开始\n", //开始时间
-			time.Unix(int64(voteJson.Get("starttime").Int()), 0).Format(timeLayout.L24C))
-		end := fmt.Sprintf("%s结束\n", //结束时间
-			time.Unix(int64(voteJson.Get("endtime").Int()), 0).Format(timeLayout.L24C))
-		name := fmt.Sprintf("%s发起的投票：\n", voteJson.Get("name").Str())        //发起者
-		title := fmt.Sprintf("%s\n", voteJson.Get("title").Str())            //标题
-		c_cnt := fmt.Sprintf("最多选%d项    ", voteJson.Get("choice_cnt").Int()) //最大多选数
-		cnt := fmt.Sprintf("%d人参与", voteJson.Get("cnt").Int())               //参与数
-		op_cnt := voteJson.Get("options_cnt").Int()                          //选项数
-		content += name + title
-		desc := voteJson.Get("desc").Str() //简介
-		if (desc != "<nil>" && desc != "-") && truncationLength > 0 {
-			if len([]rune(desc)) > truncationLength {
-				content += fmt.Sprintf("简介：%c......\n", []rune(desc)[0:truncationLength])
-			} else {
-				content += fmt.Sprintf("简介：%s\n", desc)
-			}
-		}
-		content += start + end + c_cnt + cnt
-		for i := 0; i < op_cnt; i++ { //选项序列
-			content += fmt.Sprintf("\n%d. %s  %d人选择", i+1, //序号
-				voteJson.Get(fmt.Sprintf("options.%d.desc", i)).Str(), //描述
-				voteJson.Get(fmt.Sprintf("options.%d.cnt", i)).Int())  //选择数
-		}
-		return content
+	dynamic := g.Get("modules.module_dynamic")               //动态
+	author := g.Get("modules.module_author")                 //发布
+	draw := g.Get("modules.module_dynamic.major.draw")       //图片
+	archive := g.Get("modules.module_dynamic.major.archive") //视频
+	article := g.Get("modules.module_dynamic.major.article") //文章
+	id := g.Get("id_str").Str()
+	name := g.Get("modules.module_author.name").Str()
+	additionalType := dynamic.Get("additional.type").Str() //动态子项类型
+	appendReserve := func(g gson.JSON) string {            //预约格式化
+		return fmt.Sprintf(
+			`%s
+%s
+%s`,
+			g.Get("title").Str(),
+			g.Get("desc1.text").Str(), //"预计xxx发布"
+			g.Get("desc2.text").Str()) //"xx人预约"/"xx观看"
 	}
+	appendVote := func(g gson.JSON) string { //投票格式化
+		name := g.Get("name").Str()        //发起者
+		title := g.Get("title").Str()      //标题
+		desc := func(desc string) string { //简介
+			if (desc != "" && desc != "-") && truncationLength > 0 {
+				if len([]rune(desc)) > truncationLength {
+					return fmt.Sprintf("\n简介：%c......", []rune(desc)[0:truncationLength])
+				} else {
+					return fmt.Sprintf("\n简介：%s", desc)
+				}
+			}
+			return ""
+		}(g.Get("desc").Str())
+		startTime, endTime := func(timeS1 int64, timeS2 int64) (string, string) {
+			time1 := time.Unix(timeS1, 0)
+			time2 := time.Unix(timeS2, 0)
+			timeNow := time.Unix(time.Now().Unix(), 0)
+			if time2.Format("2006") == timeNow.Format("2006") { //结束日期同年 不显示年份
+				if time1.Format("02") == time2.Format("02") { //开始结束同日 结束不显示日期
+					return time1.Format(timeLayout.M24), time2.Format(timeLayout.S24)
+				}
+				return time1.Format(timeLayout.M24), time2.Format(timeLayout.M24)
+			}
+			return time1.Format(timeLayout.L24), time2.Format(timeLayout.L24)
+		}(int64(g.Get("starttime").Int()), int64(g.Get("endtime").Int()))
+		c_cnt := g.Get("choice_cnt").Int()           //最大选择数
+		cnt := g.Get("cnt").Int()                    //参与数
+		option := func(options []gson.JSON) string { //图片
+			var option string
+			for _, j := range options {
+				if !j.Get("cnt").Nil() {
+					option += fmt.Sprintf("\n%d. %s  %d人选择",
+						j.Get("idx").Int(),  //序号
+						j.Get("desc").Str(), //描述
+						j.Get("cnt").Int())  //选择数
+				} else {
+					option += fmt.Sprintf("\n%d. %s",
+						j.Get("idx").Int(),  //序号
+						j.Get("desc").Str()) //描述
+				}
+			}
+			return option
+		}(g.Get("options").Arr())
+		return fmt.Sprintf(
+			`%s发起的投票：%s%s
+%s  -  %s
+最多选%d项  %d人参与%s`,
+			name, title, desc,
+			startTime, endTime,
+			c_cnt, cnt, option)
+	}
+	dynamicType := g.Get("type").Str() //动态类型
 	log.Debugln("[bilibili] dynamicType:", dynamicType)
 	switch dynamicType {
 	case "DYNAMIC_TYPE_FORWARD": //转发
-		topic := fmt.Sprintf("#%s#\n", dynamic.Get("topic.name").Str()) //话题
-		text := fmt.Sprintf("%s", dynamic.Get("desc.text").Str())       //文本
-		if !dynamic.Get("topic.name").Nil() {
-			content += topic
-		}
-		content += text + "\n\n" + formatDynamic(json.Get("orig"))
-		return head + content
+		topic := func(exist bool, topic string) string { //话题
+			if exist {
+				return fmt.Sprintf("\n#%s#", topic)
+			}
+			return ""
+		}(!dynamic.Get("topic.name").Nil(), dynamic.Get("topic.name").Str())
+		text := dynamic.Get("desc.text").Str() //文本
+		return fmt.Sprintf(
+			`t.bilibili.com/%s
+%s：转发动态%s
+%s
+
+%s`,
+			id,
+			name, topic,
+			text,
+			formatDynamic(g.Get("orig")))
 	case "DYNAMIC_TYPE_NONE": //转发的动态已删除
-		return json.Get("modules.module_dynamic.major.none.tips").Str() //错误提示: "源动态已被作者删除"
+		return g.Get("modules.module_dynamic.major.none.tips").Str() //错误提示: "源动态已被作者删除"
 	case "DYNAMIC_TYPE_WORD": //文本
-		topic := fmt.Sprintf("#%s#\n", dynamic.Get("topic.name").Str()) //话题
-		text := fmt.Sprintf("%s", dynamic.Get("desc.text").Str())       //文本
-		if !dynamic.Get("topic.name").Nil() {
-			content += topic
-		}
-		content += text
-		if additionalType == "ADDITIONAL_TYPE_VOTE" {
-			content += "\n\n" + appendVote(strconv.Itoa(vote.Get("vote_id").Int()))
-		}
-		if additionalType == "ADDITIONAL_TYPE_RESERVE" {
-			title := fmt.Sprintf("%s\n", reserve.Get("title").Str())
-			desc1 := fmt.Sprintf("%s    ", reserve.Get("desc1.text").Str()) //"预计xxx发布"
-			desc2 := fmt.Sprintf("%s", reserve.Get("desc2.text").Str())     //"xx人预约"/"xx观看"
-			content += "\n\n" + title + desc1 + desc2
-		}
-		return head + content
+		topic := func(exist bool, topic string) string { //话题
+			if exist {
+				return fmt.Sprintf("\n#%s#", topic)
+			}
+			return ""
+		}(!dynamic.Get("topic.name").Nil(), dynamic.Get("topic.name").Str())
+		text := dynamic.Get("desc.text").Str()                      //文本
+		reserve := func(exist bool, reserveJson gson.JSON) string { //预约
+			if exist {
+				return fmt.Sprintf("\n%s", appendReserve(reserveJson))
+			}
+			return ""
+		}(additionalType == "ADDITIONAL_TYPE_RESERVE", dynamic.Get("additional.reserve"))
+		vote := func(exist bool, g gson.JSON) string { //投票
+			if exist {
+				voteJson := getVoteJson(strconv.Itoa(g.Get("vote_id").Int())).Get("data.info")
+				return fmt.Sprintf("\n%s", appendVote(voteJson))
+			}
+			return ""
+		}(additionalType == "ADDITIONAL_TYPE_VOTE", dynamic.Get("additional.vote"))
+		return fmt.Sprintf(
+			`t.bilibili.com/%s
+%s：%s
+%s%s%s`,
+			id,
+			name, topic,
+			text, vote, reserve)
 	case "DYNAMIC_TYPE_DRAW": //图文
-		image := "" //图片
-		for i := 0; i < len(draw.Get("items").Arr()); i++ {
-			image += fmt.Sprintf("[CQ:image,file=%s]", draw.Get(fmt.Sprintf("items.%d.src", i)).Str())
-			if i != len(draw.Get("items").Arr())-1 {
-				image += "\n"
+		images := func(imgUrls []gson.JSON) string { //图片
+			var images string
+			for _, j := range imgUrls {
+				images += fmt.Sprintf("[CQ:image,file=%s]", j.Get("src").Str())
 			}
-		}
-		topic := fmt.Sprintf("#%s#\n", dynamic.Get("topic.name").Str()) //话题
-		text := fmt.Sprintf("%s", dynamic.Get("desc.text").Str())       //文本
-		if !dynamic.Get("topic.name").Nil() {
-			content += topic
-		}
-		content += text + image
-		if additionalType == "ADDITIONAL_TYPE_VOTE" {
-			content += "\n\n" + appendVote(strconv.Itoa(vote.Get("vote_id").Int()))
-		}
-		if additionalType == "ADDITIONAL_TYPE_RESERVE" {
-			title := fmt.Sprintf("%s\n", reserve.Get("title").Str())
-			desc1 := fmt.Sprintf("%s    ", reserve.Get("desc1.text").Str()) //"预计xxx发布"
-			desc2 := fmt.Sprintf("%s", reserve.Get("desc2.text").Str())     //"xx人预约"/"xx观看"
-			content += "\n\n" + title + desc1 + desc2
-		}
-		return head + content
+			return images
+		}(draw.Get("items").Arr())
+		topic := func(exist bool, topic string) string { //话题
+			if exist {
+				return fmt.Sprintf("\n#%s#", topic)
+			}
+			return ""
+		}(!dynamic.Get("topic.name").Nil(), dynamic.Get("topic.name").Str())
+		text := dynamic.Get("desc.text").Str()                      //文本
+		reserve := func(exist bool, reserveJson gson.JSON) string { //预约
+			if exist {
+				return fmt.Sprintf("\n%s", appendReserve(reserveJson))
+			}
+			return ""
+		}(additionalType == "ADDITIONAL_TYPE_RESERVE", dynamic.Get("additional.reserve"))
+		vote := func(exist bool, g gson.JSON) string { //投票
+			if exist {
+				voteJson := getVoteJson(strconv.Itoa(g.Get("vote_id").Int())).Get("data.info")
+				return fmt.Sprintf("\n%s", appendVote(voteJson))
+			}
+			return ""
+		}(additionalType == "ADDITIONAL_TYPE_VOTE", dynamic.Get("additional.vote"))
+		return fmt.Sprintf(
+			`t.bilibili.com/%s
+%s：%s
+%s
+%s%s%s`,
+			id,
+			name, topic,
+			text,
+			images, vote, reserve)
 	case "DYNAMIC_TYPE_AV": //视频
-		action := fmt.Sprintf("%s\n\n", author.Get("pub_action").Str())             //"投稿了视频"/"发布了动态视频"
-		topic := fmt.Sprintf("#%s#\n", dynamic.Get("topic.name").Str())             //话题
-		text := fmt.Sprintf("%s\n", dynamic.Get("desc.text").Str())                 //文本
-		cover := fmt.Sprintf("[CQ:image,file=%s]\n", archive.Get("cover").Str())    //封面
-		aid := fmt.Sprintf("av%s\n", archive.Get("aid").Str())                      //av号
-		title := fmt.Sprintf("%s\n", archive.Get("title").Str())                    //标题
-		play := fmt.Sprintf("%s播放  ", archive.Get("stat.play").Str())               //再生
-		danmaku := fmt.Sprintf("%s弹幕\n", archive.Get("stat.danmaku").Str())         //弹幕
-		link := fmt.Sprintf("www.bilibili.com/video/%s", archive.Get("bvid").Str()) //链接
-		content += action
-		if !dynamic.Get("topic.name").Nil() {
-			content += topic
-		}
-		if !dynamic.Get("desc.text").Nil() {
-			content += text
-		}
-		content += cover + aid + title
-		desc := archive.Get("desc").Str() //简介
-		if (desc != "<nil>" && desc != "-") && truncationLength > 0 {
-			if len([]rune(desc)) > truncationLength {
-				content += fmt.Sprintf("简介：%c......\n", []rune(desc)[0:truncationLength])
-			} else {
-				content += fmt.Sprintf("简介：%s\n", desc)
+		action := author.Get("pub_action").Str()         //"投稿了视频"/"发布了动态视频"
+		topic := func(exist bool, topic string) string { //话题
+			if exist {
+				return fmt.Sprintf("\n#%s#", topic)
 			}
-		}
-		content += play + danmaku + link
-		return head + content
+			return ""
+		}(!dynamic.Get("topic.name").Nil(), dynamic.Get("topic.name").Str())
+		text := func(exist bool, text string) string { //文本
+			if text == archive.Get("desc").Str() { //如果文本和简介相同，不显示文本
+				return ""
+			}
+			if exist {
+				return fmt.Sprintf("\n%s", text)
+			}
+			return ""
+		}(!dynamic.Get("desc.text").Nil(), dynamic.Get("desc.text").Str())
+		cover := archive.Get("cover").Str() //封面
+		aid := archive.Get("aid").Str()     //av号数字
+		title := archive.Get("title").Str() //标题
+		desc := func(desc string) string {  //简介
+			if (desc != "" && desc != "-") && truncationLength > 0 {
+				if len([]rune(desc)) > truncationLength {
+					return fmt.Sprintf("\n简介：%c......", []rune(desc)[0:truncationLength])
+				} else {
+					return fmt.Sprintf("\n简介：%s", desc)
+				}
+			}
+			return ""
+		}(archive.Get("desc").Str())
+		play := archive.Get("stat.play").Str()       //再生
+		danmaku := archive.Get("stat.danmaku").Str() //弹幕
+		bvid := archive.Get("bvid").Str()            //bv号
+		return fmt.Sprintf(
+			`t.bilibili.com/%s
+%s：%s%s%s
+
+[CQ:image,file=%s]
+av%s
+%s%s
+%s播放  %s弹幕
+www.bilibili.com/video/%s`,
+			id,
+			name, action, topic, text,
+			cover,
+			aid,
+			title, desc,
+			play, danmaku,
+			bvid)
 	case "DYNAMIC_TYPE_ARTICLE": //文章
-		cover := "" //封面组
-		for i := 0; i < len(article.Get("image_urls").Arr()); i++ {
-			cover += fmt.Sprintf("[CQ:image,file=%s]", article.Get(fmt.Sprintf("image_urls.%d", i)).Str())
-			if i == len(article.Get("image_urls").Arr())-1 {
-				cover += "\n"
+		action := author.Get("pub_action").Str()     //"投稿了文章"
+		covers := func(imgUrls []gson.JSON) string { //封面组
+			var images string
+			for _, j := range imgUrls {
+				images += fmt.Sprintf("[CQ:image,file=%s]", j.Str())
 			}
-		}
-		action := fmt.Sprintf("%s\n\n", author.Get("pub_action").Str())            //"投稿了文章"
-		cvid := fmt.Sprintf("\ncv%d\n", article.Get("id").Int())                   //cv号数字
-		title := fmt.Sprintf("%s\n", article.Get("title").Str())                   //标题
-		label := fmt.Sprintf("%s\n", article.Get("label").Str())                   //xxx阅读
-		desc := fmt.Sprintf("简介：%s\n", article.Get("desc").Str())                  //简介
-		link := fmt.Sprintf("www.bilibili.com/read/cv%s", article.Get("id").Str()) //链接
-		content += action + cover + cvid + title + label + desc + link
-		return head + content
+			return images
+		}(article.Get("covers").Arr())
+		cvid := article.Get("id").Int()     //cv号数字
+		title := article.Get("title").Str() //标题
+		label := article.Get("label").Str() //xxx阅读
+		desc := article.Get("desc").Str()   //简介
+		return fmt.Sprintf(
+			`t.bilibili.com/%s
+%s：%s
+%s
+cv%d
+%s
+%s
+%s
+www.bilibili.com/read/cv%d`,
+			id,
+			name, action,
+			covers,
+			cvid,
+			title,
+			label,
+			desc,
+			cvid)
 	case "DYNAMIC_TYPE_LIVE_RCMD": //直播（动态流拿不到）
-		area := fmt.Sprintf("%s - %s\n", //分区
-			live.Get("live_play_info.parent_area_name").Str(),
-			live.Get("live_play_info.area_name").Str())
-		action := fmt.Sprintf("%s\n", author.Get("pub_action").Str())                             //"直播了"
-		cover := fmt.Sprintf("[CQ:image,file=%s]\n", live.Get("live_play_info.cover").Str())      //封面
-		title := fmt.Sprintf("%s\n", live.Get("live_play_info.title").Str())                      //房间名
-		whatched := fmt.Sprintf("%s\n", live.Get("live_play_info.watched_show.text_large").Str()) //xxx人看过
-		id := fmt.Sprintf("live.bilibili.com/%d", live.Get("live_play_info.room_id").Int())       //房间号
-		content += action + cover + title + area + whatched + id
-		return head + content
+		action := author.Get("pub_action").Str()                             //"直播了"
+		cover := live.Get("live_play_info.cover").Str()                      //封面
+		title := live.Get("live_play_info.title").Str()                      //房间名
+		parea := g.Get("live_play_info.parent_area_name").Str()              //主分区
+		sarea := g.Get("live_play_info.area_name").Str()                     //子分区
+		whatched := live.Get("live_play_info.watched_show.text_large").Str() //xxx人看过
+		roomID := live.Get("live_play_info.room_id").Int()                   //房间号
+		return fmt.Sprintf(
+			`t.bilibili.com/%s
+%s：%s
+[CQ:image,file=%s]
+%s
+%s - %s
+%s
+live.bilibili.com/%d`,
+			id,
+			name, action,
+			cover,
+			title,
+			parea, sarea,
+			whatched,
+			roomID)
 	case "DYNAMIC_TYPE_COMMON_SQUARE": //应用装扮同步动态
-		return head + "这是一条应用装扮同步动态"
+		return fmt.Sprintf(
+			`t.bilibili.com/%s
+%s：
+
+这是一条应用装扮同步动态：%s`,
+			id,
+			name,
+			dynamicType)
 	}
 	log.Errorln("[bilibili] 未知的动态类型:", dynamicType, id)
 	sendMsg2Admin("[bilibili] 未知的动态类型：" + dynamicType + "\n" + id)
-	return head + "未知的动态类型"
+	return fmt.Sprintf(
+		`t.bilibili.com/%s
+%s：
+
+未知的动态类型：%s`,
+		id,
+		name,
+		dynamicType)
 }
 
 func getArchiveJsonA(aid string) gson.JSON { //.Get("data"))
@@ -209,7 +327,6 @@ func getArchiveJsonA(aid string) gson.JSON { //.Get("data"))
 	videoJson := gson.NewFrom(body)
 	if videoJson.Get("code").Int() != 0 {
 		log.Errorln("[parse] 视频", aid, "信息获取错误:", body)
-		return gson.JSON{}
 	}
 	return videoJson
 }
@@ -222,36 +339,49 @@ func getArchiveJsonB(bvid string) gson.JSON { //.Get("data"))
 	videoJson := gson.NewFrom(body)
 	if videoJson.Get("code").Int() != 0 {
 		log.Errorln("[parse] 视频", bvid, "信息获取错误:", body)
-		return gson.JSON{}
 	}
 	return videoJson
 }
 
-func formatArchive(videoJson gson.JSON) string {
-	var content string
-	truncationLength := v.GetInt("parse.settings.descTruncationLength")           //简介截断长度
-	pic := fmt.Sprintf("[CQ:image,file=%s]\n", videoJson.Get("pic").Str())        //封面
-	aid := fmt.Sprintf("av%d\n", videoJson.Get("aid").Int())                      //av号数字
-	title := fmt.Sprintf("%s\n", videoJson.Get("title").Str())                    //标题
-	up := fmt.Sprintf("UP：%s\n", videoJson.Get("owner.name").Str())               //up主
-	view := fmt.Sprintf("%d播放  ", videoJson.Get("stat.view").Int())               //再生
-	danmaku := fmt.Sprintf("%d弹幕  ", videoJson.Get("stat.danmaku").Int())         //弹幕
-	reply := fmt.Sprintf("%d回复\n", videoJson.Get("stat.reply").Int())             //回复
-	like := fmt.Sprintf("%d点赞  ", videoJson.Get("stat.like").Int())               //点赞
-	coin := fmt.Sprintf("%d投币  ", videoJson.Get("stat.coin").Int())               //投币
-	favor := fmt.Sprintf("%d收藏\n", videoJson.Get("stat.favorite").Int())          //收藏
-	link := fmt.Sprintf("www.bilibili.com/video/%s", videoJson.Get("bvid").Str()) //链接
-	content += pic + aid + title + up
-	desc := videoJson.Get("desc").Str() //简介
-	if (desc != "<nil>" && desc != "-") && truncationLength > 0 {
-		if len([]rune(desc)) > truncationLength {
-			content += fmt.Sprintf("简介：%c......\n", []rune(desc)[0:truncationLength])
-		} else {
-			content += fmt.Sprintf("简介：%s\n", desc)
+func formatArchive(g gson.JSON) string {
+	truncationLength := v.GetInt( //简介截断长度
+		"parse.settings.descTruncationLength")
+	pic := g.Get("pic").Str()          //封面
+	aid := g.Get("aid").Int()          //av号数字
+	title := g.Get("title").Str()      //标题
+	up := g.Get("owner.name").Str()    //up主
+	desc := func(desc string) string { //简介
+		if (desc != "" && desc != "-") && truncationLength > 0 {
+			if len([]rune(desc)) > truncationLength {
+				return fmt.Sprintf("\n简介：%c......", []rune(desc)[0:truncationLength])
+			} else {
+				return fmt.Sprintf("\n简介：%s", desc)
+			}
 		}
-	}
-	content += view + danmaku + reply + like + coin + favor + link
-	return content
+		return ""
+	}(g.Get("desc").Str())
+	view := g.Get("stat.view").Int()       //再生
+	danmaku := g.Get("stat.danmaku").Int() //弹幕
+	reply := g.Get("stat.reply").Int()     //回复
+	like := g.Get("stat.like").Int()       //点赞
+	coin := g.Get("stat.coin").Int()       //投币
+	favor := g.Get("stat.favorite").Int()  //收藏
+	bvid := g.Get("bvid").Str()            //bv号
+	return fmt.Sprintf(
+		`[CQ:image,file=%s]
+av%d
+%s
+UP：%s%s
+%d播放  %d弹幕  %d回复
+%d点赞  %d投币  %d收藏
+www.bilibili.com/video/%s`,
+		pic,
+		aid,
+		title,
+		up, desc,
+		view, danmaku, reply,
+		like, coin, favor,
+		bvid)
 }
 
 func getArticleJson(cvid string) gson.JSON { //.Get("data")
@@ -262,32 +392,41 @@ func getArticleJson(cvid string) gson.JSON { //.Get("data")
 	articleJson := gson.NewFrom(body)
 	if articleJson.Get("code").Int() != 0 {
 		log.Errorln("[parse] 文章", cvid, "信息获取错误:", body)
-		return gson.JSON{}
 	}
 	return articleJson
 }
 
-func formatArticle(articleJson gson.JSON, cvid string) string { //文章信息拿不到自己的cv号
-	var content string
-	image := "" //头图
-	for i := 0; i < len(articleJson.Get("image_urls").Arr()); i++ {
-		image += "[CQ:image,file=" + articleJson.Get(fmt.Sprintf("image_urls.%d", i)).Str() + "]"
-		if i == len(articleJson.Get("image_urls").Arr())-1 {
-			image += "\n"
+func formatArticle(g gson.JSON, cvid string) string { //文章信息拿不到自己的cv号
+	images := func(imgUrls []gson.JSON) string { //头图
+		var images string
+		for _, j := range imgUrls {
+			images += fmt.Sprintf("[CQ:image,file=%s]", j.Str())
 		}
-	}
-	cv := fmt.Sprintf("cv%d\n", articleJson.Get("id").Int())                       //cv号
-	title := fmt.Sprintf("%s\n", articleJson.Get("title").Str())                   //标题
-	author := fmt.Sprintf("作者：%s\n", articleJson.Get("author_name").Str())         //作者
-	view := fmt.Sprintf("%s阅读  ", articleJson.Get("stats.view").Str())             //阅读
-	reply := fmt.Sprintf("%s回复  ", articleJson.Get("stats.reply").Str())           //回复
-	share := fmt.Sprintf("%s分享\n", articleJson.Get("stats.share").Str())           //分享
-	like := fmt.Sprintf("%s点赞  ", articleJson.Get("stats.like").Str())             //点赞
-	coin := fmt.Sprintf("%s投币  ", articleJson.Get("stats.coin").Str())             //投币
-	favor := fmt.Sprintf("%s收藏\n", articleJson.Get("stats.favorite").Str())        //收藏
-	link := fmt.Sprintf("www.bilibili.com/read/cv%d", articleJson.Get("id").Int()) //链接
-	content += image + cv + title + author + view + reply + share + like + coin + favor + link
-	return content
+		return images
+	}(g.Get("image_urls").Arr())
+	title := g.Get("title").Str()          //标题
+	author := g.Get("author_name").Str()   //作者
+	view := g.Get("stats.view").Int()      //阅读
+	reply := g.Get("stats.reply").Int()    //回复
+	share := g.Get("stats.share").Int()    //分享
+	like := g.Get("stats.like").Int()      //点赞
+	coin := g.Get("stats.coin").Int()      //投币
+	favor := g.Get("stats.favorite").Int() //收藏
+	return fmt.Sprintf(
+		`%s
+cv%s
+%s
+作者：%s
+%d阅读  %d回复  %d分享
+%d点赞  %d投币  %d收藏
+www.bilibili.com/read/cv%s`,
+		images,
+		cvid,
+		title,
+		author,
+		view, reply, share,
+		like, coin, favor,
+		cvid)
 }
 
 func getSpaceJson(uid string) gson.JSON { //.Get("data.card")
@@ -298,32 +437,38 @@ func getSpaceJson(uid string) gson.JSON { //.Get("data.card")
 	spaceJson := gson.NewFrom(body)
 	if spaceJson.Get("code").Int() != 0 {
 		log.Errorln("[parse] 空间", uid, "信息获取错误:", body)
-		return gson.JSON{}
 	}
 	return spaceJson
 }
 
-func formatSpace(spaceJson gson.JSON) string {
-	var content string
-	pendant := fmt.Sprintf("头像框：%s（%d）\n", //头像框
-		spaceJson.Get("pendant.name").Str(),
-		spaceJson.Get("pendant.pid").Int())
-	face := fmt.Sprintf("[CQ:image,file=%s]\n", spaceJson.Get("face").Str())          //头像
-	name := fmt.Sprintf("%s", spaceJson.Get("name").Str())                            //用户名
-	level := fmt.Sprintf("（LV%d）\n", spaceJson.Get("level_info.current_level").Int()) //账号等级
-	sign := fmt.Sprintf("签名：%s\n", spaceJson.Get("sign").Str())                       //签名
-	attention := fmt.Sprintf("%d关注  ", spaceJson.Get("attention").Int())              //关注
-	fans := fmt.Sprintf("%d粉丝\n", spaceJson.Get("fans").Int())                        //粉丝
-	link := fmt.Sprintf("space.bilibili.com/%s", spaceJson.Get("mid").Str())          //链接
-	content += face + name + level
-	if pendant != "0" {
-		content += pendant
-	}
-	if sign != "签名：\n" {
-		content += sign
-	}
-	content += attention + fans + link
-	return content
+func formatSpace(g gson.JSON) string {
+	face := g.Get("face").Str()                      //头像
+	name := g.Get("name").Str()                      //用户名
+	level := g.Get("level_info.current_level").Int() //账号等级
+	pendant := func(name string, pid int) string {   //头像框
+		if name != "" && pid != 0 {
+			return fmt.Sprintf("\n头像框：%s（%d）", name, pid)
+		}
+		return ""
+	}(g.Get("pendant.name").Str(), g.Get("pendant.pid").Int())
+	sign := func(str string) string { //签名
+		if str != "" {
+			return fmt.Sprintf("\n签名：%s", str)
+		}
+		return ""
+	}(g.Get("sign").Str())
+	fol := g.Get("attention").Int() //关注
+	fans := g.Get("fans").Int()     //粉丝
+	mid := g.Get("mid").Str()       //uid
+	return fmt.Sprintf(
+		`[CQ:image,file=%s]
+%s（LV%d）%s%s
+%d关注  %d粉丝
+space.bilibili.com/%s`,
+		face,
+		name, level, pendant, sign,
+		fol, fans,
+		mid)
 }
 
 func getRoomJsonUID(uid string) gson.JSON { //uid获取直播间数据  .Gets("data", strconv.Itoa(uid))
@@ -350,34 +495,47 @@ func getRoomJsonRoomID(roomID string) gson.JSON { //房间号获取直播间数�
 	return liveJson
 }
 
-func formatLive(roomJson gson.JSON) string {
-	var content string
-	area := fmt.Sprintf("%s - %s\n", //分区
-		roomJson.Get("area_v2_parent_name").Str(),
-		roomJson.Get("area_v2_name").Str())
-	cover := fmt.Sprintf("[CQ:image,file=%s]", roomJson.Get("cover_from_user").Str()) //封面
-	keyframe := fmt.Sprintf("[CQ:image,file=%s]\n", roomJson.Get("keyframe").Str())   //关键帧
-	uname := fmt.Sprintf("%s的直播间", roomJson.Get("uname").Str())                       //主播
-	title := fmt.Sprintf("%s\n", roomJson.Get("title").Str())                         //房间名
-	link := fmt.Sprintf("live.bilibili.com/%d", roomJson.Get("room_id").Int())        //房间号
-	content += cover + keyframe
-	switch roomJson.Get("live_status").Int() { //房间状态:   0: "未开播"  1: "直播中 " 2: "轮播中"
-	case 0:
-		uname += "（未开播）\n"
-	case 1:
-		uname += "（直播中）\n"
-	case 2:
-		uname += "（轮播中）\n"
-	}
-	content += uname + title + area + link
-	switch liveStateList[roomJson.Get("room_id").Str()].STATE {
-	case streamState.ONLINE:
-		content += fmt.Sprintf("机器人缓存的上一次开播时间：\n%s",
-			time.Unix(liveStateList[roomJson.Get("room_id").Str()].TIME, 0).Format(timeLayout.M24C))
-	case streamState.OFFLINE:
-		content += fmt.Sprintf("机器人缓存的上一次下播时间：\n%s",
-			time.Unix(liveStateList[roomJson.Get("room_id").Str()].TIME, 0).Format(timeLayout.M24C))
-	case streamState.UNKNOWN:
-	}
-	return content
+func formatLive(g gson.JSON) string {
+	cover := g.Get("cover_from_user").Str() //封面
+	keyframe := g.Get("keyframe").Str()     //关键帧
+	uname := g.Get("uname").Str()           //主播
+	status := func(status int) string {     //
+		switch status {
+		case 0:
+			return "（未开播）"
+		case 1:
+			return "（直播中）"
+		case 2:
+			return "（轮播中）"
+		default:
+			return "（未知状态）"
+		}
+	}(g.Get("live_status").Int())
+	title := g.Get("title").Str()               //房间名
+	parea := g.Get("area_v2_parent_name").Str() //主分区
+	sarea := g.Get("area_v2_name").Str()        //子分区
+	history := func(state int) string {         //bot记录
+		switch state {
+		case streamState.ONLINE:
+			return fmt.Sprintf("\n机器人缓存的上一次开播时间：\n%s",
+				time.Unix(liveStateList[g.Get("room_id").Str()].TIME, 0).Format(timeLayout.M24C))
+		case streamState.OFFLINE:
+			return fmt.Sprintf("\n机器人缓存的上一次下播时间：\n%s",
+				time.Unix(liveStateList[g.Get("room_id").Str()].TIME, 0).Format(timeLayout.M24C))
+		default:
+			return ""
+		}
+	}(liveStateList[g.Get("room_id").Str()].STATE)
+	roomID := g.Get("room_id").Int() //房间号
+	return fmt.Sprintf(
+		`[CQ:image,file=%s][CQ:image,file=%s]
+%s的直播间%s
+%s
+%s - %s%s
+live.bilibili.com/%d`,
+		cover, keyframe,
+		uname, status,
+		title,
+		parea, sarea, history,
+		roomID)
 }
