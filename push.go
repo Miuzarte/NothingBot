@@ -201,9 +201,9 @@ func initLiveList() { //初始化直播监听列表
 			liveList = append(liveList, roomID)
 			g, ok := getRoomJsonUID(strconv.Itoa(uid)).Gets("data", strconv.Itoa(uid))
 			if ok {
-				liveStateList[strconv.Itoa(roomID)] = liveState{
+				liveStateList[strconv.Itoa(roomID)] = liveState{ //开播状态可以获取开播时间
 					STATE: g.Get("live_status").Int(),
-					TIME:  time.Now().Unix()}
+					TIME:  int64(g.Get("live_time").Int())}
 			} else {
 				liveStateList[strconv.Itoa(roomID)] = liveState{
 					STATE: streamState.UNKNOWN,
