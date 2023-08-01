@@ -202,7 +202,7 @@ func initLiveList() { //初始化直播监听列表
 			g, ok := getRoomJsonUID(strconv.Itoa(uid)).Gets("data", strconv.Itoa(uid))
 			if ok {
 				liveStateList[strconv.Itoa(roomID)] = liveState{
-					STATE: g.Get("liveStatus").Int(),
+					STATE: g.Get("live_status").Int(),
 					TIME:  time.Now().Unix()}
 			} else {
 				liveStateList[strconv.Itoa(roomID)] = liveState{
