@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/andybalholm/brotli"
@@ -88,7 +89,7 @@ func NewEnterPacket(uid int, roomID int, key string) []byte {
 	}
 	m, err := json.Marshal(ent)
 	if err != nil {
-		panic(fmt.Sprintf("NewEnterPacket JsonMarshal failed: %v", err))
+		log.Panicln("[danmaku] NewEnterPacket JsonMarshal failed:", err)
 	}
 	pkt := NewPlainPacket(RoomEnter, m)
 	return pkt.Build()
@@ -108,7 +109,7 @@ func ParseJson(reader io.ReadCloser) *viper.Viper {
 func GetRoomInfo(roomid int) *viper.Viper {
 	resp, err := http.Get(fmt.Sprintf("https://api.live.bilibili.com/xlive/web-room/v1/index/getDanmuInfo?id=%d&type=0", roomid))
 	if err != nil {
-		log.Println("[danmaku] GerRoomInfo().http.Get发生错误:", err)
+		log.Errorln("[danmaku] GerRoomInfo().http.Get发生错误:", err)
 		return nil
 	}
 	return ParseJson(resp.Body)
@@ -192,8 +193,8 @@ func brotliParser(b []byte) ([]byte, error) {
 
 type connection struct {
 	conn   *websocket.Conn
-	uid    int
-	roomID int
+	uid    string
+	roomID string
 }
 
 func connectDanmu(uid int, roomID int) {
@@ -227,8 +228,8 @@ func connectDanmu(uid int, roomID int) {
 	}
 	connection := connection{
 		conn,
-		uid,
-		roomID,
+		strconv.Itoa(uid),
+		strconv.Itoa(roomID),
 	}
 	go RecvLoop(connection)
 	go HeartBeatLoop(conn)

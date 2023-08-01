@@ -8,6 +8,7 @@ import (
 	"time"
 
 	log "github.com/sirupsen/logrus"
+	"github.com/ysmood/gson"
 )
 
 var biliLinkRegexp = struct {
@@ -31,8 +32,8 @@ var biliLinkRegexp = struct {
 var parseHistoryList = make(map[string]parseHistory) //av/bv : group/user, time
 
 type parseHistory struct {
-	where int
-	time  int
+	WHERE int
+	TIME  int
 }
 
 //base58: 123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz
@@ -93,8 +94,8 @@ func deShortLink(slug string) string { //短链解析
 	}
 	switch statusCode {
 	case "-404":
-		log.Warningln("[parse] 短链解析失败:", statusCode)
-		log.Warningln("[parse] location:", location)
+		log.Warnln("[parse] 短链解析失败:", statusCode)
+		log.Warnln("[parse] location:", location)
 		return ""
 	}
 	return location
@@ -112,7 +113,7 @@ func normalParse(id string, kind string, msg gocqMessage) string { //拿到id直
 	case "private":
 		where = msg.user_id
 	}
-	if (time.Now().Unix()-int64(parseHistoryList[id].time) < duration) && where == parseHistoryList[id].where {
+	if (time.Now().Unix()-int64(parseHistoryList[id].TIME) < duration) && where == parseHistoryList[id].WHERE {
 		log.Infoln("[parse] 在", where, "屏蔽了一次小于", duration, "秒的相同解析", kind, id)
 		return ""
 	}
@@ -125,27 +126,55 @@ func normalParse(id string, kind string, msg gocqMessage) string { //拿到id直
 	}
 	switch kind {
 	case "DYNAMIC":
-		return formatDynamic(getDynamicJson(id).Get("data.item"))
-	case "ARCHIVEa":
-		return formatArchive(getArchiveJsonA(id).Get("data"))
-	case "ARCHIVEb":
-		return formatArchive(getArchiveJsonB(id).Get("data"))
-	case "ARTICLE":
-		return formatArticle(getArticleJson(id).Get("data"), id) //文章信息拿不到自己的cv号
-	case "SPACE":
-		return formatSpace(getSpaceJson(id).Get("data.card"))
-	case "LIVE":
-		roomID, err := strconv.Atoi(id)
-		if err != nil {
-			log.Errorln("[strconv.Atoi]", err)
-			return fmt.Sprintln("[NothingBot] [ERROR] [strconv.Atoi]", err)
+		dynamicJson := getDynamicJson(id)
+		if dynamicJson.Get("code").Int() != 0 {
+			return fmt.Sprintf("[NothingBot] [ERROR] [parse] 动态%s信息获取错误", id)
 		}
-		uid := getRoomJsonRoomID(roomID).Get("data.uid").Int()
-		roomJson, _ := getRoomJsonUID(uid).Gets("data", strconv.Itoa(uid))
-		return formatLive(roomJson)
+		return formatDynamic(dynamicJson.Get("data.item"))
+	case "ARCHIVEa":
+		archiveJson := getArchiveJsonA(id)
+		if archiveJson.Get("code").Int() != 0 {
+			return fmt.Sprintf("[NothingBot] [ERROR] [parse] 视频av%s信息获取错误", id)
+		}
+		return formatArchive(archiveJson.Get("data"))
+	case "ARCHIVEb":
+		archiveJson := getArchiveJsonB(id)
+		if archiveJson.Get("code").Int() != 0 {
+			return fmt.Sprintf("[NothingBot] [ERROR] [parse] 视频%s信息获取错误", id)
+		}
+		return formatArchive(archiveJson.Get("data"))
+	case "ARTICLE":
+		articleJson := getArticleJson(id)
+		if articleJson.Get("code").Int() != 0 {
+			return fmt.Sprintf("[NothingBot] [ERROR] [parse] 专栏cv%s信息获取错误", id)
+		}
+		return formatArticle(articleJson.Get("data"), id) //专栏信息拿不到自身cv号
+	case "SPACE":
+		spaceJson := getSpaceJson(id)
+		if spaceJson.Get("code").Int() != 0 {
+			return fmt.Sprintf("[NothingBot] [ERROR] [parse] 用户%s信息获取错误", id)
+		}
+		return formatSpace(spaceJson.Get("data.card"))
+	case "LIVE":
+		uid := strconv.Itoa(getRoomJsonRoomID(id).Get("data.uid").Int())
+		if uid == "0" {
+			return fmt.Sprintf("[NothingBot] [ERROR] [parse] 直播间%s信息获取错误", id)
+		}
+		roomJson, ok := getRoomJsonUID(uid).Gets("data", uid)
+		if !ok {
+			return fmt.Sprintf("[NothingBot] [ERROR] [parse] 直播间%s信息获取错误", id)
+		}
+		return func(g gson.JSON) string {
+			usefulRoomJson, ok := g.Gets("data", uid)
+			if ok {
+				return formatLive(usefulRoomJson)
+			} else {
+				return fmt.Sprintf("[NothingBot] [ERROR] [parse] 直播间%s信息获取错误", id)
+			}
+		}(roomJson)
 	case "SHORT":
-		i, k := extractor(deShortLink(id))
-		return normalParse(i, k, msg)
+		id, kind := extractor(deShortLink(id))
+		return normalParse(id, kind, msg)
 	default:
 		return ""
 	}

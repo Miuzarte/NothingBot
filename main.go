@@ -3,21 +3,18 @@ package main
 import (
 	"fmt"
 	"io"
-	"io/ioutil"
-	"net/http"
 	"os"
 	"strconv"
 
 	"time"
 
+	"github.com/fsnotify/fsnotify"
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/viper"
 	easy "github.com/t-tomalak/logrus-easy-formatter"
 	"github.com/ysmood/gson"
 	"golang.org/x/net/websocket"
 )
-
-const errJson404 string = `{"code": 404,"message": "错误: 网络请求异常","ttl": 1}`
 
 const defaultConfig string = `main: #冷更新
   websocket: "ws://127.0.0.1:9820" #go-cqhttp
@@ -59,18 +56,19 @@ push: #热更新，但最起码不要在5s内保存多次，发起直播监听�
 `
 
 const (
-	PanicLevel = 0
-	FatalLevel = 1
-	ErrorLevel = 2
-	WarnLevel  = 3
-	InfoLevel  = 4
-	DebugLevel = 5
-	TraceLevel = 6
+	PanicLevel = iota
+	FatalLevel
+	ErrorLevel
+	WarnLevel
+	InfoLevel
+	DebugLevel
+	TraceLevel
 )
 
 var (
 	gocqConn          *websocket.Conn   //
-	block             = make(chan any)  //main阻塞
+	mainBlock         = make(chan any)  //main阻塞
+	tempBlock         = make(chan any)  //其他阻塞 热更新时重置
 	logLever          = DebugLevel      //日志等级
 	configPath        = "./config.yaml" //配置路径
 	v                 = viper.New()     //配置体
@@ -80,32 +78,36 @@ var (
 	adminID           = []int{}         //超管QQ
 )
 
-var headers = struct { //请求头
-	Accept          string
-	AcceptLanguage  string
-	Dnt             string
-	Origin          string
-	Referer         string
-	SecChUa         string
-	SecChUaMobile   string
-	SecChUaPlatform string
-	SecFetchDest    string
-	SecFetchMode    string
-	SecFetchSite    string
-	UserAgent       string
+var timeLayout = struct {
+	L24  string
+	L24C string
+	M24  string
+	M24C string
+	S24  string
+	S24C string
 }{
-	Accept:          "application/json, text/plain, */*",
-	AcceptLanguage:  "zh-CN,zh;q=0.9,en;q=0.8,en-GB;q=0.7,en-US;q=0.6",
-	Dnt:             "1",
-	Origin:          "https://t.bilibili.com",
-	Referer:         "https://t.bilibili.com/",
-	SecChUa:         "\"Not/A)Brand\";v=\"99\", \"Microsoft Edge\";v=\"115\", \"Chromium\";v=\"115\"",
-	SecChUaMobile:   "?0",
-	SecChUaPlatform: "\"Windows\"",
-	SecFetchDest:    "empty",
-	SecFetchMode:    "cors",
-	SecFetchSite:    "same-site",
-	UserAgent:       "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36 Edg/115.0.1901.183",
+	L24:  "2006/01/02 15:04:05",
+	L24C: "2006年01月02日  15时04分05秒",
+	M24:  "01/02 15:04:05",
+	M24C: "01月02日  15时04分05秒",
+	S24:  "15:04:05",
+	S24C: "15时04分05秒",
+}
+
+var iheaders = map[string]string{
+	"Accept":             "application/json, text/plain, */*",
+	"Accept-Language":    "zh-CN,zh;q=0.9,en;q=0.8,en-GB;q=0.7,en-US;q=0.6",
+	"Dnt":                "1",
+	"Origin":             "https://t.bilibili.com",
+	"Referer":            "https://t.bilibili.com/",
+	"Sec-Ch-Ua":          "\"Not/A)Brand\";v=\"99\", \"Microsoft Edge\";v=\"115\", \"Chromium\";v=\"115\"",
+	"Sec-Ch-Ua-Mobile":   "?0",
+	"Sec-Ch-Ua-Platform": "\"Windows\"",
+	"Sec-Fetch-Dest":     "empty",
+	"Sec-Fetch-Mode":     "cors",
+	"Sec-Fetch-Site":     "same-site",
+	"User-Agent":         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36 Edg/115.0.1901.183",
+	"Cookie":             "",
 }
 
 type gocqHeartbeat struct {
@@ -185,7 +187,7 @@ func connect(url string) {
 				message_type:    jsonPost.Get("message_type").Str(),
 				sub_type:        jsonPost.Get("sub_type").Str(),
 				time:            jsonPost.Get("time").Int(),
-				timeF:           time.Unix(int64(jsonPost.Get("time").Int()), 0).Format("2006-01-02 15:04:05"),
+				timeF:           time.Unix(int64(jsonPost.Get("time").Int()), 0).Format(timeLayout.S24),
 				user_id:         jsonPost.Get("user_id").Int(),
 				group_id:        jsonPost.Get("group_id").Int(),
 				message_id:      jsonPost.Get("message_id").Int(),
@@ -216,6 +218,7 @@ func connect(url string) {
 			}
 			go checkCorpus(msg)
 			go checkParse(msg)
+			go checkSearch(msg)
 		case "message_sent":
 			msgSent = gocqMessageSent{}
 			_ = msgSent
@@ -282,42 +285,6 @@ func heartbeatCheck() {
 	}
 }
 
-func httpsGet(url string, cookie string) string {
-	log.Traceln("[push] 发起了请求:", url)
-	method := "GET"
-	client := &http.Client{}
-	req, err := http.NewRequest(method, url, nil)
-	if err != nil {
-		log.Errorln("[push] httpsGet().http.NewRequest()发生错误:", err)
-		return errJson404
-	}
-	req.Header.Add("Accept", headers.Accept)
-	req.Header.Add("Accept-Language", headers.AcceptLanguage)
-	req.Header.Add("Cookie", cookie)
-	req.Header.Add("Dnt", headers.Dnt)
-	req.Header.Add("Origin", headers.Origin)
-	req.Header.Add("Referer", headers.Referer)
-	req.Header.Add("Sec-Ch-Ua", headers.SecChUa)
-	req.Header.Add("Sec-Ch-Ua-Mobile", headers.SecChUaMobile)
-	req.Header.Add("Sec-Ch-Ua-Platform", headers.SecChUaPlatform)
-	req.Header.Add("Sec-Fetch-Dest", headers.SecFetchDest)
-	req.Header.Add("Sec-Fetch-Mode", headers.SecFetchMode)
-	req.Header.Add("Sec-Fetch-Site", headers.SecFetchSite)
-	req.Header.Add("User-Agent", headers.UserAgent)
-	res, err := client.Do(req)
-	if err != nil {
-		log.Errorln("[push] httpsGet().client.Do()发生错误:", err)
-		return errJson404
-	}
-	defer res.Body.Close()
-	body, err := ioutil.ReadAll(res.Body)
-	if err != nil {
-		log.Errorln("[push] httpsGet().ioutil.ReadAll()发生错误:", err)
-		return errJson404
-	}
-	return string(body)
-}
-
 func sendMsg2Admin(msg string) {
 	if msg == "" {
 		return
@@ -370,11 +337,12 @@ func sendMsgSingle(user int, group int, msg string) {
 	return
 }
 
-func timeFormatter(timeS int) string {
-	seconds := (timeS % 60) / 1
-	minutes := (timeS - (seconds*1)%3600) / 60
-	hours := (timeS - (seconds * 1) - (minutes*60)%216000) / 3600
-	days := (timeS - (seconds * 1) - (minutes * 60) - (hours * 3600)) / 86400
+func timeFormat(timeS int64) string {
+	time := int(timeS)
+	days := time / (24 * 60 * 60)
+	hours := (time / (60 * 60)) % 24
+	minutes := (time / 60) % 60
+	seconds := time % 60
 	switch {
 	case days > 0:
 		return strconv.Itoa(days) + "天" + strconv.Itoa(hours) + "小时" + strconv.Itoa(minutes) + "分钟" + strconv.Itoa(seconds) + "秒"
@@ -383,7 +351,7 @@ func timeFormatter(timeS int) string {
 	case minutes > 0:
 		return strconv.Itoa(minutes) + "分钟" + strconv.Itoa(seconds) + "秒"
 	default:
-		return strconv.Itoa(timeS) + "秒"
+		return strconv.Itoa(time) + "秒"
 	}
 }
 
@@ -401,12 +369,27 @@ func initConfig() {
 	}
 	v.ReadInConfig()
 	v.WatchConfig()
+	v.OnConfigChange(func(in fsnotify.Event) {
+		log.SetLevel(log.Level(v.GetInt("main.logLevel")))
+		adminID = []int{}
+		adminList := v.GetStringSlice("main.admin")
+		if len(adminList) != 0 {
+			for _, each := range adminList { //[]string to []int
+				admin, err := strconv.Atoi(each)
+				if err != nil {
+					log.Fatalln("[strconv.Atoi]", err)
+				}
+				adminID = append(adminID, admin)
+			}
+		}
+		tempBlock <- 1 //解除阻塞
+	})
 }
 
 func main() {
 	fmt.Println("        \n  Powered      \n         by    \n           GO  \n        ")
 	log.SetFormatter(&easy.Formatter{
-		TimestampFormat: "2006-01-02 15:04:05",
+		TimestampFormat: timeLayout.M24,
 		LogFormat:       "[%time%] [%lvl%] %msg%\n",
 	})
 	initConfig()
@@ -416,7 +399,7 @@ func main() {
 		for _, each := range adminList { //[]string to []int
 			admin, err := strconv.Atoi(each)
 			if err != nil {
-				log.Panicln("[strconv.Atoi]", err)
+				log.Fatalln("[strconv.Atoi]", err)
 			}
 			adminID = append(adminID, admin)
 		}
@@ -425,5 +408,5 @@ func main() {
 	go connect(v.GetString("main.websocket"))
 	initCorpus()
 	initPush()
-	<-block
+	<-mainBlock
 }

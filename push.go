@@ -7,76 +7,96 @@ import (
 	"time"
 
 	"github.com/fsnotify/fsnotify"
+	"github.com/moxcomic/ihttp"
 	log "github.com/sirupsen/logrus"
 	"github.com/ysmood/gson"
 )
 
+var disconnected bool
+var configChanged bool
 var cookie string
 var liveListUID []int
 var liveList []int
-var liveState = make(map[int]int)
-var disconnected bool
-var configChanged bool
+var liveStateList = make(map[string]liveState)
+
+type liveState struct {
+	STATE int
+	TIME  int64
+}
+
+var streamState = struct {
+	UNKNOWN int
+	OFFLINE int
+	ONLINE  int
+	ROTATE  int
+}{
+	UNKNOWN: -1,
+	OFFLINE: 0,
+	ONLINE:  1,
+	ROTATE:  2,
+}
 
 func initPush() { //初始化推送
 	cookie = v.GetString("push.settings.cookie")
+	iheaders["cookie"] = v.GetString("push.settings.cookie")
 	log.Traceln("[push] cookie:\n", cookie)
 	if cookie == "" || cookie == "<nil>" {
-		log.Warningln("[push] 未配置cookie!")
+		log.Warnln("[push] 未配置cookie!")
 	} else {
 		go dynamicMonitor()
 	}
 	disconnected = true
 	go liveMonitor()
-	v.OnConfigChange(func(in fsnotify.Event) { //获取监听列表
+	v.OnConfigChange(func(in fsnotify.Event) {
+		cookie = v.GetString("push.settings.cookie")
+		iheaders["cookie"] = v.GetString("push.settings.cookie")
 		configChanged = true
 	})
 }
 
 func getBaseline() string { //返回baseline用于监听更新
-	url := "https://api.bilibili.com/x/polymer/web-dynamic/v1/feed/all?timezone_offset=-480&type=all&page=1&features=itemOpusStyle"
-	body := httpsGet(url, cookie)
-	if body == errJson404 {
-		return "-1"
-	}
-	update_baseline := gson.NewFrom(body).Get("data.update_baseline").Str()
-	if update_baseline == "<nil>" {
-		log.Error("[push] 未知数据:", body)
+	body := ihttp.New().WithUrl("https://api.bilibili.com/x/polymer/web-dynamic/v1/feed/all").
+		WithHeaders(iheaders).WithHeader("Cookie", cookie).Get().
+		WithError(func(err error) { log.Errorln("[bilibili] getBaseline().ihttp请求错误:", err) }).ToString()
+	g := gson.NewFrom(body)
+	update_baseline := g.Get("data.update_baseline").Str()
+	if g.Get("code").Int() != 0 || g.Get("data.update_baseline").Nil() {
+		log.Errorln("[push] update_baseline获取错误:", body)
 		return "-1"
 	}
 	return update_baseline
 }
 
 func getUpdate(update_baseline string) string { //是否有新动态
-	url := fmt.Sprintf("https://api.bilibili.com/x/polymer/web-dynamic/v1/feed/all/update?update_baseline=%s", update_baseline)
-	body := httpsGet(url, cookie)
-	if body == errJson404 {
-		return "-1"
-	}
-	update_num := gson.NewFrom(body).Get("data.update_num").Str()
-	if update_num == "<nil>" {
-		log.Error("[push] 未知数据:", body)
+	body := ihttp.New().WithUrl("https://api.bilibili.com/x/polymer/web-dynamic/v1/feed/all/update").
+		WithAddQuery("update_baseline", update_baseline).WithHeaders(iheaders).WithHeader("Cookie", cookie).Get().
+		WithError(func(err error) { log.Errorln("[bilibili] getUpdate().ihttp请求错误:", err) }).ToString()
+	g := gson.NewFrom(body)
+	update_num := g.Get("data.update_num").Str()
+	if g.Get("code").Int() != 0 || g.Get("data.update_num").Nil() {
+		log.Errorln("[push] getUpdate获取错误:", body)
 		return "-1"
 	}
 	return update_num
 }
 
 func cookieChecker() bool { //检测cookie有效性
-	url := "https://passport.bilibili.com/x/passport-login/web/cookie/info"
-	body := httpsGet(url, cookie)
-	bodyJson := gson.NewFrom(body)
-	switch bodyJson.Get("code").Int() {
+	body := ihttp.New().WithUrl("https://passport.bilibili.com/x/passport-login/web/cookie/info").
+		WithHeaders(iheaders).WithHeader("Cookie", cookie).Get().
+		WithError(func(err error) { log.Errorln("[bilibili] cookieChecker().ihttp请求错误:", err) }).ToString()
+	g := gson.NewFrom(body)
+	switch g.Get("code").Int() {
 	case 0:
-		log.Warningln("[push] cookie未过期但触发了有效性检测")
-		sendMsg2Admin("[push] cookie未过期但触发了有效性检测")
+		log.Warnln("[push] cookie未过期但触发了有效性检测")
+		sendMsg2Admin("[WARN] [push] cookie未过期但触发了有效性检测")
 		return true
 	case -101:
 		log.Errorln("[push] cookie已过期")
-		sendMsg2Admin("[push] cookie已过期")
+		sendMsg2Admin("[ERROR] [push] cookie已过期")
 		return false
 	default:
 		log.Errorln("[push] 非正常cookie状态:", body)
-		sendMsg2Admin("[push] 非正常cookie状态：" + body)
+		sendMsg2Admin("[ERROR] [push] 非正常cookie状态：" + body)
 		return false
 	}
 }
@@ -99,15 +119,17 @@ func dynamicMonitor() { //监听动态流
 			errInfo := fmt.Sprintf("[push] 获取update_num时出现错误    update_num = %s    update_baseline = %s", update_num, update_baseline)
 			log.Errorln(errInfo)
 			if !cookieChecker() {
-				log.Errorln("[push] cookie失效, 停止拉取动态更新")
-				sendMsg2Admin("[push] cookie失效，停止拉取动态更新")
-				<-block
+				log.Errorln("[push] cookie失效, 暂停拉取动态更新")
+				sendMsg2Admin("[push] cookie失效，暂停拉取动态更新")
+				<-tempBlock
+				failureCount = 0
 			}
 			failureCount++
 			if failureCount >= 10 {
-				log.Errorln("[push] 尝试更新失败", failureCount, "次, 停止拉取动态更新")
-				sendMsg2Admin("[push] 连续更新失败十次但cookie未失效，已停止拉取动态更新")
-				<-block
+				log.Errorln("[push] 尝试更新失败", failureCount, "次, 暂停拉取动态更新")
+				sendMsg2Admin("[push] 连续更新失败十次但cookie未失效，已暂停拉取动态更新")
+				<-tempBlock
+				failureCount = 0
 			}
 			duration := time.Duration(failureCount * 30)
 			log.Errorln("[push] 获取更新失败", failureCount, "次, 将在", duration, "秒后重试")
@@ -122,7 +144,7 @@ func dynamicMonitor() { //监听动态流
 				rawJson := getDynamicJson(dynamicID)
 				switch rawJson.Get("code").Int() {
 				case 4101131: //动态已删除，不推送
-					log.Warningln("[push] 记录到一条已删除的动态, dynamicID =", dynamicID)
+					log.Warnln("[push] 记录到一条已删除的动态, dynamicID =", dynamicID)
 					sendMsg2Admin(fmt.Sprintf("[push] 记录到一条已删除的动态，dynamicID = %s", dynamicID))
 					break
 				case 500: //加载错误，请稍后再试
@@ -177,9 +199,19 @@ func initLiveList() { //初始化直播监听列表
 		if v.GetInt(fmt.Sprintf("push.list.%d.live", i)) != 0 {
 			uid = v.GetInt(fmt.Sprintf("push.list.%d.uid", i))
 			roomID = v.GetInt(fmt.Sprintf("push.list.%d.live", i))
-			log.Debugln("[push] uid为", uid, "的直播间", roomID, "加入监听列表")
 			liveListUID = append(liveListUID, uid)
 			liveList = append(liveList, roomID)
+			g, ok := getRoomJsonUID(strconv.Itoa(uid)).Gets("data", strconv.Itoa(uid))
+			if ok {
+				liveStateList[strconv.Itoa(roomID)] = liveState{
+					STATE: g.Get("liveStatus").Int(),
+					TIME:  time.Now().Unix()}
+			} else {
+				liveStateList[strconv.Itoa(roomID)] = liveState{
+					STATE: streamState.UNKNOWN,
+					TIME:  time.Now().Unix()}
+			}
+			log.Debugln("[push] uid为", uid, "的直播间", roomID, "加入监听列表  目前状态:", liveStateList[strconv.Itoa(roomID)].STATE)
 			k += 1
 		}
 		j += 1
@@ -207,46 +239,78 @@ func liveMonitor() { //建立监听连接
 	}
 }
 
-func liveChecker(pktJson gson.JSON, uid int, roomID int) { //判断数据包类型
-	cmd := pktJson.Get("cmd").Str() //"LIVE"/"PREPARING"
+func liveChecker(pktJson gson.JSON, uid string, roomID string) { //判断数据包类型
+	minimumInterval := int64(v.GetFloat64("push.settings.livePushMinimumInterval"))
+	cmd := pktJson.Get("cmd").Str()
 	switch cmd {
 	case "LIVE":
 		for i := 0; i < len(v.GetStringSlice("push.list")); i++ {
-			if roomID == v.GetInt(fmt.Sprintf("push.list.%d.live", i)) {
-				if int(time.Now().Unix())-liveState[roomID] < int(v.GetFloat64("push.settings.livePushMinimumInterval")) { //防止重复推送开播
-					log.Warningln("[push] 屏蔽了一次间隔小于", int(v.GetFloat64("push.settings.livePushMinimumInterval")), "秒的开播推送")
+			if roomID == strconv.Itoa(v.GetInt(fmt.Sprintf("push.list.%d.live", i))) {
+				at, userID, groupID := sendListGen(i)
+				if liveStateList[roomID].STATE == streamState.ONLINE {
+					switch {
+					case time.Now().Unix()-liveStateList[roomID].TIME < minimumInterval:
+						log.Warnln("[push] 屏蔽了一次间隔小于", minimumInterval, "秒的开播推送")
+						return
+					}
+				}
+				go func(roomID string, time int64) {
+					liveStateList[roomID] = liveState{ //记录开播
+						STATE: streamState.ONLINE,
+						TIME:  time}
+				}(roomID, time.Now().Unix())
+				log.Infoln("[push] 推送", uid, "的直播间", roomID, "开播")
+				log.Infoln("[push] 记录开播时间:", time.Unix(int64(liveStateList[roomID].TIME), 0).Format(timeLayout.L24))
+				roomJson, ok := getRoomJsonUID(uid).Gets("data", uid)
+				if !ok {
+					log.Errorln("[push] 获取直播间信息失败")
+					sendMsg(userID, groupID, at, fmt.Sprintf("[NothingBot] [ERROR] [push] 推送%s的直播间%s开播失败", uid, roomID))
 					return
 				}
-				liveState[roomID] = int(time.Now().Unix()) //记录开播时间
-				log.Infoln("[push] 推送", uid, "的直播间", roomID, "开播")
-				log.Infoln("[push] 记录开播时间:", time.Unix(int64(liveState[roomID]), 0).Format("2006-01-02 15:04:05"))
-				roomJson, _ := getRoomJsonUID(uid).Gets("data", strconv.Itoa(uid))
-				name := roomJson.Get("uname").Str()
-				cover := roomJson.Get("cover_from_user").Str()
-				title := roomJson.Get("title").Str()
-				msg := name + "开播了！\n[CQ:image,file=" + cover + "]\n" + title + "\nlive.bilibili.com/" + strconv.Itoa(roomID)
-				at, userID, groupID := sendListGen(i)
+				name := fmt.Sprintf("%s开播了！\n", roomJson.Get("uname").Str())
+				cover := fmt.Sprintf("[CQ:image,file=%s]\n", roomJson.Get("cover_from_user").Str())
+				title := fmt.Sprintf("%s\n", roomJson.Get("title").Str())
+				link := fmt.Sprintf("live.bilibili.com/%s", roomID)
+				msg := name + cover + title + link
 				sendMsg(userID, groupID, at, msg)
 				return
 			}
 		}
 	case "PREPARING":
 		for i := 0; i < len(v.GetStringSlice("push.list")); i++ {
-			if roomID == v.GetInt(fmt.Sprintf("push.list.%d.live", i)) {
-				log.Infoln("[push] 推送", uid, "的直播间", roomID, "下播")
-				log.Infoln("[push] 缓存的开播时间:", time.Unix(int64(liveState[roomID]), 0).Format("2006-01-02 15:04:05"))
-				roomJson, _ := getRoomJsonUID(uid).Gets("data", strconv.Itoa(uid))
-				name := roomJson.Get("uname").Str()
-				cover := roomJson.Get("keyframe").Str()
-				title := roomJson.Get("title").Str()
-				msg := name + "下播了~\n[CQ:image,file=" + cover + "]\n" + title
-				if liveState[roomID] != 0 {
-					msg += "\n本次直播持续了" + timeFormatter(int(time.Now().Unix())-liveState[roomID])
-					delete(liveState, roomID)
-				} else {
-					msg += "\n未记录本次开播时间"
-				}
+			if roomID == strconv.Itoa(v.GetInt(fmt.Sprintf("push.list.%d.live", i))) {
 				at, userID, groupID := sendListGen(i)
+				if liveStateList[roomID].STATE == streamState.OFFLINE || liveStateList[roomID].STATE == streamState.ROTATE {
+					switch {
+					case time.Now().Unix()-liveStateList[roomID].TIME < minimumInterval:
+						log.Warnln("[push] 屏蔽了一次间隔小于", minimumInterval, "秒的下播推送")
+						return
+					}
+				}
+				defer func(roomID string, time int64) {
+					liveStateList[roomID] = liveState{ //记录下播
+						STATE: streamState.OFFLINE,
+						TIME:  time}
+				}(roomID, time.Now().Unix())
+				log.Infoln("[push] 推送", uid, "的直播间", roomID, "下播")
+				log.Infoln("[push] 缓存的开播时间:", time.Unix(int64(liveStateList[roomID].TIME), 0).Format(timeLayout.L24))
+				roomJson, ok := getRoomJsonUID(uid).Gets("data", uid)
+				if !ok {
+					log.Errorln("[push] 获取直播间信息失败")
+					sendMsg(userID, groupID, at, fmt.Sprintf("[NothingBot] [ERROR] [push] 推送%s的直播间%s下播失败", uid, roomID))
+					return
+				}
+				name := fmt.Sprintf("%s下播了~\n", roomJson.Get("uname").Str())
+				cover := fmt.Sprintf("[CQ:image,file=%s]\n", roomJson.Get("keyframe").Str())
+				title := fmt.Sprintf("%s\n", roomJson.Get("title").Str())
+				duration := func() string {
+					if liveStateList[roomID].TIME != 0 {
+						return "本次直播持续了" + timeFormat(time.Now().Unix()-liveStateList[roomID].TIME)
+					} else {
+						return "未记录本次开播时间"
+					}
+				}()
+				msg := name + cover + title + duration
 				sendMsg(userID, groupID, at, msg)
 				return
 			}
@@ -256,15 +320,22 @@ func liveChecker(pktJson gson.JSON, uid int, roomID int) { //判断数据包类�
 			return
 		}
 		for i := 0; i < len(v.GetStringSlice("push.list")); i++ {
-			if roomID == v.GetInt(fmt.Sprintf("push.list.%d.live", i)) {
-				log.Infoln("[push] 推送", uid, "的直播间", roomID, "房间信息更新")
-				roomJson, _ := getRoomJsonUID(uid).Gets("data", strconv.Itoa(uid))
-				name := roomJson.Get("uname").Str()
-				title := roomJson.Get("title").Str()
-				area_parent_name := roomJson.Get("area_v2_parent_name").Str()
-				area_name := roomJson.Get("area_v2_name").Str()
-				msg := name + "更改了房间信息\n房间名：" + title + "\n分区：" + area_parent_name + " - " + area_name + "\nlive.bilibili.com/" + strconv.Itoa(roomID)
+			if roomID == strconv.Itoa(v.GetInt(fmt.Sprintf("push.list.%d.live", i))) {
 				at, userID, groupID := sendListGen(i)
+				log.Infoln("[push] 推送", uid, "的直播间", roomID, "房间信息更新")
+				roomJson, ok := getRoomJsonUID(uid).Gets("data", uid)
+				if !ok {
+					log.Errorln("[push] 获取直播间信息失败")
+					sendMsg(userID, groupID, at, fmt.Sprintf("[NothingBot] [ERROR] [push] 推送%s的直播间%s房间信息更新失败", uid, roomID))
+					return
+				}
+				area := fmt.Sprintf("%s - %s\n", //分区
+					roomJson.Get("area_v2_parent_name").Str(),
+					roomJson.Get("area_v2_name").Str())
+				name := fmt.Sprintf("%s更改了房间信息\n", roomJson.Get("uname").Str())
+				title := fmt.Sprintf("房间名：%s", roomJson.Get("title").Str())
+				link := fmt.Sprintf("live.bilibili.com/%s", roomID)
+				msg := name + title + area + link
 				sendMsg(userID, groupID, at, msg)
 				return
 			}
@@ -273,33 +344,34 @@ func liveChecker(pktJson gson.JSON, uid int, roomID int) { //判断数据包类�
 }
 
 func sendListGen(i int) (string, []int, []int) { //生成发送队列
-	userID := []int{} // 用户列表
+	//读StringSlice再转成IntSlice实现同时支持输入单个和多个数据
+	userID := []int{}
 	userList := v.GetStringSlice(fmt.Sprintf("push.list.%d.user", i))
 	if len(userList) != 0 {
-		for _, each := range userList { //[]string to []int
+		for _, each := range userList {
 			user, err := strconv.Atoi(each)
 			if err != nil {
 				log.Errorln("[strconv.Atoi]", err)
-				sendMsg2Admin(fmt.Sprintln("[NothingBot] [ERROR] [strconv.Atoi]", err))
+				sendMsg2Admin(fmt.Sprintf("[ERROR] [strconv.Atoi] %v", err))
 			}
 			userID = append(userID, user)
 		}
 	}
 	log.Debugln("[push] 推送用户:", userID)
-	groupID := []int{} // 群组列表
+	groupID := []int{}
 	groupList := v.GetStringSlice(fmt.Sprintf("push.list.%d.group", i))
 	if len(groupList) != 0 {
-		for _, each := range groupList { //[]string to []int
+		for _, each := range groupList {
 			group, err := strconv.Atoi(each)
 			if err != nil {
 				log.Errorln("[strconv.Atoi]", err)
-				sendMsg2Admin(fmt.Sprintln("[NothingBot] [ERROR] [strconv.Atoi]", err))
+				sendMsg2Admin(fmt.Sprintf("[ERROR] [strconv.Atoi] %v", err))
 			}
 			groupID = append(groupID, group)
 		}
 	}
 	log.Debugln("[push] 推送群组:", groupID)
-	at := "" // at序列
+	at := ""
 	atList := v.GetStringSlice(fmt.Sprintf("push.list.%d.at", i))
 	if len(atList) != 0 {
 		at += "\n"
