@@ -275,8 +275,9 @@ func RecvLoop(connection connection) {
 				case "LIKE_INFO_V3_UPDATE":
 				//case "LIVE":
 				case "NOTICE_MSG":
-				case "ONLINE_RANK_V2":
 				case "ONLINE_RANK_COUNT":
+				case "ONLINE_RANK_V2":
+				case "ONLINE_RANK_TOP3":
 				case "PK_BATTLE_END":
 				case "PK_BATTLE_FINAL_PROCESS":
 				case "PK_BATTLE_PRE":

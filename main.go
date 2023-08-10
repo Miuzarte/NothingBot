@@ -85,13 +85,17 @@ var timeLayout = struct {
 	M24C string
 	S24  string
 	S24C string
+	T24  string
+	T24C string
 }{
 	L24:  "2006/01/02 15:04:05",
 	L24C: "2006年01月02日  15时04分05秒",
 	M24:  "01/02 15:04:05",
 	M24C: "01月02日  15时04分05秒",
-	S24:  "15:04:05",
-	S24C: "15时04分05秒",
+	S24:  "02 15:04:05",
+	S24C: "02日  15时04分05秒",
+	T24:  "15:04:05",
+	T24C: "15时04分05秒",
 }
 
 var iheaders = map[string]string{

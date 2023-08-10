@@ -54,8 +54,8 @@ func initPush() { //初始化推送
 
 func getBaseline() string { //返回baseline用于监听更新
 	body := ihttp.New().WithUrl("https://api.bilibili.com/x/polymer/web-dynamic/v1/feed/all").
-		WithHeaders(iheaders).WithCookie(cookie).Get().
-		WithError(func(err error) { log.Errorln("[bilibili] getBaseline().ihttp请求错误:", err) }).ToString()
+		WithHeaders(iheaders).WithCookie(cookie).
+		Get().WithError(func(err error) { log.Errorln("[bilibili] getBaseline().ihttp请求错误:", err) }).ToString()
 	g := gson.NewFrom(body)
 	update_baseline := g.Get("data.update_baseline").Str()
 	if g.Get("code").Int() != 0 || g.Get("data.update_baseline").Nil() {
@@ -67,8 +67,8 @@ func getBaseline() string { //返回baseline用于监听更新
 
 func getUpdate(update_baseline string) string { //是否有新动态
 	body := ihttp.New().WithUrl("https://api.bilibili.com/x/polymer/web-dynamic/v1/feed/all/update").
-		WithAddQuery("update_baseline", update_baseline).WithHeaders(iheaders).WithCookie(cookie).Get().
-		WithError(func(err error) { log.Errorln("[bilibili] getUpdate().ihttp请求错误:", err) }).ToString()
+		WithAddQuery("update_baseline", update_baseline).WithHeaders(iheaders).WithCookie(cookie).
+		Get().WithError(func(err error) { log.Errorln("[bilibili] getUpdate().ihttp请求错误:", err) }).ToString()
 	g := gson.NewFrom(body)
 	update_num := g.Get("data.update_num").Str()
 	if g.Get("code").Int() != 0 || g.Get("data.update_num").Nil() {
@@ -80,8 +80,8 @@ func getUpdate(update_baseline string) string { //是否有新动态
 
 func cookieChecker() bool { //检测cookie有效性
 	body := ihttp.New().WithUrl("https://passport.bilibili.com/x/passport-login/web/cookie/info").
-		WithHeaders(iheaders).WithCookie(cookie).Get().
-		WithError(func(err error) { log.Errorln("[bilibili] cookieChecker().ihttp请求错误:", err) }).ToString()
+		WithHeaders(iheaders).WithCookie(cookie).
+		Get().WithError(func(err error) { log.Errorln("[bilibili] cookieChecker().ihttp请求错误:", err) }).ToString()
 	g := gson.NewFrom(body)
 	switch g.Get("code").Int() {
 	case 0:
@@ -117,8 +117,6 @@ func dynamicMonitor() { //监听动态流
 			errInfo := fmt.Sprintf("[push] 获取update_num时出现错误    update_num = %s    update_baseline = %s", update_num, update_baseline)
 			log.Errorln(errInfo)
 			if !cookieChecker() {
-				log.Errorln("[push] cookie失效, 暂停拉取动态更新")
-				sendMsg2Admin("[push] cookie失效，暂停拉取动态更新")
 				<-tempBlock
 				failureCount = 0
 			}
@@ -129,7 +127,7 @@ func dynamicMonitor() { //监听动态流
 				<-tempBlock
 				failureCount = 0
 			}
-			duration := time.Duration(failureCount * 30)
+			duration := time.Duration(time.Second * time.Duration(failureCount) * 30)
 			log.Errorln("[push] 获取更新失败", failureCount, "次, 将在", duration, "秒后重试")
 			time.Sleep(time.Second * duration)
 		case "0":

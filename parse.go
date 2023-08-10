@@ -126,35 +126,35 @@ func normalParse(id string, kind string, msg gocqMessage) string { //拿到id直
 	}
 	switch kind {
 	case "DYNAMIC":
-		dynamicJson := getDynamicJson(id)
-		if dynamicJson.Get("code").Int() != 0 {
-			return fmt.Sprintf("[NothingBot] [ERROR] [parse] 动态%s信息获取错误", id)
+		g := getDynamicJson(id)
+		if g.Get("code").Int() != 0 {
+			return fmt.Sprintf("[NothingBot] [ERROR] [parse] 动态%s信息获取错误: code%d", id, g.Get("code").Int())
 		}
-		return formatDynamic(dynamicJson.Get("data.item"))
+		return formatDynamic(g.Get("data.item"))
 	case "ARCHIVEa":
-		archiveJson := getArchiveJsonA(id)
-		if archiveJson.Get("code").Int() != 0 {
-			return fmt.Sprintf("[NothingBot] [ERROR] [parse] 视频av%s信息获取错误", id)
+		g := getArchiveJsonA(id)
+		if g.Get("code").Int() != 0 {
+			return fmt.Sprintf("[NothingBot] [ERROR] [parse] 视频av%s信息获取错误: code%d", id, g.Get("code").Int())
 		}
-		return formatArchive(archiveJson.Get("data"))
+		return formatArchive(g.Get("data"))
 	case "ARCHIVEb":
-		archiveJson := getArchiveJsonB(id)
-		if archiveJson.Get("code").Int() != 0 {
-			return fmt.Sprintf("[NothingBot] [ERROR] [parse] 视频%s信息获取错误", id)
+		g := getArchiveJsonB(id)
+		if g.Get("code").Int() != 0 {
+			return fmt.Sprintf("[NothingBot] [ERROR] [parse] 视频%s信息获取错误: code%d", id, g.Get("code").Int())
 		}
-		return formatArchive(archiveJson.Get("data"))
+		return formatArchive(g.Get("data"))
 	case "ARTICLE":
-		articleJson := getArticleJson(id)
-		if articleJson.Get("code").Int() != 0 {
-			return fmt.Sprintf("[NothingBot] [ERROR] [parse] 专栏cv%s信息获取错误", id)
+		g := getArticleJson(id)
+		if g.Get("code").Int() != 0 {
+			return fmt.Sprintf("[NothingBot] [ERROR] [parse] 专栏cv%s信息获取错误: code%d", id, g.Get("code").Int())
 		}
-		return formatArticle(articleJson.Get("data"), id) //专栏信息拿不到自身cv号
+		return formatArticle(g.Get("data"), id) //专栏信息拿不到自身cv号
 	case "SPACE":
-		spaceJson := getSpaceJson(id)
-		if spaceJson.Get("code").Int() != 0 {
-			return fmt.Sprintf("[NothingBot] [ERROR] [parse] 用户%s信息获取错误", id)
+		g := getSpaceJson(id)
+		if g.Get("code").Int() != 0 {
+			return fmt.Sprintf("[NothingBot] [ERROR] [parse] 用户%s信息获取错误: code%d", id, g.Get("code").Int())
 		}
-		return formatSpace(spaceJson.Get("data.card"))
+		return formatSpace(g.Get("data.card"))
 	case "LIVE":
 		uid := strconv.Itoa(getRoomJsonRoomID(id).Get("data.uid").Int())
 		if uid == "0" {
