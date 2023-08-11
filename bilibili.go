@@ -12,7 +12,7 @@ import (
 
 func getDynamicJson(dynamicID string) gson.JSON { //获取动态数据
 	body := ihttp.New().WithUrl("https://api.bilibili.com/x/polymer/web-dynamic/v1/detail").
-		WithAddQuery("id", dynamicID).WithHeaders(iheaders).
+		WithAddQuery("id", dynamicID).WithHeaders(iheaders).WithCookie(cookie).
 		Get().WithError(func(err error) { log.Errorln("[bilibili] getDynamicJson().ihttp请求错误:", err) }).ToString()
 	log.Traceln("[bilibili] rawDynamicJson:", body)
 	dynamicJson := gson.NewFrom(body)

@@ -99,7 +99,7 @@ var timeLayout = struct {
 }
 
 var iheaders = map[string]string{
-	"Accept":             "application/json, text/plain, */*",
+	"Accept":             "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7",
 	"Accept-Language":    "zh-CN,zh;q=0.9,en;q=0.8,en-GB;q=0.7,en-US;q=0.6",
 	"Dnt":                "1",
 	"Origin":             "https://t.bilibili.com",
@@ -107,10 +107,11 @@ var iheaders = map[string]string{
 	"Sec-Ch-Ua":          "\"Not/A)Brand\";v=\"99\", \"Microsoft Edge\";v=\"115\", \"Chromium\";v=\"115\"",
 	"Sec-Ch-Ua-Mobile":   "?0",
 	"Sec-Ch-Ua-Platform": "\"Windows\"",
-	"Sec-Fetch-Dest":     "empty",
-	"Sec-Fetch-Mode":     "cors",
-	"Sec-Fetch-Site":     "same-site",
-	"User-Agent":         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36 Edg/115.0.1901.188",
+	"Sec-Fetch-Dest":     "document",
+	"Sec-Fetch-Mode":     "navigate",
+	"Sec-Fetch-Site":     "none",
+	"Sec-Fetch-User":     "?1",
+	"User-Agent":         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36 Edg/115.0.1901.203",
 }
 
 type gocqHeartbeat struct {
