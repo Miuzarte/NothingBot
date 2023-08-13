@@ -15,6 +15,7 @@ import (
 var disconnected bool
 var configChanged bool
 var cookie string
+var dynamicHistrory = make(map[string]string)
 var liveListUID []int
 var liveList []int
 var liveStateList = make(map[string]liveState)
@@ -53,36 +54,33 @@ func initPush() { //初始化推送
 }
 
 func getBaseline() string { //返回baseline用于监听更新
-	body := ihttp.New().WithUrl("https://api.bilibili.com/x/polymer/web-dynamic/v1/feed/all").
+	g := ihttp.New().WithUrl("https://api.bilibili.com/x/polymer/web-dynamic/v1/feed/all").
 		WithHeaders(iheaders).WithCookie(cookie).
-		Get().WithError(func(err error) { log.Errorln("[bilibili] getBaseline().ihttp请求错误:", err) }).ToString()
-	g := gson.NewFrom(body)
+		Get().WithError(func(err error) { log.Errorln("[bilibili] getBaseline().ihttp请求错误:", err) }).ToGson()
 	update_baseline := g.Get("data.update_baseline").Str()
 	if g.Get("code").Int() != 0 || g.Get("data.update_baseline").Nil() {
-		log.Errorln("[push] update_baseline获取错误:", body)
+		log.Errorln("[push] update_baseline获取错误:", g.JSON("", ""))
 		return "-1"
 	}
 	return update_baseline
 }
 
 func getUpdate(update_baseline string) string { //是否有新动态
-	body := ihttp.New().WithUrl("https://api.bilibili.com/x/polymer/web-dynamic/v1/feed/all/update").
+	g := ihttp.New().WithUrl("https://api.bilibili.com/x/polymer/web-dynamic/v1/feed/all/update").
 		WithAddQuery("update_baseline", update_baseline).WithHeaders(iheaders).WithCookie(cookie).
-		Get().WithError(func(err error) { log.Errorln("[bilibili] getUpdate().ihttp请求错误:", err) }).ToString()
-	g := gson.NewFrom(body)
+		Get().WithError(func(err error) { log.Errorln("[bilibili] getUpdate().ihttp请求错误:", err) }).ToGson()
 	update_num := g.Get("data.update_num").Str()
 	if g.Get("code").Int() != 0 || g.Get("data.update_num").Nil() {
-		log.Errorln("[push] getUpdate获取错误:", body)
+		log.Errorln("[push] getUpdate获取错误:", g.JSON("", ""))
 		return "-1"
 	}
 	return update_num
 }
 
 func cookieChecker() bool { //检测cookie有效性
-	body := ihttp.New().WithUrl("https://passport.bilibili.com/x/passport-login/web/cookie/info").
+	g := ihttp.New().WithUrl("https://passport.bilibili.com/x/passport-login/web/cookie/info").
 		WithHeaders(iheaders).WithCookie(cookie).
-		Get().WithError(func(err error) { log.Errorln("[bilibili] cookieChecker().ihttp请求错误:", err) }).ToString()
-	g := gson.NewFrom(body)
+		Get().WithError(func(err error) { log.Errorln("[bilibili] cookieChecker().ihttp请求错误:", err) }).ToGson()
 	switch g.Get("code").Int() {
 	case 0:
 		log.Warnln("[push] cookie未过期但触发了有效性检测")
@@ -93,8 +91,8 @@ func cookieChecker() bool { //检测cookie有效性
 		sendMsg2Admin("[ERROR] [push] cookie已过期")
 		return false
 	default:
-		log.Errorln("[push] 非正常cookie状态:", body)
-		sendMsg2Admin("[ERROR] [push] 非正常cookie状态：" + body)
+		log.Errorln("[push] 非正常cookie状态:", g.JSON("", ""))
+		sendMsg2Admin("[ERROR] [push] 非正常cookie状态：" + g.JSON("", ""))
 		return false
 	}
 }
@@ -136,19 +134,28 @@ func dynamicMonitor() { //监听动态流
 			new_baseline = getBaseline()
 			log.Infoln("[push] 有新动态！    update_num =", update_num, "   update_baseline =", update_baseline, "=>", new_baseline)
 			update_baseline = new_baseline
-			go func(dynamicID string) { //异步检测推送
+			go func(dynamicID string) { //检测推送
 				rawJson := getDynamicJson(dynamicID)
 				switch rawJson.Get("code").Int() {
 				case 4101131: //动态已删除，不推送
-					log.Warnln("[push] 记录到一条已删除的动态, dynamicID =", dynamicID)
-					sendMsg2Admin(fmt.Sprintf("[push] 记录到一条已删除的动态，dynamicID = %s", dynamicID))
+					if dynamicHistrory[dynamicID] != "" {
+						log.Infoln("[push] 明确记录到一条来自", dynamicHistrory[dynamicID], "的已删除动态", dynamicID)
+						sendMsg2Admin(fmt.Sprintf("[INFO] [push] 明确记录到一条来自%s的已删除动态，dynamicID = %s", dynamicHistrory[dynamicID], dynamicID))
+					}
 					break
 				case 500: //加载错误，请稍后再试
 					break
-				default:
+				case 0: //正常
 					mainJson := rawJson.Get("data.item")
 					log.Debugln("[push] mainJson:", mainJson.JSON("", ""))
-					dynamicChecker(mainJson)
+					if dynamicHistrory[dynamicID] == "" { //检测是否为重复动态
+						dynamicChecker(mainJson)
+						dynamicHistrory[dynamicID] = mainJson.Get("modules.module_author.name").Str() //记录历史
+					} else {
+						log.Infoln("[push] 检测到一条来自", dynamicHistrory[dynamicID], "的重复动态", dynamicID)
+					}
+				default:
+					break
 				}
 			}(new_baseline)
 		}

@@ -51,11 +51,10 @@ func biliSearch(keyword string, kind string) string {
 		}
 		return ""
 	}(v.GetInt("search.settings.imageSize"))
-	body := ihttp.New().WithUrl("https://api.bilibili.com/x/web-interface/search/type").
+	g := ihttp.New().WithUrl("https://api.bilibili.com/x/web-interface/search/type").
 		WithAddQuerys(map[string]string{"search_type": kind, "keyword": keyword}).WithHeaders(iheaders).WithCookie(cookie).
-		Get().WithError(func(err error) { log.Errorln("[ihttp] 请求错误:", err) }).ToString()
-	log.Traceln("[search] body:", body)
-	g := gson.NewFrom(body)
+		Get().WithError(func(err error) { log.Errorln("[ihttp] 请求错误:", err) }).ToGson()
+	log.Traceln("[search] body:", g.JSON("", ""))
 	if g.Get("code").Int() != 0 {
 		return ""
 	}
