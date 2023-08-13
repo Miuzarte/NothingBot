@@ -8,7 +8,6 @@ import (
 	"time"
 
 	log "github.com/sirupsen/logrus"
-	"github.com/ysmood/gson"
 )
 
 var biliLinkRegexp = struct {
@@ -158,20 +157,13 @@ func normalParse(id string, kind string, msg gocqMessage) string { //拿到id直
 	case "LIVE":
 		uid := strconv.Itoa(getRoomJsonRoomID(id).Get("data.uid").Int())
 		if uid == "0" {
-			return fmt.Sprintf("[NothingBot] [ERROR] [parse] 直播间%s信息获取错误", id)
+			return fmt.Sprintf("[NothingBot] [ERROR] [parse] 直播间%s信息获取错误, uid == \"0\"", id)
 		}
 		roomJson, ok := getRoomJsonUID(uid).Gets("data", uid)
 		if !ok {
-			return fmt.Sprintf("[NothingBot] [ERROR] [parse] 直播间%s信息获取错误", id)
+			return fmt.Sprintf("[NothingBot] [ERROR] [parse] 直播间%s信息获取错误, !ok", id)
 		}
-		return func(g gson.JSON) string {
-			usefulRoomJson, ok := g.Gets("data", uid)
-			if ok {
-				return formatLive(usefulRoomJson)
-			} else {
-				return fmt.Sprintf("[NothingBot] [ERROR] [parse] 直播间%s信息获取错误", id)
-			}
-		}(roomJson)
+		return formatLive(roomJson)
 	case "SHORT":
 		id, kind := extractor(deShortLink(id))
 		return normalParse(id, kind, msg)

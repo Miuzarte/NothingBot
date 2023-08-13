@@ -473,7 +473,7 @@ space.bilibili.com/%s`,
 
 func getRoomJsonUID(uid string) gson.JSON { //uid获取直播间数据  .Gets("data", strconv.Itoa(uid))
 	body := ihttp.New().WithUrl("https://api.live.bilibili.com/room/v1/Room/get_status_info_by_uids").
-		WithAddQuery("uids[]", uid).WithHeaders(iheaders).
+		WithAddQuery("uids[]", uid).WithHeaders(iheaders).WithCookie(cookie).
 		Get().WithError(func(err error) { log.Errorln("[bilibili] getRoomJsonUID().ihttp请求错误:", err) }).ToString()
 	log.Traceln("[bilibili] rawRoomJson:", body)
 	liveJson := gson.NewFrom(body)
@@ -485,7 +485,7 @@ func getRoomJsonUID(uid string) gson.JSON { //uid获取直播间数据  .Gets("d
 
 func getRoomJsonRoomID(roomID string) gson.JSON { //房间号获取直播间数据（拿不到UP用户名）  .Get("data")
 	body := ihttp.New().WithUrl("https://api.live.bilibili.com/room/v1/Room/get_info").
-		WithAddQuery("room_id", roomID).WithHeaders(iheaders).
+		WithAddQuery("room_id", roomID).WithHeaders(iheaders).WithCookie(cookie).
 		Get().WithError(func(err error) { log.Errorln("[bilibili] getRoomJsonRoomID().ihttp请求错误:", err) }).ToString()
 	log.Traceln("[bilibili] rawRoomJson:", body)
 	liveJson := gson.NewFrom(body)
@@ -515,16 +515,17 @@ func formatLive(g gson.JSON) string {
 	parea := g.Get("area_v2_parent_name").Str() //主分区
 	sarea := g.Get("area_v2_name").Str()        //子分区
 	history := func(state int) string {         //bot记录
-		switch state {
-		case streamState.ONLINE:
-			return fmt.Sprintf("\n机器人缓存的上一次开播时间：\n%s",
-				time.Unix(liveStateList[g.Get("room_id").Str()].TIME, 0).Format(timeLayout.M24C))
-		case streamState.OFFLINE:
-			return fmt.Sprintf("\n机器人缓存的上一次下播时间：\n%s",
-				time.Unix(liveStateList[g.Get("room_id").Str()].TIME, 0).Format(timeLayout.M24C))
-		default:
-			return ""
+		if liveStateList[g.Get("room_id").Str()].TIME != 0 {
+			switch state {
+			case streamState.ONLINE:
+				return fmt.Sprintf("\n机器人缓存的上一次开播时间：\n%s",
+					time.Unix(liveStateList[g.Get("room_id").Str()].TIME, 0).Format(timeLayout.M24C))
+			case streamState.OFFLINE:
+				return fmt.Sprintf("\n机器人缓存的上一次下播时间：\n%s",
+					time.Unix(liveStateList[g.Get("room_id").Str()].TIME, 0).Format(timeLayout.M24C))
+			}
 		}
+		return ""
 	}(liveStateList[g.Get("room_id").Str()].STATE)
 	roomID := g.Get("room_id").Int() //房间号
 	return fmt.Sprintf(
