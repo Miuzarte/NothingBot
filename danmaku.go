@@ -214,7 +214,9 @@ func connectDanmu(uid int, roomID int) {
 		disconnected = true
 		return
 	}
-	conn, _, err := websocket.DefaultDialer.Dial(fmt.Sprintf("wss://%s/sub", host[0]), nil)
+	reqHeader := &http.Header{}
+	reqHeader.Set("User-Agent", iheaders["User-Agent"])
+	conn, _, err := websocket.DefaultDialer.Dial(fmt.Sprintf("wss://%s/sub", host[0]), *reqHeader)
 	if err != nil {
 		log.Errorln("[danmaku] failed to establish websocket connection:", err)
 		disconnected = true
@@ -267,6 +269,7 @@ func RecvLoop(connection connection) {
 				case "AREA_RANK_CHANGED":
 				case "COMBO_END":
 				case "COMMON_NOTICE_DANMAKU":
+				case "DANMU_AGGREGATION":
 				case "DANMU_MSG":
 				case "ENTRY_EFFECT":
 				case "ENTRY_EFFECT_MUST_RECEIVE":
@@ -290,6 +293,7 @@ func RecvLoop(connection connection) {
 				case "PK_BATTLE_SETTLE_USER":
 				case "PK_BATTLE_SETTLE_V2":
 				case "POPULAR_RANK_CHANGED":
+				case "POPULARITY_RED_POCKET_WINNER_LIST":
 				//case "PREPARING":
 				//case "ROOM_CHANGE":
 				case "ROOM_REAL_TIME_MESSAGE_UPDATE":
@@ -297,6 +301,7 @@ func RecvLoop(connection connection) {
 				case "STOP_LIVE_ROOM_LIST":
 				case "WATCHED_CHANGE":
 				case "WIDGET_BANNER":
+				case "WIDGET_GIFT_STAR_PROCESS":
 				default:
 					cmd := pktJson.Get("cmd").Str()
 					log.Debugln("[danmaku] 直播间", connection.roomID, "接收数据: \"cmd\":", cmd)

@@ -4,7 +4,9 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"regexp"
 	"strconv"
+	"strings"
 
 	"time"
 
@@ -18,7 +20,7 @@ import (
 
 const defaultConfig string = `main: #冷更新
   websocket: "ws://127.0.0.1:9820" #go-cqhttp
-  admin:  #管理者QQ  int / []int
+  superUsers:  #int / []int
   #控制台日志等级，越大输出越多
   #Panic = 0
   #Fatal = 1
@@ -66,16 +68,19 @@ const (
 )
 
 var (
-	gocqConn          *websocket.Conn   //
-	mainBlock         = make(chan any)  //main阻塞
-	tempBlock         = make(chan any)  //其他阻塞 热更新时重置
-	logLever          = DebugLevel      //日志等级
-	configPath        = "./config.yaml" //配置路径
-	v                 = viper.New()     //配置体
-	heartbeatInterval = 0               //
-	heartbeatLive     = 0               //
-	heartbeatOK       = false           //
-	adminID           = []int{}         //超管QQ
+	gocqConn          *websocket.Conn                     //
+	mainBlock         = make(chan struct{})               //main阻塞
+	tempBlock         = make(chan struct{})               //其他阻塞 热更新时重置
+	logLever          = DebugLevel                        //日志等级
+	configPath        = "./config.yaml"                   //配置路径
+	v                 = viper.New()                       //配置体
+	heartbeatInterval = 0                                 //
+	heartbeatLive     = 0                                 //
+	heartbeatOK       = false                             //
+	selfID            = 0                                 //机器人QQ
+	suID              = []int{}                           //超管QQ
+	msgTableGroup     = make(map[int]map[int]gocqMessage) //group_id:msg_id:msg
+	msgTableFriend    = make(map[int]map[int]gocqMessage) //user_id:msg_id:msg
 )
 
 var timeLayout = struct {
@@ -130,6 +135,20 @@ type gocqPoke struct {
 	target_id int
 }
 
+type gocqGroupRecall struct {
+	time        int
+	group_id    int
+	user_id     int
+	operator_id int //不同则为管理员撤回
+	message_id  int
+}
+
+type gocqFriendRecall struct {
+	time       int
+	user_id    int
+	message_id int
+}
+
 type gocqRequest struct {
 	request_type string //请求类型: "friend"好友请求, "group"群请求
 }
@@ -148,9 +167,12 @@ type gocqMessage struct {
 	message_seq     int    //消息片
 	raw_message     string //消息内容
 	message         string //消息内容
+	messageF        string //处理后的消息内容
 	sender_nickname string //QQ昵称
 	sender_card     string //群昵称
 	sender_rold     string //群身份: "owner", "admin", "member"
+	recalled        bool   //是否被撤回
+	operator_id     int    //撤回者ID
 }
 
 func connect(url string) {
@@ -180,39 +202,62 @@ func connect(url string) {
 			fmt.Println(err)
 			continue
 		}
-		jsonPost := gson.NewFrom(rawPost)
+		p := gson.NewFrom(rawPost)
 		log.Traceln("[gocq] 上报:", rawPost)
 		var msg gocqMessage
 		var msgSent gocqMessageSent
 		var request gocqRequest
-		switch jsonPost.Get("post_type").Str() { //上报类型: "message"消息, "message_sent"消息发送, "request"请求, "notice"通知, "meta_event"
+		switch p.Get("post_type").Str() { //上报类型: "message"消息, "message_sent"消息发送, "request"请求, "notice"通知, "meta_event"
 		case "message":
 			msg = gocqMessage{ //消息内容
-				message_type:    jsonPost.Get("message_type").Str(),
-				sub_type:        jsonPost.Get("sub_type").Str(),
-				time:            jsonPost.Get("time").Int(),
-				timeF:           time.Unix(int64(jsonPost.Get("time").Int()), 0).Format(timeLayout.S24),
-				user_id:         jsonPost.Get("user_id").Int(),
-				group_id:        jsonPost.Get("group_id").Int(),
-				message_id:      jsonPost.Get("message_id").Int(),
-				message_seq:     jsonPost.Get("message_seq").Int(),
-				raw_message:     jsonPost.Get("raw_message").Str(),
-				message:         jsonPost.Get("message").Str(),
-				sender_nickname: jsonPost.Get("sender.nickname").Str(),
-				sender_card:     jsonPost.Get("sender.card").Str(),
-				sender_rold:     jsonPost.Get("sender.role").Str(),
+				message_type: p.Get("message_type").Str(),
+				sub_type:     p.Get("sub_type").Str(),
+				time:         p.Get("time").Int(),
+				timeF:        time.Unix(int64(p.Get("time").Int()), 0).Format(timeLayout.T24),
+				user_id:      p.Get("user_id").Int(),
+				group_id:     p.Get("group_id").Int(),
+				message_id:   p.Get("message_id").Int(),
+				message_seq:  p.Get("message_seq").Int(),
+				raw_message:  p.Get("raw_message").Str(),
+				message:      p.Get("message").Str(),
+				messageF: func(msg string) string { //具体化回复
+					reg := regexp.MustCompile(`\[CQ:reply\,id=(.*?)\]`).FindAllStringSubmatch(msg, -1)
+					if len(reg) > 0 {
+						replyID_str := reg[0][1]
+						replyID_int, _ := strconv.Atoi(replyID_str)
+						replyMsg := gocqMessage{}
+						reply := ""
+						switch p.Get("message_type").Str() {
+						case "group":
+							replyMsg = msgTableGroup[p.Get("group_id").Int()][replyID_int]
+						case "private":
+							replyMsg = msgTableFriend[p.Get("user_id").Int()][replyID_int]
+						}
+						reply = fmt.Sprintf("[CQ:reply,qq=%d,time=%d,text=%s]", replyMsg.user_id, replyMsg.time, replyMsg.message)
+						msg = strings.ReplaceAll(msg, fmt.Sprintf("[CQ:reply,id=%s]", reg[0][1]), reply)
+					}
+					return msg
+				}(p.Get("message").Str()),
+				sender_nickname: p.Get("sender.nickname").Str(),
+				sender_card:     p.Get("sender.card").Str(),
+				sender_rold:     p.Get("sender.role").Str(),
 			}
 			switch msg.message_type {
-			case "private":
-				log.Infoln("[gocq] 收到", msg.sender_nickname, "(", msg.user_id, ")的私聊消息", msg.message)
 			case "group":
-				log.Infoln("[gocq] 在", msg.group_id, "收到", msg.sender_card, "(", msg.sender_nickname, msg.user_id, ")的群聊消息", msg.message)
-			}
-			for i := 0; i < len(v.GetStringSlice("main.ban.private")); i++ { //私聊黑名单
-				if msg.user_id == v.GetInt(fmt.Sprintf("main.ban.private.%d", i)) {
-					log.Infoln("[gocq] 黑名单用户:", msg.sender_nickname, "(", msg.user_id, ")")
-					return
+				if msgTableGroup[msg.group_id] == nil {
+					msgTableGroup[msg.group_id] = make(map[int]gocqMessage)
 				}
+				log.Infoln("[gocq] 在", msg.group_id, "收到", msg.sender_card, "(", msg.sender_nickname, msg.user_id, ")的群聊消息", msg.message)
+				msgTableGroup[msg.group_id][msg.message_id] = msg //消息缓存
+			case "private":
+				if msgTableFriend[msg.user_id] == nil {
+					msgTableFriend[msg.user_id] = make(map[int]gocqMessage)
+				}
+				log.Infoln("[gocq] 收到", msg.sender_nickname, "(", msg.user_id, ")的私聊消息", msg.message)
+				msgTableFriend[msg.user_id][msg.message_id] = msg //消息缓存
+			}
+			if msg.user_id == selfID {
+				return
 			}
 			for i := 0; i < len(v.GetStringSlice("main.ban.group")); i++ { //群聊黑名单
 				if msg.user_id == v.GetInt(fmt.Sprintf("main.ban.group.%d", i)) {
@@ -220,9 +265,17 @@ func connect(url string) {
 					return
 				}
 			}
+			for i := 0; i < len(v.GetStringSlice("main.ban.private")); i++ { //私聊黑名单
+				if msg.user_id == v.GetInt(fmt.Sprintf("main.ban.private.%d", i)) {
+					log.Infoln("[gocq] 黑名单用户:", msg.sender_nickname, "(", msg.user_id, ")")
+					return
+				}
+			}
 			go checkCorpus(msg)
 			go checkParse(msg)
 			go checkSearch(msg)
+			go controlRecall(msg)
+			go checkRecallSend(msg)
 		case "message_sent":
 			msgSent = gocqMessageSent{}
 			_ = msgSent
@@ -232,41 +285,69 @@ func connect(url string) {
 			_ = request
 			log.Infoln("[gocq] request", rawPost)
 		case "notice":
-			switch jsonPost.Get("notice_type").Str() { //https://docs.go-cqhttp.org/reference/data_struct.html#post-notice-type
-			case "notify":
-				switch jsonPost.Get("sub_type").Str() {
+			switch p.Get("notice_type").Str() { //https://docs.go-cqhttp.org/reference/data_struct.html#post-notice-type
+			case "group_recall": //群消息撤回
+				recall := gocqGroupRecall{
+					time:        p.Get("time").Int(),
+					group_id:    p.Get("group_id").Int(),
+					user_id:     p.Get("user_id").Int(),
+					operator_id: p.Get("operator_id").Int(),
+					message_id:  p.Get("message_id").Int(),
+				}
+				log.Infoln("[gocq] 在", recall.group_id, "收到", recall.user_id, "撤回群聊消息", msgTableGroup[recall.group_id][recall.message_id].message, "(", recall.message_id, ")")
+				if msgTableGroup[recall.group_id] != nil { //防止开机刚好遇到撤回
+					msg := msgTableGroup[recall.group_id][recall.message_id]
+					msg.recalled = true //标记撤回
+					msg.operator_id = recall.operator_id
+					msgTableGroup[recall.group_id][recall.message_id] = msg
+				}
+			case "friend_recall": //好友消息撤回
+				recall := gocqFriendRecall{
+					time:       p.Get("time").Int(),
+					user_id:    p.Get("user_id").Int(),
+					message_id: p.Get("message_id").Int(),
+				}
+				log.Infoln("[gocq] 收到", recall.user_id, "撤回私聊消息", msgTableFriend[recall.user_id][recall.message_id], "(", recall.message_id, ")")
+				if msgTableFriend[recall.user_id] != nil { //防止开机刚好遇到撤回
+					msg := msgTableFriend[recall.user_id][recall.message_id]
+					msg.recalled = true //标记撤回
+					msgTableFriend[recall.user_id][recall.message_id] = msg
+				}
+			case "notify": //通知
+				switch p.Get("sub_type").Str() {
 				case "poke":
 					poke := gocqPoke{
-						group_id:  jsonPost.Get("group_id").Int(),
-						sender_id: jsonPost.Get("sender_id").Int(),
-						target_id: jsonPost.Get("target_id").Int(),
+						group_id:  p.Get("group_id").Int(),
+						sender_id: p.Get("sender_id").Int(),
+						target_id: p.Get("target_id").Int(),
 					}
 					log.Infoln("[gocq] 收到", poke.sender_id, "对", poke.target_id, "的戳一戳")
 				default:
 					log.Infoln("[gocq] notice", rawPost)
-					log.Infoln("[gocq] notice.notify.sub_type:", jsonPost.Get("sub_type").Str())
+					log.Infoln("[gocq] notice.notify.sub_type:", p.Get("sub_type").Str())
 				}
 			default:
 				log.Infoln("[gocq] notice", rawPost)
 			}
-		case "meta_event":
-			switch jsonPost.Get("meta_event_type").Str() { //"lifecycle"/"heartbeat"
+		case "meta_event": //元事件
+			switch p.Get("meta_event_type").Str() { //"lifecycle"/"heartbeat"
 			case "heartbeat":
 				heartbeat := gocqHeartbeat{
-					self_id:  jsonPost.Get("self_id").Int(),
-					interval: jsonPost.Get("interval").Int(),
+					self_id:  p.Get("self_id").Int(),
+					interval: p.Get("interval").Int(),
 				}
 				heartbeatLive = 5
 				heartbeatInterval = heartbeat.interval
 				log.Debugln("[gocq] heartbeat", heartbeat)
 			case "lifecycle":
 				lifecycle := gocqLifecycle{
-					self_id:      jsonPost.Get("self_id").Int(),
-					_post_method: jsonPost.Get("_post_method").Int(),
+					self_id:      p.Get("self_id").Int(),
+					_post_method: p.Get("_post_method").Int(),
 				}
+				selfID = lifecycle.self_id
 				log.Infoln("[gocq] lifecycle", lifecycle)
 			default:
-				log.Infoln("[gocq] meta_event", jsonPost)
+				log.Infoln("[gocq] meta_event", p.JSON("", ""))
 			}
 		default:
 			log.Debugln("[gocq] raw:", rawPost)
@@ -289,11 +370,11 @@ func heartbeatCheck() {
 	}
 }
 
-func sendMsg2Admin(msg string) {
+func sendMsg2SU(msg string) {
 	if msg == "" {
 		return
 	}
-	sendMsg(adminID, []int{}, "", "[NothingBot] "+msg)
+	sendMsg(suID, []int{}, "", "[NothingBot] "+msg)
 }
 
 func sendMsg(userID []int, groupID []int, at string, msg string) {
@@ -318,16 +399,6 @@ func sendMsgSingle(user int, group int, msg string) {
 	if msg == "" {
 		return
 	}
-	if user != 0 {
-		g := gson.NewFrom("")
-		g.Set("action", "send_private_msg")
-		g.Set("params", map[string]any{
-			"user_id": user,
-			"message": msg,
-		})
-		gocqConn.Write([]byte(g.JSON("", "")))
-		log.Infoln("[main] 发送消息到用户:", user, "   内容:", msg)
-	}
 	if group != 0 {
 		g := gson.NewFrom("")
 		g.Set("action", "send_group_msg")
@@ -338,7 +409,46 @@ func sendMsgSingle(user int, group int, msg string) {
 		gocqConn.Write([]byte(g.JSON("", "")))
 		log.Infoln("[main] 发送消息到群聊:", group, "   内容:", msg)
 	}
+	if user != 0 {
+		g := gson.NewFrom("")
+		g.Set("action", "send_private_msg")
+		g.Set("params", map[string]any{
+			"user_id": user,
+			"message": msg,
+		})
+		gocqConn.Write([]byte(g.JSON("", "")))
+		log.Infoln("[main] 发送消息到用户:", user, "   内容:", msg)
+	}
 	return
+}
+
+func sendForwardMsgSingle(user int, group int, forwardNode []map[string]any) {
+	if forwardNode == nil {
+		return
+	}
+	if group != 0 {
+		g := gson.NewFrom("")
+		g.Set("action", "send_group_forward_msg")
+		g.Set("params", map[string]any{"group_id": group, "messages": forwardNode})
+		log.Infoln("[main] 发送合并转发到群聊:", group, "   内容:", forwardNode)
+		gocqConn.Write([]byte(g.JSON("", "")))
+	}
+	if user != 0 {
+		g := gson.NewFrom("")
+		g.Set("action", "send_private_forward_msg")
+		g.Set("params", map[string]any{"user_id": user, "messages": forwardNode})
+		log.Infoln("[main] 发送合并转发到私聊:", user, "   内容:", forwardNode)
+		gocqConn.Write([]byte(g.JSON("", "")))
+	}
+}
+
+func matchSU(user_id int) bool {
+	for _, superUser := range suID {
+		if superUser == user_id {
+			return true
+		}
+	}
+	return false
 }
 
 func timeFormat(timeS int64) string {
@@ -375,18 +485,18 @@ func initConfig() {
 	v.WatchConfig()
 	v.OnConfigChange(func(in fsnotify.Event) {
 		log.SetLevel(log.Level(v.GetInt("main.logLevel")))
-		adminID = []int{}
-		adminList := v.GetStringSlice("main.admin")
-		if len(adminList) != 0 {
-			for _, each := range adminList { //[]string to []int
-				admin, err := strconv.Atoi(each)
+		suID = []int{}
+		suList := v.GetStringSlice("main.superUsers")
+		if len(suList) != 0 {
+			for _, each := range suList { //[]string to []int
+				superUser, err := strconv.Atoi(each)
 				if err != nil {
 					log.Fatalln("[strconv.Atoi]", err)
 				}
-				adminID = append(adminID, admin)
+				suID = append(suID, superUser)
 			}
 		}
-		tempBlock <- 1 //解除阻塞
+		tempBlock <- struct{}{} //解除阻塞
 	})
 }
 
@@ -398,17 +508,17 @@ func main() {
 	})
 	initConfig()
 	log.SetLevel(log.Level(v.GetInt("main.logLevel")))
-	adminList := v.GetStringSlice("main.admin")
-	if len(adminList) != 0 {
-		for _, each := range adminList { //[]string to []int
-			admin, err := strconv.Atoi(each)
+	suList := v.GetStringSlice("main.superUsers")
+	if len(suList) != 0 {
+		for _, each := range suList { //[]string to []int
+			superUser, err := strconv.Atoi(each)
 			if err != nil {
 				log.Fatalln("[strconv.Atoi]", err)
 			}
-			adminID = append(adminID, admin)
+			suID = append(suID, superUser)
 		}
 	}
-	log.Infoln("[init] 管理者QQ:", adminID)
+	log.Infoln("[init] super users:", suID)
 	go connect(v.GetString("main.websocket"))
 	initCorpus()
 	initPush()

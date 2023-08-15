@@ -306,7 +306,7 @@ live.bilibili.com/%d`,
 			dynamicType)
 	}
 	log.Errorln("[bilibili] 未知的动态类型:", dynamicType, id)
-	sendMsg2Admin("[bilibili] 未知的动态类型：" + dynamicType + "\n" + id)
+	sendMsg2SU("[bilibili] 未知的动态类型：" + dynamicType + "\n" + id)
 	return fmt.Sprintf(
 		`t.bilibili.com/%s
 %s：

@@ -38,6 +38,8 @@ var streamState = struct {
 }
 
 func initPush() { //初始化推送
+	disconnected = true
+	go liveMonitor()
 	cookie = v.GetString("push.settings.cookie")
 	log.Traceln("[push] cookie:\n", cookie)
 	if cookie == "" || cookie == "<nil>" {
@@ -45,8 +47,6 @@ func initPush() { //初始化推送
 	} else {
 		go dynamicMonitor()
 	}
-	disconnected = true
-	go liveMonitor()
 	v.OnConfigChange(func(in fsnotify.Event) {
 		cookie = v.GetString("push.settings.cookie")
 		configChanged = true
@@ -84,15 +84,15 @@ func cookieChecker() bool { //检测cookie有效性
 	switch g.Get("code").Int() {
 	case 0:
 		log.Warnln("[push] cookie未过期但触发了有效性检测")
-		sendMsg2Admin("[WARN] [push] cookie未过期但触发了有效性检测")
+		sendMsg2SU("[WARN] [push] cookie未过期但触发了有效性检测")
 		return true
 	case -101:
 		log.Errorln("[push] cookie已过期")
-		sendMsg2Admin("[ERROR] [push] cookie已过期")
+		sendMsg2SU("[ERROR] [push] cookie已过期")
 		return false
 	default:
 		log.Errorln("[push] 非正常cookie状态:", g.JSON("", ""))
-		sendMsg2Admin("[ERROR] [push] 非正常cookie状态：" + g.JSON("", ""))
+		sendMsg2SU("[ERROR] [push] 非正常cookie状态：" + g.JSON("", ""))
 		return false
 	}
 }
@@ -105,8 +105,8 @@ func dynamicMonitor() { //监听动态流
 		failureCount    = 0
 	)
 	update_baseline = getBaseline()
-	if update_baseline == "-1" {
-		log.Errorln("[push] 获取update_baseline时出现错误")
+	if update_baseline != "-1" {
+		log.Infoln("[push] update_baseline:", update_baseline)
 	}
 	for {
 		update_num = getUpdate(update_baseline)
@@ -121,13 +121,13 @@ func dynamicMonitor() { //监听动态流
 			failureCount++
 			if failureCount >= 10 {
 				log.Errorln("[push] 尝试更新失败", failureCount, "次, 暂停拉取动态更新")
-				sendMsg2Admin("[push] 连续更新失败十次但cookie未失效，已暂停拉取动态更新")
+				sendMsg2SU("[push] 连续更新失败十次但cookie未失效，已暂停拉取动态更新")
 				<-tempBlock
 				failureCount = 0
 			}
 			duration := time.Duration(time.Second * time.Duration(failureCount) * 30)
-			log.Errorln("[push] 获取更新失败", failureCount, "次, 将在", duration, "秒后重试")
-			time.Sleep(time.Second * duration)
+			log.Errorln("[push] 获取更新失败", failureCount, "次, 将在", duration, "后重试")
+			time.Sleep(duration)
 		case "0":
 			log.Debugln("[push] 没有新动态    update_num =", update_num, "   update_baseline =", update_baseline)
 		default:
@@ -136,18 +136,33 @@ func dynamicMonitor() { //监听动态流
 			update_baseline = new_baseline
 			go func(dynamicID string) { //检测推送
 				rawJson := getDynamicJson(dynamicID)
+				mainJson := rawJson.Get("data.item")
+				log.Debugln("[push] mainJson:", mainJson.JSON("", ""))
 				switch rawJson.Get("code").Int() {
 				case 4101131: //动态已删除，不推送
 					if dynamicHistrory[dynamicID] != "" {
 						log.Infoln("[push] 明确记录到一条来自", dynamicHistrory[dynamicID], "的已删除动态", dynamicID)
-						sendMsg2Admin(fmt.Sprintf("[INFO] [push] 明确记录到一条来自%s的已删除动态，dynamicID = %s", dynamicHistrory[dynamicID], dynamicID))
+						sendMsg2SU(fmt.Sprintf("[INFO] [push] 明确记录到一条来自%s的已删除动态，dynamicID = %s", dynamicHistrory[dynamicID], dynamicID))
 					}
 					break
 				case 500: //加载错误，请稍后再试
-					break
+					if dynamicHistrory[dynamicID] == "" { //检测是否为重复动态
+						go func(dynamicID string) {
+							for i := 0; i < 3; i++ { //重试三次
+								log.Infoln("[push] ( RETRY _", i+1, ") 将在10秒后重试动态", dynamicID)
+								time.Sleep(time.Second * 10)
+								rawJson := getDynamicJson(dynamicID)
+								mainJson := rawJson.Get("data.item")
+								log.Debugln("[push] (RETRY) mainJson:", mainJson.JSON("", ""))
+								if rawJson.Get("code").Int() == 0 {
+									dynamicChecker(mainJson)
+									dynamicHistrory[dynamicID] = mainJson.Get("modules.module_author.name").Str() //记录历史
+									break
+								}
+							}
+						}(dynamicID)
+					}
 				case 0: //正常
-					mainJson := rawJson.Get("data.item")
-					log.Debugln("[push] mainJson:", mainJson.JSON("", ""))
 					if dynamicHistrory[dynamicID] == "" { //检测是否为重复动态
 						dynamicChecker(mainJson)
 						dynamicHistrory[dynamicID] = mainJson.Get("modules.module_author.name").Str() //记录历史
@@ -167,28 +182,33 @@ func dynamicChecker(mainJson gson.JSON) { //mainJson：data.item
 	uid := mainJson.Get("modules.module_author.mid").Int()
 	name := mainJson.Get("modules.module_author.name").Str()
 	dynamicType := mainJson.Get("type").Str()
-	for i := 0; i < len(v.GetStringSlice("push.list")); i++ { //循环匹配
-		log.Tracef("push.list.%d.uid: %d", i, v.GetInt(fmt.Sprintf("push.list.%d.uid", i)))
-		uidMatch := uid == v.GetInt(fmt.Sprintf("push.list.%d.uid", i))
-		var filterMatch bool
-		if len(v.GetStringSlice(fmt.Sprintf("push.list.%d.filter", i))) == 0 {
-			filterMatch = true
-		} else {
-			for j := 0; j < len(v.GetStringSlice(fmt.Sprintf("push.list.%d.filter", i))); j++ { //匹配推送过滤
-				if dynamicType == v.GetString(fmt.Sprintf("push.list.%d.filter.%d", i, j)) {
-					filterMatch = true
+	if uid != 0 {
+		for i := 0; i < len(v.GetStringSlice("push.list")); i++ { //循环匹配
+			log.Tracef("push.list.%d.uid: %d", i, v.GetInt(fmt.Sprintf("push.list.%d.uid", i)))
+			uidMatch := uid == v.GetInt(fmt.Sprintf("push.list.%d.uid", i))
+			var filterMatch bool
+			if len(v.GetStringSlice(fmt.Sprintf("push.list.%d.filter", i))) == 0 {
+				filterMatch = true
+			} else {
+				for j := 0; j < len(v.GetStringSlice(fmt.Sprintf("push.list.%d.filter", i))); j++ { //匹配推送过滤
+					if dynamicType == v.GetString(fmt.Sprintf("push.list.%d.filter.%d", i, j)) {
+						filterMatch = true
+					}
 				}
 			}
+			if uidMatch && filterMatch {
+				log.Infoln("[push] 处于推送列表:", name, uid)
+				at, userID, groupID := sendListGen(i)
+				sendMsg(userID, groupID, at, formatDynamic(mainJson))
+				return
+			}
 		}
-		if uidMatch && filterMatch {
-			log.Infoln("[push] 处于推送列表:", name, uid)
-			at, userID, groupID := sendListGen(i)
-			sendMsg(userID, groupID, at, formatDynamic(mainJson))
-			return
-		}
+		log.Infoln("[push] 不处于推送列表:", name, uid)
+		return
+	} else {
+		log.Errorln("[push] 动态信息获取错误", mainJson.JSON("", ""))
+		return
 	}
-	log.Infoln("[push] 不处于推送列表:", name, uid)
-	return
 }
 
 func initLiveList() { //初始化直播监听列表
@@ -355,7 +375,7 @@ func sendListGen(i int) (string, []int, []int) { //生成发送队列
 			user, err := strconv.Atoi(each)
 			if err != nil {
 				log.Errorln("[strconv.Atoi]", err)
-				sendMsg2Admin(fmt.Sprintf("[ERROR] [strconv.Atoi] %v", err))
+				sendMsg2SU(fmt.Sprintf("[ERROR] [strconv.Atoi] %v", err))
 			}
 			userID = append(userID, user)
 		}
@@ -368,7 +388,7 @@ func sendListGen(i int) (string, []int, []int) { //生成发送队列
 			group, err := strconv.Atoi(each)
 			if err != nil {
 				log.Errorln("[strconv.Atoi]", err)
-				sendMsg2Admin(fmt.Sprintf("[ERROR] [strconv.Atoi] %v", err))
+				sendMsg2SU(fmt.Sprintf("[ERROR] [strconv.Atoi] %v", err))
 			}
 			groupID = append(groupID, group)
 		}

@@ -1,6 +1,6 @@
 main: #除特殊标注以外是冷更新
   websocket: "ws://127.0.0.1:9820" #go-cqhttp
-  admin:  #管理者QQ  int / []int
+  superUsers:  #int / []int
   #控制台日志等级，越大输出越多
   #Panic = 0
   #Fatal = 1
