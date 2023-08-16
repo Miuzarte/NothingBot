@@ -167,12 +167,13 @@ type gocqMessage struct {
 	message_seq     int    //消息片
 	raw_message     string //消息内容
 	message         string //消息内容
-	messageF        string //处理后的消息内容
+	messageF        string //具体化回复后的消息内容
 	sender_nickname string //QQ昵称
-	sender_card     string //群昵称
+	sender_card     string //群名片
 	sender_rold     string //群身份: "owner", "admin", "member"
 	recalled        bool   //是否被撤回
 	operator_id     int    //撤回者ID
+	atWho           []int  //@的人
 }
 
 func connect(url string) {
@@ -202,8 +203,8 @@ func connect(url string) {
 			fmt.Println(err)
 			continue
 		}
-		p := gson.NewFrom(rawPost)
 		log.Traceln("[gocq] 上报:", rawPost)
+		p := gson.NewFrom(rawPost)
 		var msg gocqMessage
 		var msgSent gocqMessageSent
 		var request gocqRequest
@@ -241,6 +242,19 @@ func connect(url string) {
 				sender_nickname: p.Get("sender.nickname").Str(),
 				sender_card:     p.Get("sender.card").Str(),
 				sender_rold:     p.Get("sender.role").Str(),
+				atWho: func(msg string) []int { //@的人
+					reg := regexp.MustCompile(`\[CQ:at,qq=(.*?)\]`).FindAllStringSubmatch(msg, -1)
+					atWho := []int{}
+					if len(reg) != 0 {
+						for _, v := range reg {
+							atID, err := strconv.Atoi(v[1])
+							if err == nil {
+								atWho = append(atWho, atID)
+							}
+						}
+					}
+					return atWho
+				}(p.Get("message").Str()),
 			}
 			switch msg.message_type {
 			case "group":
@@ -274,8 +288,8 @@ func connect(url string) {
 			go checkCorpus(msg)
 			go checkParse(msg)
 			go checkSearch(msg)
-			go controlRecall(msg)
-			go checkRecallSend(msg)
+			go checkRecall(msg)
+			go checkAt(msg)
 		case "message_sent":
 			msgSent = gocqMessageSent{}
 			_ = msgSent
