@@ -86,7 +86,7 @@ func formatAt(atID int, group int) []map[string]any {
 }
 
 func checkAt(msg gocqMessage) {
-	reg := regexp.MustCompile(`^谁[aA艾][tT特](我|(\s?\[CQ:at,qq=)?([0-9]{1,11})?(\]\s?))$`).FindAllStringSubmatch(msg.message, -1)
+	reg := regexp.MustCompile(`^谁[aA艾]?[tT特]?@?(我|(\s?\[CQ:at,qq=)?([0-9]{1,11})?(\]\s?))$`).FindAllStringSubmatch(msg.message, -1)
 	if len(reg) > 0 {
 		var forwardNode []map[string]any
 		var atID int

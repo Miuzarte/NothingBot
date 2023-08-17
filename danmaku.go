@@ -298,6 +298,7 @@ func RecvLoop(connection connection) {
 				//case "ROOM_CHANGE":
 				case "ROOM_REAL_TIME_MESSAGE_UPDATE":
 				case "SEND_GIFT":
+				case "SPREAD_SHOW_FEET_V2":
 				case "STOP_LIVE_ROOM_LIST":
 				case "WATCHED_CHANGE":
 				case "WIDGET_BANNER":
