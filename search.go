@@ -44,7 +44,7 @@ func formatSearch(g gson.JSON) string {
 }
 
 func biliSearch(keyword string, kind string) string {
-	log.Debugln("[search] 开始搜索:", kind, keyword)
+	log.Debug("[search] 开始搜索: ", kind, keyword)
 	imageSize := func(imageSize int) string { //结果图片压缩尺寸
 		if imageSize != 0 {
 			return fmt.Sprintf("@%dh", imageSize)
@@ -53,8 +53,8 @@ func biliSearch(keyword string, kind string) string {
 	}(v.GetInt("search.settings.imageSize"))
 	g := ihttp.New().WithUrl("https://api.bilibili.com/x/web-interface/search/type").
 		WithAddQuerys(map[string]string{"search_type": kind, "keyword": keyword}).WithHeaders(iheaders).WithCookie(cookie).
-		Get().WithError(func(err error) { log.Errorln("[ihttp] 请求错误:", err) }).ToGson()
-	log.Traceln("[search] body:", g.JSON("", ""))
+		Get().WithError(func(err error) { log.Error("[ihttp] 请求错误: ", err) }).ToGson()
+	log.Trace("[search] body: ", g.JSON("", ""))
 	if g.Get("code").Int() != 0 {
 		return ""
 	}
@@ -119,7 +119,7 @@ func checkSearch(msg gocqMessage) {
 		return
 	}
 	message := func(keyword string, kind string) string {
-		log.Debugln("[search] 识别搜索:", kind, keyword)
+		log.Debug("[search] 识别搜索: ", kind, keyword)
 		return biliSearch(keyword, func(kind string) string {
 			switch kind {
 			case "视频":

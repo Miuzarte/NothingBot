@@ -10,14 +10,14 @@ import (
 )
 
 func initCorpus() {
-	log.Infoln("[corpus] 语料库找到", len(v.GetStringSlice("corpus")), "条")
+	log.Info("[corpus] 语料库找到 ", len(v.GetStringSlice("corpus")), " 条")
 }
 
 func checkCorpus(msg gocqMessage) { //msg.message_type: "private"/"group"
 	for i := 0; i < len(v.GetStringSlice("corpus")); i++ { //匹配语料库
 		reg := v.GetString(fmt.Sprintf("corpus.%d.regexp", i))
 		scene := v.GetString(fmt.Sprintf("corpus.%d.scene", i))
-		log.Traceln("[corpus] 匹配语料库:", i, " 正则:", reg)
+		log.Trace("[corpus] 匹配语料库: ", i, "  正则: ", reg)
 		result := regexp.MustCompile(reg).FindAllStringSubmatch(msg.message, -1)
 		if result != nil {
 			switch {

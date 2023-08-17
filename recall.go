@@ -76,7 +76,7 @@ func formatRecall(id int, filter int, kind string) []map[string]any {
 				}
 				return ""
 			}())
-		content := strings.ReplaceAll(rcMsg.messageF, "CQ:at,", "CQ:at,​") //插入零宽空格阻止CQ码解析
+		content := strings.ReplaceAll(rcMsg.message, "CQ:at,", "CQ:at,​") //插入零宽空格阻止CQ码解析
 		forwardNode = append(forwardNode, map[string]any{"type": "node", "data": map[string]any{"name": name, "uin": rcMsg.user_id, "content": content}})
 	}
 	return forwardNode
@@ -122,7 +122,7 @@ func checkRecall(msg gocqMessage) {
 			}(reg[0][2])
 			if !matchSU(msg.user_id) && msg.user_id != id {
 				sendMsgSingle(msg.user_id, 0, "👀？只有超级用户才能查看他人的私聊撤回记录捏")
-				sendMsg2SU(fmt.Sprintf("用户%s（%d）尝试查看的%d私聊撤回记录", msg.sender_nickname, msg.user_id, id))
+				log2SU.Warn(fmt.Sprint("用户 ", msg.sender_nickname, "(", msg.user_id, ") 尝试查看 ", id, " 的私聊撤回记录"))
 				return
 			}
 			if msgTableFriend[id] != nil {

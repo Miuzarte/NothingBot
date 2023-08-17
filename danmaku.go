@@ -89,7 +89,7 @@ func NewEnterPacket(uid int, roomID int, key string) []byte {
 	}
 	m, err := json.Marshal(ent)
 	if err != nil {
-		log.Panicln("[danmaku] NewEnterPacket JsonMarshal failed:", err)
+		log.Panic("[danmaku] NewEnterPacket JsonMarshal failed: ", err)
 	}
 	pkt := NewPlainPacket(RoomEnter, m)
 	return pkt.Build()
@@ -109,7 +109,7 @@ func ParseJson(reader io.ReadCloser) *viper.Viper {
 func GetRoomInfo(roomid int) *viper.Viper {
 	resp, err := http.Get(fmt.Sprintf("https://api.live.bilibili.com/xlive/web-room/v1/index/getDanmuInfo?id=%d&type=0", roomid))
 	if err != nil {
-		log.Errorln("[danmaku] GerRoomInfo().http.Get发生错误:", err)
+		log.Error("[danmaku] GerRoomInfo().http.Get发生错误: ", err)
 		return nil
 	}
 	return ParseJson(resp.Body)
@@ -127,7 +127,7 @@ func NewPacketFromBytes(data []byte) *Packet {
 	packLen := binary.BigEndian.Uint32(data[0:4])
 	// 校验包长度
 	if int(packLen) != len(data) {
-		log.Errorln("[danmaku] error packet.")
+		log.Error("[danmaku] error packet.")
 	}
 	pv := binary.BigEndian.Uint16(data[6:8])
 	op := binary.BigEndian.Uint32(data[8:12])
@@ -145,17 +145,17 @@ func (p *Packet) Parse() []*Packet {
 	case Zlib:
 		z, err := zlibParser(p.Body)
 		if err != nil {
-			log.Errorln("[danmaku] zlib error:", err)
+			log.Error("[danmaku] zlib error: ", err)
 		}
 		return Slice(z)
 	case Brotli:
 		b, err := brotliParser(p.Body)
 		if err != nil {
-			log.Errorln("[danmaku] brotli error:", err)
+			log.Error("[danmaku] brotli error: ", err)
 		}
 		return Slice(b)
 	default:
-		log.Errorln("[danmaku] unknown protocolVersion.")
+		log.Error("[danmaku] unknown protocolVersion.")
 	}
 	return nil
 }
@@ -200,7 +200,7 @@ type connection struct {
 func connectDanmu(uid int, roomID int) {
 	roomInfo := GetRoomInfo(roomID)
 	if roomInfo == nil {
-		log.Errorln("[danmaku] room info is invalid.")
+		log.Error("[danmaku] room info is invalid.")
 		disconnected = true
 		return
 	}
@@ -210,7 +210,7 @@ func connectDanmu(uid int, roomID int) {
 	}
 	token := roomInfo.GetString("data.token")
 	if token == "" {
-		log.Errorln("[danmaku] token is invalid.")
+		log.Error("[danmaku] token is invalid.")
 		disconnected = true
 		return
 	}
@@ -218,13 +218,13 @@ func connectDanmu(uid int, roomID int) {
 	reqHeader.Set("User-Agent", iheaders["User-Agent"])
 	conn, _, err := websocket.DefaultDialer.Dial(fmt.Sprintf("wss://%s/sub", host[0]), *reqHeader)
 	if err != nil {
-		log.Errorln("[danmaku] failed to establish websocket connection:", err)
+		log.Error("[danmaku] failed to establish websocket connection: ", err)
 		disconnected = true
 		return
 	}
 	err = SendEnterPacket(conn, uid, roomID, token)
 	if err != nil {
-		log.Errorln("[danmaku] can not enter room:", err)
+		log.Error("[danmaku] can not enter room: ", err)
 		disconnected = true
 		return
 	}
@@ -245,23 +245,23 @@ func RecvLoop(connection connection) {
 		}
 		msgType, data, err := connection.conn.ReadMessage()
 		if err == io.EOF {
-			log.Errorln("[danmaku] disconnected:", err)
+			log.Error("[danmaku] disconnected: ", err)
 			disconnected = true
 			break
 		}
 		if err != nil {
-			log.Errorln("[danmaku] get error message:", err)
+			log.Error("[danmaku] get error message: ", err)
 			disconnected = true
 			break
 		}
 		if msgType != websocket.BinaryMessage {
-			log.Errorln("[danmaku] packet not binary.")
+			log.Error("[danmaku] packet not binary.")
 			time.Sleep(time.Second * 10)
 			continue
 		}
 		for _, pkt := range NewPacketFromBytes(data).Parse() {
 			pktJson = gson.NewFrom(string(pkt.Body))
-			log.Traceln("[danmaku] 接收数据包:", string(pkt.Body))
+			log.Trace("[danmaku] 接收数据包: ", string(pkt.Body))
 			switch {
 			case !pktJson.Get("cmd").Nil():
 				cmd := pktJson.Get("cmd").Str()
@@ -305,14 +305,14 @@ func RecvLoop(connection connection) {
 				case "WIDGET_GIFT_STAR_PROCESS":
 				default:
 					cmd := pktJson.Get("cmd").Str()
-					log.Debugln("[danmaku] 直播间", connection.roomID, "接收数据: \"cmd\":", cmd)
+					log.Debug("[danmaku] 直播间 ", connection.roomID, " 接收数据: \"cmd\": ", cmd)
 				}
 			case !pktJson.Get("code").Nil():
 				code := pktJson.Get("code").Str()
-				log.Debugln("[danmaku] 直播间", connection.roomID, "接收数据: \"code\":", code)
+				log.Debug("[danmaku] 直播间 ", connection.roomID, " 接收数据: \"code\": ", code)
 			default:
 				if len(string(pkt.Body)) > 4 { //过滤奇怪的数据包导致控制台发声
-					log.Debugln("[danmaku] 直播间", connection.roomID, "原始数据:", string(pkt.Body))
+					log.Debug("[danmaku] 直播间 ", connection.roomID, " 原始数据: ", string(pkt.Body))
 				}
 			}
 			go liveChecker(pktJson, connection.uid, connection.roomID)
@@ -328,7 +328,7 @@ func HeartBeatLoop(conn *websocket.Conn) {
 		}
 		<-time.After(time.Second * 30)
 		if err := conn.WriteMessage(websocket.BinaryMessage, pkt); err != nil {
-			log.Errorln("[danmaku] heartbeat error:", err)
+			log.Error("[danmaku] heartbeat error: ", err)
 			disconnected = true
 			break
 		}
