@@ -492,6 +492,30 @@ func sendMsgCTX(ctx gocqMessage, msg ...any) { //根据上下文发送消息
 	}
 }
 
+func sendMsgAtCTX(ctx gocqMessage, msg ...any) { //根据上下文发送消息，带@
+	if ctx.message_type == "" || len(msg) == 0 {
+		return
+	}
+	switch ctx.message_type {
+	case "group":
+		sendGroupMsg(ctx.group_id, fmt.Sprint("[CQ:at,qq=", ctx.user_id, "]"), fmt.Sprint(msg...))
+	case "private":
+		sendPrivateMsg(ctx.user_id, msg...)
+	}
+}
+
+func sendMsgReplyCTX(ctx gocqMessage, msg ...any) { //根据上下文发送消息，带回复
+	if ctx.message_type == "" || len(msg) == 0 {
+		return
+	}
+	switch ctx.message_type {
+	case "group":
+		sendGroupMsg(ctx.group_id, fmt.Sprint("[CQ:reply,id=", ctx.message_id, "]"), fmt.Sprint(msg...))
+	case "private":
+		sendPrivateMsg(ctx.user_id, fmt.Sprint("[CQ:reply,id=", ctx.message_id, "]"), fmt.Sprint(msg...))
+	}
+}
+
 func sendGroupMsg(group_id int, msg ...any) {
 	if group_id == 0 || len(msg) == 0 {
 		return
