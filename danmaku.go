@@ -273,6 +273,7 @@ func RecvLoop(connection connection) {
 				case "DANMU_MSG":
 				case "ENTRY_EFFECT":
 				case "ENTRY_EFFECT_MUST_RECEIVE":
+				case "GUARD_HONOR_THOUSAND":
 				case "INTERACT_WORD":
 				case "LIKE_INFO_V3_CLICK":
 				case "LIKE_INFO_V3_UPDATE":
@@ -300,6 +301,7 @@ func RecvLoop(connection connection) {
 				case "SEND_GIFT":
 				case "SPREAD_SHOW_FEET_V2":
 				case "STOP_LIVE_ROOM_LIST":
+				case "SUPER_CHAT_MESSAGE":
 				case "WATCHED_CHANGE":
 				case "WIDGET_BANNER":
 				case "WIDGET_GIFT_STAR_PROCESS":

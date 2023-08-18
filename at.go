@@ -85,13 +85,12 @@ func formatAt(atID int, group int) []map[string]any {
 	return forwardNode
 }
 
-func checkAt(msg gocqMessage) {
-	reg := regexp.MustCompile(`^谁[aA艾]?[tT特]?@?(我|(\s?\[CQ:at,qq=)?([0-9]{1,11})?(\]\s?))$`).FindAllStringSubmatch(msg.message, -1)
+func checkAt(ctx gocqMessage) {
+	reg := regexp.MustCompile(`^谁[aA艾]?[tT特]?@?(我|(\s?\[CQ:at,qq=)?([0-9]{1,11})?(\]\s?))$`).FindAllStringSubmatch(ctx.message, -1)
 	if len(reg) > 0 {
-		var forwardNode []map[string]any
 		var atID int
 		if reg[0][1] == "我" {
-			atID = msg.user_id
+			atID = ctx.user_id
 		} else {
 			var err error
 			atID, err = strconv.Atoi(reg[0][3])
@@ -99,13 +98,14 @@ func checkAt(msg gocqMessage) {
 				return
 			}
 		}
-		switch msg.message_type {
-		case "group":
-			forwardNode = formatAt(atID, msg.group_id)
-			sendForwardMsgSingle(0, msg.group_id, forwardNode)
-		case "private":
-			forwardNode = formatAt(atID, 0)
-			sendForwardMsgSingle(msg.user_id, 0, forwardNode)
-		}
+		sendForwardMsgCTX(ctx, func() []map[string]any {
+			switch ctx.message_type {
+			case "group":
+				return formatAt(atID, ctx.group_id)
+			case "private":
+				return formatAt(atID, 0)
+			}
+			return []map[string]any{}
+		}())
 	}
 }

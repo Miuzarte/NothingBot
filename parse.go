@@ -2,48 +2,64 @@ package main
 
 import (
 	"fmt"
-	"net/http"
+	"reflect"
 	"regexp"
 	"strconv"
 	"time"
 
+	"github.com/moxcomic/ihttp"
 	log "github.com/sirupsen/logrus"
 )
 
 var biliLinkRegexp = struct {
+	SHORT    string
 	DYNAMIC  string
 	ARCHIVEa string
 	ARCHIVEb string
 	ARTICLE  string
 	SPACE    string
 	LIVE     string
-	SHORT    string
 }{
+	SHORT:    `(b23|acg)\.tv\\?/(BV[1-9A-HJ-NP-Za-km-z]{10}|av[0-9]{1,10}|[0-9A-Za-z]{7})`, //暂时应该只有7位  也有可能是av/bv号
 	DYNAMIC:  `(t.bilibili.com|dynamic|opus)\\?/([0-9]{18,19})`,                            //应该不会有17位的，可能要有19位
 	ARCHIVEa: `video\\?/av([0-9]{1,10})`,                                                   //9位 预留10
 	ARCHIVEb: `video\\?/(BV[1-9A-HJ-NP-Za-km-z]{10})`,                                      //恒定BV + 10位base58
 	ARTICLE:  `(read\\?/cv|read\\?/mobile\\?/)([0-9]{1,9})`,                                //8位 预留9
 	SPACE:    `space\.bilibili\.com\\?/([0-9]{1,16})`,                                      //新uid 16位
 	LIVE:     `live\.bilibili\.com\\?/([0-9]{1,9})`,                                        //8位 预留9
-	SHORT:    `(b23|acg)\.tv\\?/(BV[1-9A-HJ-NP-Za-km-z]{10}|av[0-9]{1,10}|[0-9A-Za-z]{7})`, //暂时应该只有7位  也有可能是av/bv号
 }
 
-var parseHistoryList = make(map[string]parseHistory) //av/bv : group/user, time
+var everyBiliLinkRegexp = func() string {
+	combinedRegex := ""
+	structValue := reflect.ValueOf(biliLinkRegexp)
+	for i := 0; i < structValue.NumField(); i++ {
+		field := structValue.Field(i)
+		if combinedRegex != "" {
+			combinedRegex += "|"
+		}
+		combinedRegex += field.Interface().(string)
+	}
+	return combinedRegex
+}()
+
+var groupParseHistory = make(map[int]parseHistory) //group/user : av/bv, time
 
 type parseHistory struct {
-	WHERE int
-	TIME  int
+	parseID string
+	TIME    int64
 }
 
 //base58: 123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz
 
-func extractor(str string) (id string, kind string) {
+func biliLinkExtractor(str string) (id string, kind string) {
+	short := regexp.MustCompile(biliLinkRegexp.SHORT).FindAllStringSubmatch(str, -1)
 	dynamicID := regexp.MustCompile(biliLinkRegexp.DYNAMIC).FindAllStringSubmatch(str, -1)
 	aid := regexp.MustCompile(biliLinkRegexp.ARCHIVEa).FindAllStringSubmatch(str, -1)
 	bvid := regexp.MustCompile(biliLinkRegexp.ARCHIVEb).FindAllStringSubmatch(str, -1)
 	cvid := regexp.MustCompile(biliLinkRegexp.ARTICLE).FindAllStringSubmatch(str, -1)
 	uid := regexp.MustCompile(biliLinkRegexp.SPACE).FindAllStringSubmatch(str, -1)
 	roomID := regexp.MustCompile(biliLinkRegexp.LIVE).FindAllStringSubmatch(str, -1)
+	log.Trace("[parse] short: ", short)
 	log.Trace("[parse] dynamicID: ", dynamicID)
 	log.Trace("[parse] aid: ", aid)
 	log.Trace("[parse] bvid: ", bvid)
@@ -51,6 +67,9 @@ func extractor(str string) (id string, kind string) {
 	log.Trace("[parse] uid: ", uid)
 	log.Trace("[parse] roomID: ", roomID)
 	switch {
+	case len(short) > 0:
+		log.Debug("[parse] 识别到一个短链, short[0][2]: ", short[0][2])
+		return short[0][2], "SHORT"
 	case len(dynamicID) > 0:
 		log.Debug("[parse] 识别到一个动态, dynamicID[0][2]: ", dynamicID[0][2])
 		return dynamicID[0][2], "DYNAMIC"
@@ -69,60 +88,41 @@ func extractor(str string) (id string, kind string) {
 	case len(roomID) > 0:
 		log.Debug("[parse] 识别到一个直播, roomID[0][1]: ", roomID[0][1])
 		return roomID[0][1], "LIVE"
-	default:
-		return str, ""
 	}
+	return str, ""
 }
 
-func deShortLink(slug string) string { //短链解析
+func deShortLink(slug string) string {
 	url := "https://b23.tv/" + slug
-	client := &http.Client{
-		CheckRedirect: func(req *http.Request, via []*http.Request) error {
-			return http.ErrUseLastResponse
-		},
-	}
-	resp, _ := client.Head(url)
 	var location string
 	var statusCode string
-	if len(resp.Header["Location"]) > 0 {
-		location = resp.Header["Location"][0]
+	header, err := ihttp.New().WithUrl(url).
+		WithHijackRedirect().Head().ToHeader()
+	if err != nil {
+		log.Error("[parse] deShortLink().ihttp请求错误: ", err)
+	}
+	if len(header["Location"]) > 0 {
+		location = header["Location"][0]
 		log.Debug("[parse] 短链解析结果: ", location[0:32])
 	}
-	if len(resp.Header["Bili-Status-Code"]) > 0 {
-		statusCode = resp.Header["Bili-Status-Code"][0]
+	if len(header["Bili-Status-Code"]) > 0 {
+		statusCode = header["Bili-Status-Code"][0]
 	}
 	switch statusCode {
 	case "-404":
-		log.Warn("[parse] 短链解析失败: ", statusCode, "    location: ", location)
+		log.Warn("[parse] 短链解析失败: ", statusCode, "  location: ", location)
 		return ""
 	}
 	return location
 }
 
-func normalParse(id string, kind string, msg gocqMessage) string { //拿到id直接解析
-	if kind == "" {
-		return ""
-	}
-	duration := int64(v.GetFloat64("parse.settings.sameParseInterval"))
-	where := 0
-	switch msg.message_type {
-	case "group":
-		where = msg.group_id
-	case "private":
-		where = msg.user_id
-	}
-	if (time.Now().Unix()-int64(parseHistoryList[id].TIME) < duration) && where == parseHistoryList[id].WHERE {
-		log.Info("[parse] 在 ", where, " 屏蔽了一次小于 ", duration, " 秒的相同解析 ", kind, id)
-		return ""
-	}
-	if kind != "SHORT" {
-		log.Trace("[parse] 记录了一次在 ", where, " 的解析 ", id)
-		parseHistoryList[id] = parseHistory{
-			where,
-			int(time.Now().Unix()),
-		}
-	}
+func biliLinkParse(id string, kind string) string {
 	switch kind {
+	case "":
+		return ""
+	case "SHORT":
+		id, kind := biliLinkExtractor(deShortLink(id))
+		return biliLinkParse(id, kind)
 	case "DYNAMIC":
 		g := getDynamicJson(id)
 		if g.Get("code").Int() != 0 {
@@ -163,30 +163,49 @@ func normalParse(id string, kind string, msg gocqMessage) string { //拿到id直
 			return fmt.Sprintf("[NothingBot] [ERROR] [parse] 直播间%s信息获取错误, !ok", id)
 		}
 		return formatLive(roomJson)
-	case "SHORT":
-		id, kind := extractor(deShortLink(id))
-		return normalParse(id, kind, msg)
-	default:
-		return ""
 	}
+	return ""
 }
 
-func checkParse(msg gocqMessage) {
-	var slug string
-	var message string
-	result := regexp.MustCompile(biliLinkRegexp.SHORT).FindAllStringSubmatch(msg.message, -1)
-	if len(result) > 0 {
-		slug = result[0][2]
-		log.Debug("[parse] 识别到短链: ", slug)
-		message = normalParse(slug, "SHORT", msg)
-	} else {
-		i, k := extractor(msg.message)
-		message = normalParse(i, k, msg)
+func checkOverParse(ctx gocqMessage, id string, kind string) bool {
+	if ctx.message_type == "group" { //只有群聊有限制
+		duration := int64(v.GetFloat64("parse.settings.sameParseInterval"))
+		during := time.Now().Unix()-groupParseHistory[ctx.group_id].TIME < duration
+		same := id == groupParseHistory[ctx.group_id].parseID
+		if during && same {
+			log.Info("[parse] 在群 ", ctx.group_id, " 屏蔽了一次小于 ", duration, " 秒的相同解析 ", kind, id)
+			return false
+		} else {
+			log.Trace("[parse] 记录了一次在 ", ctx.group_id, " 的解析 ", id)
+			groupParseHistory[ctx.group_id] = parseHistory{ //记录解析历史
+				parseID: id,
+				TIME:    time.Now().Unix(),
+			}
+		}
 	}
-	switch msg.message_type {
-	case "group":
-		sendMsgSingle(0, msg.group_id, message)
-	case "private":
-		sendMsgSingle(msg.user_id, 0, message)
+	return true
+}
+
+func checkParse(ctx gocqMessage) {
+	reg := regexp.MustCompile(everyBiliLinkRegexp)
+	result := reg.FindAllStringSubmatch(ctx.message, -1)
+	if len(result) > 0 {
+		log.Debug("[parse] 识别到哔哩哔哩链接: ", result[0][0])
+		id, kind := biliLinkExtractor(result[0][0])
+		if kind == "SHORT" { //短链先解析提取再往下
+			loc := deShortLink(id)
+			result = reg.FindAllStringSubmatch(loc, -1)
+			if len(result) > 0 {
+				log.Debug("[parse] 短链解析结果: ", result[0][0])
+				id, kind = biliLinkExtractor(result[0][0])
+			} else {
+				log.Debug("[parse] 短链解析失败: ", loc)
+				return
+			}
+		}
+		if !checkOverParse(ctx, id, kind) {
+			return
+		}
+		sendMsgCTX(ctx, biliLinkParse(id, kind))
 	}
 }

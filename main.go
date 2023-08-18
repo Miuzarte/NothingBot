@@ -258,8 +258,8 @@ func msgEntity(p gson.JSON) string { //具体化回复  go-cqhttp没设置extra-
 		case "private":
 			replyMsg = msgTableFriend[p.Get("user_id").Int()][replyID_int]
 		}
-		reply = fmt.Sprintf("[CQ:reply,qq=%d,time=%d,text=%s]", replyMsg.user_id, replyMsg.time, replyMsg.message)
-		msg = strings.ReplaceAll(msg, fmt.Sprintf("[CQ:reply,id=%s]", reg[0][1]), reply)
+		reply = fmt.Sprint("[CQ:reply,qq=", replyMsg.user_id, ",time=", replyMsg.time, ",text=", replyMsg.message, "]")
+		msg = strings.ReplaceAll(msg, fmt.Sprint("[CQ:reply,id=", reg[0][1], "]"), reply)
 	}
 	return msg
 }
@@ -269,7 +269,7 @@ func postHandler(rawPost string) {
 	p := gson.NewFrom(rawPost)
 	var request gocqRequest
 	switch p.Get("post_type").Str() { //上报类型: "message"消息, "message_sent"消息发送, "request"请求, "notice"通知, "meta_event"
-	case "message", "message_sent":
+	case "message":
 		msg := gocqMessage{ //消息内容
 			message_type: p.Get("message_type").Str(),
 			sub_type:     p.Get("sub_type").Str(),
@@ -306,8 +306,6 @@ func postHandler(rawPost string) {
 			}
 			if msg.user_id != selfID {
 				log.Info("[gocq] 在 ", msg.group_id, " 收到 ", msg.sender_card, "(", msg.sender_nickname, " ", msg.user_id, ") 的群聊消息: ", msg.message)
-			} else {
-				log.Info("[gocq] 向群 ", msg.group_id, " 发送消息: ", msg.message)
 			}
 			msgTableGroup[msg.group_id][msg.message_id] = msg //消息缓存
 		case "private":
@@ -315,9 +313,7 @@ func postHandler(rawPost string) {
 				msgTableFriend[msg.user_id] = make(map[int]gocqMessage)
 			}
 			if msg.user_id != selfID {
-				log.Info("[gocq] 收到 ", msg.sender_nickname, "(", msg.user_id, ") 的私聊消息: ", msg.message)
-			} else {
-				log.Info("[gocq] 向好友 ", msg.sender_nickname, "(", msg.user_id, ") 发送私聊消息: ", msg.message)
+				log.Info("[gocq] 收到 ", msg.sender_nickname, "(", msg.user_id, ") 的消息: ", msg.message)
 			}
 			msgTableFriend[msg.user_id][msg.message_id] = msg //消息缓存
 		}
@@ -328,7 +324,7 @@ func postHandler(rawPost string) {
 			if v.GetInt(fmt.Sprint("main.ban.group.", i)) == 0 {
 				break
 			}
-			if msg.group_id == v.GetInt(fmt.Sprintf("main.ban.group.%d", i)) {
+			if msg.group_id == v.GetInt(fmt.Sprint("main.ban.group.", i)) {
 				log.Info("[gocq] 黑名单群组: ", msg.group_id)
 				return
 			}
@@ -337,17 +333,20 @@ func postHandler(rawPost string) {
 			if v.GetInt(fmt.Sprint("main.ban.private.", i)) == 0 {
 				break
 			}
-			if msg.user_id == v.GetInt(fmt.Sprintf("main.ban.private.%d", i)) {
+			if msg.user_id == v.GetInt(fmt.Sprint("main.ban.private.", i)) {
 				log.Info("[gocq] 黑名单用户: ", msg.sender_nickname, "(", msg.user_id, ")")
 				return
 			}
 		}
-		go checkCorpus(msg)
-		go checkParse(msg)
-		go checkSearch(msg)
-		go checkRecall(msg)
-		go checkAt(msg)
-		go checkInfo(msg)
+		go func(msg gocqMessage) {
+			go checkCorpus(msg)
+			go checkParse(msg)
+			go checkSearch(msg)
+			go checkRecall(msg)
+			go checkAt(msg)
+			go checkInfo(msg)
+		}(msg)
+	case "message_sent":
 	case "request":
 		request = gocqRequest{}
 		_ = request
@@ -422,45 +421,46 @@ func postHandler(rawPost string) {
 			log.Info("[gocq] meta_event: ", p.JSON("", ""))
 		}
 	default:
-		log.Debug("[gocq] raw: ", rawPost)
+		if !p.Get("data.message_id").Nil() && !p.Get("retcode").Nil() && !p.Get("status").Nil() {
+			log.Info("[gocq] 消息发送成功    message_id: ", p.Get("data.message_id").Int(), "  retcode: ", p.Get("retcode").Int(), "  status: ", p.Get("status").Str())
+		} else {
+			log.Debug("[gocq] raw: ", rawPost)
+		}
 	}
 }
 
 type log2SuperUsers func(...any)
 
 func (log2SU log2SuperUsers) Panic(msg ...any) {
-	log2SU("[NothingBot] [Panic] ", fmt.Sprint(msg...))
+	log2SU("[Panic] ", fmt.Sprint(msg...))
 }
 
 func (log2SU log2SuperUsers) Fatal(msg ...any) {
-	log2SU("[NothingBot] [Fatal] ", fmt.Sprint(msg...))
+	log2SU("[Fatal] ", fmt.Sprint(msg...))
 }
 
 func (log2SU log2SuperUsers) Error(msg ...any) {
-	log2SU("[NothingBot] [Error] ", fmt.Sprint(msg...))
+	log2SU("[Error] ", fmt.Sprint(msg...))
 }
 
 func (log2SU log2SuperUsers) Warn(msg ...any) {
-	log2SU("[NothingBot] [Warn] ", fmt.Sprint(msg...))
+	log2SU("[Warn] ", fmt.Sprint(msg...))
 }
 
 func (log2SU log2SuperUsers) Info(msg ...any) {
-	log2SU("[NothingBot] [Info] ", fmt.Sprint(msg...))
+	log2SU("[Info] ", fmt.Sprint(msg...))
 }
 
 func (log2SU log2SuperUsers) Debug(msg ...any) {
-	log2SU("[NothingBot] [Debug] ", fmt.Sprint(msg...))
+	log2SU("[Debug] ", fmt.Sprint(msg...))
 }
 
 func (log2SU log2SuperUsers) Trace(msg ...any) {
-	log2SU("[NothingBot] [Trace] ", fmt.Sprint(msg...))
+	log2SU("[Trace] ", fmt.Sprint(msg...))
 }
 
 var log2SU log2SuperUsers = func(msg ...any) {
-	if len(msg) == 0 {
-		return
-	}
-	sendMsg(suID, []int{}, "", msg...)
+	sendMsg(suID, []int{}, "", "[NothingBot] ", fmt.Sprint(msg...))
 }
 
 func sendMsg(userID []int, groupID []int, at string, msg ...any) {
@@ -469,52 +469,81 @@ func sendMsg(userID []int, groupID []int, at string, msg ...any) {
 	}
 	if len(groupID) != 0 {
 		for _, group := range groupID {
-			sendMsgSingle(0, group, msg, at)
+			sendGroupMsg(group, msg, at)
 		}
 	}
 	if len(userID) != 0 {
 		for _, user := range userID {
-			sendMsgSingle(user, 0, msg...)
+			sendPrivateMsg(user, msg...)
 		}
 	}
 	return
 }
 
-func sendMsgSingle(user_id int, group_id int, msg ...any) {
-	if len(msg) == 0 {
+func sendMsgCTX(ctx gocqMessage, msg ...any) { //根据上下文发送消息
+	if ctx.message_type == "" || len(msg) == 0 {
 		return
 	}
-	if group_id != 0 {
-		g := gson.NewFrom("")
-		g.Set("action", "send_group_msg")
-		g.Set("params", map[string]any{"group_id": group_id, "message": fmt.Sprint(msg...)})
-		postMsg(g)
+	switch ctx.message_type {
+	case "group":
+		sendGroupMsg(ctx.group_id, msg...)
+	case "private":
+		sendPrivateMsg(ctx.user_id, msg...)
 	}
-	if user_id != 0 {
-		g := gson.NewFrom("")
-		g.Set("action", "send_private_msg")
-		g.Set("params", map[string]any{"user_id": user_id, "message": fmt.Sprint(msg...)})
-		postMsg(g)
+}
+
+func sendGroupMsg(group_id int, msg ...any) {
+	if group_id == 0 || len(msg) == 0 {
+		return
 	}
+	g := gson.NewFrom("")
+	g.Set("action", "send_group_msg")
+	g.Set("params", map[string]any{"group_id": group_id, "message": fmt.Sprint(msg...)})
+	postMsg(g)
 	return
 }
 
-func sendForwardMsgSingle(user int, group int, forwardNode []map[string]any) {
-	if forwardNode == nil {
+func sendPrivateMsg(user_id int, msg ...any) {
+	if user_id == 0 || len(msg) == 0 {
 		return
 	}
-	if group != 0 {
-		g := gson.NewFrom("")
-		g.Set("action", "send_group_forward_msg")
-		g.Set("params", map[string]any{"group_id": group, "messages": forwardNode})
-		postMsg(g)
+	g := gson.NewFrom("")
+	g.Set("action", "send_private_msg")
+	g.Set("params", map[string]any{"user_id": user_id, "message": fmt.Sprint(msg...)})
+	postMsg(g)
+	return
+}
+
+func sendForwardMsgCTX(ctx gocqMessage, forwardNode []map[string]any) {
+	if ctx.message_type == "" || len(forwardNode) == 0 {
+		return
 	}
-	if user != 0 {
-		g := gson.NewFrom("")
-		g.Set("action", "send_private_forward_msg")
-		g.Set("params", map[string]any{"user_id": user, "messages": forwardNode})
-		postMsg(g)
+	switch ctx.message_type {
+	case "group":
+		sendGroupForwardMsg(ctx.group_id, forwardNode)
+	case "private":
+		sendPrivateForwardMsg(ctx.user_id, forwardNode)
 	}
+}
+
+func sendGroupForwardMsg(group_id int, forwardNode []map[string]any) {
+	if group_id == 0 || len(forwardNode) == 0 {
+		return
+	}
+	g := gson.NewFrom("")
+	g.Set("action", "send_group_forward_msg")
+	g.Set("params", map[string]any{"group_id": group_id, "messages": forwardNode})
+	postMsg(g)
+}
+
+func sendPrivateForwardMsg(user_id int, forwardNode []map[string]any) {
+	if user_id == 0 || len(forwardNode) == 0 {
+		return
+	}
+	g := gson.NewFrom("")
+	g.Set("action", "send_private_forward_msg")
+	g.Set("params", map[string]any{"user_id": user_id, "messages": forwardNode})
+	postMsg(g)
 }
 
 func postMsg(msg gson.JSON) {

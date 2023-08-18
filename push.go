@@ -54,9 +54,12 @@ func initPush() { //初始化推送
 }
 
 func getBaseline() string { //返回baseline用于监听更新
-	g := ihttp.New().WithUrl("https://api.bilibili.com/x/polymer/web-dynamic/v1/feed/all").
+	g, err := ihttp.New().WithUrl("https://api.bilibili.com/x/polymer/web-dynamic/v1/feed/all").
 		WithHeaders(iheaders).WithCookie(cookie).
-		Get().WithError(func(err error) { log.Error("[bilibili] getBaseline().ihttp请求错误: ", err) }).ToGson()
+		Get().ToGson()
+	if err != nil {
+		log.Error("[bilibili] getBaseline().ihttp请求错误: ", err)
+	}
 	update_baseline := g.Get("data.update_baseline").Str()
 	if g.Get("code").Int() != 0 || g.Get("data.update_baseline").Nil() {
 		log.Error("[push] update_baseline获取错误: ", g.JSON("", ""))
@@ -66,9 +69,12 @@ func getBaseline() string { //返回baseline用于监听更新
 }
 
 func getUpdate(update_baseline string) string { //是否有新动态
-	g := ihttp.New().WithUrl("https://api.bilibili.com/x/polymer/web-dynamic/v1/feed/all/update").
+	g, err := ihttp.New().WithUrl("https://api.bilibili.com/x/polymer/web-dynamic/v1/feed/all/update").
 		WithAddQuery("update_baseline", update_baseline).WithHeaders(iheaders).WithCookie(cookie).
-		Get().WithError(func(err error) { log.Error("[bilibili] getUpdate().ihttp请求错误: ", err) }).ToGson()
+		Get().ToGson()
+	if err != nil {
+		log.Error("[bilibili] getUpdate().ihttp请求错误: ", err)
+	}
 	update_num := g.Get("data.update_num").Str()
 	if g.Get("code").Int() != 0 || g.Get("data.update_num").Nil() {
 		log.Error("[push] getUpdate获取错误: ", g.JSON("", ""))
@@ -78,9 +84,12 @@ func getUpdate(update_baseline string) string { //是否有新动态
 }
 
 func cookieChecker() bool { //检测cookie有效性
-	g := ihttp.New().WithUrl("https://passport.bilibili.com/x/passport-login/web/cookie/info").
+	g, err := ihttp.New().WithUrl("https://passport.bilibili.com/x/passport-login/web/cookie/info").
 		WithHeaders(iheaders).WithCookie(cookie).
-		Get().WithError(func(err error) { log.Error("[bilibili] cookieChecker().ihttp请求错误: ", err) }).ToGson()
+		Get().ToGson()
+	if err != nil {
+		log.Error("[bilibili] cookieChecker().ihttp请求错误: ", err)
+	}
 	switch g.Get("code").Int() {
 	case 0:
 		log.Warn("[push] cookie未过期但触发了有效性检测")
@@ -184,14 +193,14 @@ func dynamicChecker(mainJson gson.JSON) { //mainJson：data.item
 	dynamicType := mainJson.Get("type").Str()
 	if uid != 0 {
 		for i := 0; i < len(v.GetStringSlice("push.list")); i++ { //循环匹配
-			log.Tracef("push.list.%d.uid: %d", i, v.GetInt(fmt.Sprintf("push.list.%d.uid", i)))
-			uidMatch := uid == v.GetInt(fmt.Sprintf("push.list.%d.uid", i))
-			var filterMatch bool
-			if len(v.GetStringSlice(fmt.Sprintf("push.list.%d.filter", i))) == 0 {
+			log.Tracef("push.list.%d.uid: %d", i, v.GetInt(fmt.Sprint("push.list.", i, ".uid")))
+			uidMatch := uid == v.GetInt(fmt.Sprint("push.list.", i, ".uid"))
+			filterMatch := false
+			if len(v.GetStringSlice(fmt.Sprint("push.list.", i, ".filter"))) == 0 {
 				filterMatch = true
 			} else {
-				for j := 0; j < len(v.GetStringSlice(fmt.Sprintf("push.list.%d.filter", i))); j++ { //匹配推送过滤
-					if dynamicType == v.GetString(fmt.Sprintf("push.list.%d.filter.%d", i, j)) {
+				for j := 0; j < len(v.GetStringSlice(fmt.Sprint("push.list.", i, ".filter"))); j++ { //匹配推送过滤
+					if dynamicType == v.GetString(fmt.Sprint("push.list.", i, ".filter.", j)) {
 						filterMatch = true
 					}
 				}
@@ -200,15 +209,13 @@ func dynamicChecker(mainJson gson.JSON) { //mainJson：data.item
 				log.Info("[push] 处于推送列表: ", name, uid)
 				at, userID, groupID := sendListGen(i)
 				sendMsg(userID, groupID, at, formatDynamic(mainJson))
-				return
 			}
 		}
-		log.Info("[push] 不处于推送列表: ", name, uid)
-		return
+		log.Info("[push] 不处于推送列表: ", name, " ", uid)
 	} else {
 		log.Error("[push] 动态信息获取错误: ", mainJson.JSON("", ""))
-		return
 	}
+	return
 }
 
 func initLiveList() { //初始化直播监听列表
@@ -219,9 +226,9 @@ func initLiveList() { //初始化直播监听列表
 	for i := 0; i < len(v.GetStringSlice("push.list")); i++ {
 		var uid int
 		var roomID int
-		if v.GetInt(fmt.Sprintf("push.list.%d.live", i)) != 0 {
-			uid = v.GetInt(fmt.Sprintf("push.list.%d.uid", i))
-			roomID = v.GetInt(fmt.Sprintf("push.list.%d.live", i))
+		if v.GetInt(fmt.Sprint("push.list.", i, ".live")) != 0 {
+			uid = v.GetInt(fmt.Sprint("push.list.", i, ".uid"))
+			roomID = v.GetInt(fmt.Sprint("push.list.", i, ".live"))
 			liveListUID = append(liveListUID, uid)
 			liveList = append(liveList, roomID)
 			g, ok := getRoomJsonUID(strconv.Itoa(uid)).Gets("data", strconv.Itoa(uid))
@@ -268,7 +275,7 @@ func liveChecker(pktJson gson.JSON, uid string, roomID string) { //判断数据�
 	switch cmd {
 	case "LIVE":
 		for i := 0; i < len(v.GetStringSlice("push.list")); i++ {
-			if roomID == strconv.Itoa(v.GetInt(fmt.Sprintf("push.list.%d.live", i))) {
+			if roomID == strconv.Itoa(v.GetInt(fmt.Sprint("push.list.", i, ".live"))) {
 				at, userID, groupID := sendListGen(i)
 				if liveStateList[roomID].STATE == streamState.ONLINE {
 					switch {
@@ -307,7 +314,7 @@ live.bilibili.com/%s`,
 		}
 	case "PREPARING":
 		for i := 0; i < len(v.GetStringSlice("push.list")); i++ {
-			if roomID == strconv.Itoa(v.GetInt(fmt.Sprintf("push.list.%d.live", i))) {
+			if roomID == strconv.Itoa(v.GetInt(fmt.Sprint("push.list.", i, ".live"))) {
 				at, userID, groupID := sendListGen(i)
 				if liveStateList[roomID].STATE == streamState.OFFLINE || liveStateList[roomID].STATE == streamState.ROTATE {
 					switch {
@@ -356,7 +363,7 @@ live.bilibili.com/%s`,
 			return
 		}
 		for i := 0; i < len(v.GetStringSlice("push.list")); i++ {
-			if roomID == strconv.Itoa(v.GetInt(fmt.Sprintf("push.list.%d.live", i))) {
+			if roomID == strconv.Itoa(v.GetInt(fmt.Sprint("push.list.", i, ".live"))) {
 				at, userID, groupID := sendListGen(i)
 				log.Info("[push] 推送 ", uid, " 的直播间 ", roomID, " 房间信息更新")
 				roomJson, ok := getRoomJsonUID(uid).Gets("data", uid)
@@ -388,7 +395,7 @@ live.bilibili.com/%s`,
 func sendListGen(i int) (string, []int, []int) { //生成发送队列
 	//读StringSlice再转成IntSlice实现同时支持输入单个和多个数据
 	userID := []int{}
-	userList := v.GetStringSlice(fmt.Sprintf("push.list.%d.user", i))
+	userList := v.GetStringSlice(fmt.Sprint("push.list.", i, ".user"))
 	if len(userList) != 0 {
 		for _, each := range userList {
 			user, err := strconv.Atoi(each)
@@ -401,7 +408,7 @@ func sendListGen(i int) (string, []int, []int) { //生成发送队列
 	}
 	log.Debug("[push] 推送用户: ", userID)
 	groupID := []int{}
-	groupList := v.GetStringSlice(fmt.Sprintf("push.list.%d.group", i))
+	groupList := v.GetStringSlice(fmt.Sprint("push.list.", i, ".group"))
 	if len(groupList) != 0 {
 		for _, each := range groupList {
 			group, err := strconv.Atoi(each)
@@ -414,7 +421,7 @@ func sendListGen(i int) (string, []int, []int) { //生成发送队列
 	}
 	log.Debug("[push] 推送群组: ", groupID)
 	at := ""
-	atList := v.GetStringSlice(fmt.Sprintf("push.list.%d.at", i))
+	atList := v.GetStringSlice(fmt.Sprint("push.list.", i, ".at"))
 	if len(atList) != 0 {
 		at += "\n"
 		for _, each := range atList {

@@ -82,26 +82,26 @@ func formatRecall(id int, filter int, kind string) []map[string]any {
 	return forwardNode
 }
 
-func checkRecall(msg gocqMessage) {
-	reg := regexp.MustCompile("(开启|启用|关闭|禁用)撤回记录").FindAllStringSubmatch(msg.message, -1)
-	if matchSU(msg.user_id) && len(reg) != 0 {
+func checkRecall(ctx gocqMessage) {
+	reg := regexp.MustCompile("(开启|启用|关闭|禁用)撤回记录").FindAllStringSubmatch(ctx.message, -1)
+	if matchSU(ctx.user_id) && len(reg) != 0 {
 		switch reg[0][1] {
 		case "开启", "启用":
 			recallSwitch = true
-			sendMsgSingle(msg.user_id, 0, "撤回记录已启用")
+			sendMsgCTX(ctx, "撤回记录已启用")
 		case "关闭", "禁用":
 			recallSwitch = false
-			sendMsgSingle(msg.user_id, 0, "撤回记录已禁用")
+			sendMsgCTX(ctx, "撤回记录已禁用")
 		}
 		return
 	}
 	if !recallSwitch {
 		return
 	}
-	reg = regexp.MustCompile(`^让我康康(\s?\[CQ:at,qq=)?([0-9]{1,11})?(\]\s?)?撤回了什么$`).FindAllStringSubmatch(msg.message, -1)
+	reg = regexp.MustCompile(`^让我康康(\s?\[CQ:at,qq=)?([0-9]{1,11})?(\]\s?)?撤回了什么$`).FindAllStringSubmatch(ctx.message, -1)
 	if len(reg) != 0 {
 		var forwardNode []map[string]any
-		switch msg.message_type {
+		switch ctx.message_type {
 		case "group": //群内使用filter为群成员
 			filter := func(reg string) int {
 				if reg != "" {
@@ -110,28 +110,28 @@ func checkRecall(msg gocqMessage) {
 				}
 				return 0
 			}(reg[0][2])
-			forwardNode = formatRecall(msg.group_id, filter, msg.message_type)
-			sendForwardMsgSingle(0, msg.group_id, forwardNode)
+			forwardNode = formatRecall(ctx.group_id, filter, ctx.message_type)
+			sendGroupForwardMsg(ctx.group_id, forwardNode)
 		case "private": //私聊使用id为球球号/群号
 			id := func(reg string) int {
 				if reg != "" {
 					id, _ := strconv.Atoi(reg)
 					return id
 				}
-				return msg.user_id
+				return ctx.user_id
 			}(reg[0][2])
-			if !matchSU(msg.user_id) && msg.user_id != id {
-				sendMsgSingle(msg.user_id, 0, "👀？只有超级用户才能查看他人的私聊撤回记录捏")
-				log2SU.Warn(fmt.Sprint("用户 ", msg.sender_nickname, "(", msg.user_id, ") 尝试查看 ", id, " 的私聊撤回记录"))
+			if !matchSU(ctx.user_id) && ctx.user_id != id {
+				sendPrivateMsg(ctx.user_id, "👀？只有超级用户才能查看他人的私聊撤回记录捏")
+				log2SU.Warn(fmt.Sprint("用户 ", ctx.sender_nickname, "(", ctx.user_id, ") 尝试查看 ", id, " 的私聊撤回记录"))
 				return
 			}
 			if msgTableFriend[id] != nil {
 				forwardNode = formatRecall(id, 0, "private")
-				sendForwardMsgSingle(msg.user_id, 0, forwardNode)
+				sendPrivateForwardMsg(ctx.user_id, forwardNode)
 			}
 			if msgTableGroup[id] != nil {
 				forwardNode = formatRecall(id, 0, "group")
-				sendForwardMsgSingle(msg.user_id, 0, forwardNode)
+				sendPrivateForwardMsg(ctx.user_id, forwardNode)
 			}
 		}
 	}

@@ -11,9 +11,12 @@ import (
 )
 
 func getDynamicJson(dynamicID string) gson.JSON { //获取动态数据
-	dynamicJson := ihttp.New().WithUrl("https://api.bilibili.com/x/polymer/web-dynamic/v1/detail").
+	dynamicJson, err := ihttp.New().WithUrl("https://api.bilibili.com/x/polymer/web-dynamic/v1/detail").
 		WithAddQuery("id", dynamicID).WithHeaders(iheaders).WithCookie(cookie).
-		Get().WithError(func(err error) { log.Error("[bilibili] getDynamicJson().ihttp请求错误: ", err) }).ToGson()
+		Get().ToGson()
+	if err != nil {
+		log.Error("[bilibili] getDynamicJson().ihttp请求错误: ", err)
+	}
 	log.Trace("[bilibili] rawDynamicJson: ", dynamicJson.JSON("", ""))
 	if dynamicJson.Get("code").Int() != 0 {
 		log.Error("[parse] 动态 ", dynamicID, " 信息获取错误: ", dynamicJson.JSON("", ""))
@@ -22,9 +25,12 @@ func getDynamicJson(dynamicID string) gson.JSON { //获取动态数据
 }
 
 func getVoteJson(voteID string) gson.JSON { //.Get("data.info")
-	voteJson := ihttp.New().WithUrl("https://api.vc.bilibili.com/vote_svr/v1/vote_svr/vote_info").
+	voteJson, err := ihttp.New().WithUrl("https://api.vc.bilibili.com/vote_svr/v1/vote_svr/vote_info").
 		WithAddQuery("vote_id", voteID).WithHeaders(iheaders).WithCookie(cookie).
-		Get().WithError(func(err error) { log.Error("[bilibili] getVoteJson().ihttp请求错误: ", err) }).ToGson()
+		Get().ToGson()
+	if err != nil {
+		log.Error("[bilibili] getVoteJson().ihttp请求错误: ", err)
+	}
 	log.Trace("[bilibili] rawVoteJson: ", voteJson.JSON("", ""))
 	if voteJson.Get("code").Int() != 0 {
 		log.Error("[parse] 投票 ", voteID, " 信息获取错误: ", voteJson.JSON("", ""))
@@ -318,17 +324,23 @@ live.bilibili.com/%d`,
 }
 
 func getArchiveJsonA(aid string) (gson.JSON, gson.JSON) { //.Get("data"))
-	videoJson := ihttp.New().WithUrl("https://api.bilibili.com/x/web-interface/view").
+	videoJson, err := ihttp.New().WithUrl("https://api.bilibili.com/x/web-interface/view").
 		WithAddQuery("aid", aid).WithHeaders(iheaders).
-		Get().WithError(func(err error) { log.Error("[bilibili] getArchiveJsonA().ihttp请求错误: ", err) }).ToGson()
+		Get().ToGson()
+	if err != nil {
+		log.Error("[bilibili] getArchiveJsonA().ihttp请求错误: ", err)
+	}
 	log.Trace("[bilibili] rawVideoJsonA: ", videoJson.JSON("", ""))
 	if videoJson.Get("code").Int() != 0 {
 		log.Error("[parse] 视频 ", aid, " 信息获取错误: ", videoJson.JSON("", ""))
 	}
 	cid := strconv.Itoa(videoJson.Get("data.cid").Int())
-	statJson := ihttp.New().WithUrl("https://api.bilibili.com/x/player/online/total").
+	statJson, err := ihttp.New().WithUrl("https://api.bilibili.com/x/player/online/total").
 		WithAddQuery("aid", aid).WithAddQuery("cid", cid).WithHeaders(iheaders).
-		Get().WithError(func(err error) { log.Error("[bilibili] getArchiveJsonA().statJson.ihttp请求错误: ", err) }).ToGson()
+		Get().ToGson()
+	if err != nil {
+		log.Error("[bilibili] getArchiveJsonA().statJson.ihttp请求错误: ", err)
+	}
 	log.Trace("[bilibili] rawVideoJsonA.statJson: ", videoJson.JSON("", ""))
 	if statJson.Get("code").Int() != 0 {
 		log.Error("[parse] 视频 ", aid, " 在线人数状态获取错误: ", statJson.JSON("", ""))
@@ -337,17 +349,23 @@ func getArchiveJsonA(aid string) (gson.JSON, gson.JSON) { //.Get("data"))
 }
 
 func getArchiveJsonB(bvid string) (gson.JSON, gson.JSON) { //.Get("data"))
-	videoJson := ihttp.New().WithUrl("https://api.bilibili.com/x/web-interface/view").
+	videoJson, err := ihttp.New().WithUrl("https://api.bilibili.com/x/web-interface/view").
 		WithAddQuery("bvid", bvid).WithHeaders(iheaders).
-		Get().WithError(func(err error) { log.Error("[bilibili] getArchiveJsonB().ihttp请求错误: ", err) }).ToGson()
+		Get().ToGson()
+	if err != nil {
+		log.Error("[bilibili] getArchiveJsonB().ihttp请求错误: ", err)
+	}
 	log.Trace("[bilibili] rawVideoJsonB: ", videoJson.JSON("", ""))
 	if videoJson.Get("code").Int() != 0 {
 		log.Error("[parse] 视频 ", bvid, " 信息获取错误: ", videoJson.JSON("", ""))
 	}
 	cid := strconv.Itoa(videoJson.Get("data.cid").Int())
-	statJson := ihttp.New().WithUrl("https://api.bilibili.com/x/player/online/total").
+	statJson, err := ihttp.New().WithUrl("https://api.bilibili.com/x/player/online/total").
 		WithAddQuery("bvid", bvid).WithAddQuery("cid", cid).WithHeaders(iheaders).
-		Get().WithError(func(err error) { log.Error("[bilibili] getArchiveJsonA().statJson.ihttp请求错误: ", err) }).ToGson()
+		Get().ToGson()
+	if err != nil {
+		log.Error("[bilibili] getArchiveJsonA().statJson.ihttp请求错误: ", err)
+	}
 	log.Trace("[bilibili] rawVideoJsonA.statJson: ", videoJson.JSON("", ""))
 	if statJson.Get("code").Int() != 0 {
 		log.Error("[parse] 视频 ", bvid, " 在线人数状态获取错误: ", statJson.JSON("", ""))
@@ -384,7 +402,7 @@ func formatArchive(g gson.JSON, h gson.JSON) string {
 		if total == "1" {
 			return ""
 		} else {
-			return fmt.Sprintf("\n%s人再看", total)
+			return fmt.Sprintf("\n%s人在看", total)
 		}
 	}()
 	return fmt.Sprintf(
@@ -405,9 +423,12 @@ www.bilibili.com/video/%s`,
 }
 
 func getArticleJson(cvid string) gson.JSON { //.Get("data")
-	articleJson := ihttp.New().WithUrl("https://api.bilibili.com/x/article/viewinfo").
+	articleJson, err := ihttp.New().WithUrl("https://api.bilibili.com/x/article/viewinfo").
 		WithAddQuery("id", cvid).WithHeaders(iheaders).
-		Get().WithError(func(err error) { log.Error("[bilibili] getArticleJson().ihttp请求错误: ", err) }).ToGson()
+		Get().ToGson()
+	if err != nil {
+		log.Error("[bilibili] getArticleJson().ihttp请求错误: ", err)
+	}
 	log.Trace("[bilibili] rawArticleJson: ", articleJson.JSON("", ""))
 	if articleJson.Get("code").Int() != 0 {
 		log.Error("[parse] 文章 ", cvid, " 信息获取错误: ", articleJson.JSON("", ""))
@@ -449,9 +470,12 @@ www.bilibili.com/read/cv%s`,
 }
 
 func getSpaceJson(uid string) gson.JSON { //.Get("data.card")
-	spaceJson := ihttp.New().WithUrl("https://api.bilibili.com/x/web-interface/card").
+	spaceJson, err := ihttp.New().WithUrl("https://api.bilibili.com/x/web-interface/card").
 		WithAddQuery("mid", uid).WithHeaders(iheaders).
-		Get().WithError(func(err error) { log.Error("[bilibili] getSpaceJson().ihttp请求错误: ", err) }).ToGson()
+		Get().ToGson()
+	if err != nil {
+		log.Error("[bilibili] getSpaceJson().ihttp请求错误: ", err)
+	}
 	log.Trace("[bilibili] rawSpaceJson: ", spaceJson.JSON("", ""))
 	if spaceJson.Get("code").Int() != 0 {
 		log.Error("[parse] 空间 ", uid, " 信息获取错误: ", spaceJson.JSON("", ""))
@@ -490,9 +514,12 @@ space.bilibili.com/%s`,
 }
 
 func getRoomJsonUID(uid string) gson.JSON { //uid获取直播间数据  .Gets("data", strconv.Itoa(uid))
-	liveJson := ihttp.New().WithUrl("https://api.live.bilibili.com/room/v1/Room/get_status_info_by_uids").
+	liveJson, err := ihttp.New().WithUrl("https://api.live.bilibili.com/room/v1/Room/get_status_info_by_uids").
 		WithAddQuery("uids[]", uid).WithHeaders(iheaders).WithCookie(cookie).
-		Get().WithError(func(err error) { log.Error("[bilibili] getRoomJsonUID().ihttp请求错误: ", err) }).ToGson()
+		Get().ToGson()
+	if err != nil {
+		log.Error("[bilibili] getRoomJsonUID().ihttp请求错误: ", err)
+	}
 	log.Trace("[bilibili] rawRoomJson: ", liveJson.JSON("", ""))
 	if liveJson.Get("code").Int() != 0 {
 		log.Error("[parse] 直播间(UID) ", uid, " 信息获取错误: ", liveJson.JSON("", ""))
@@ -501,9 +528,12 @@ func getRoomJsonUID(uid string) gson.JSON { //uid获取直播间数据  .Gets("d
 }
 
 func getRoomJsonRoomID(roomID string) gson.JSON { //房间号获取直播间数据（拿不到UP用户名）  .Get("data")
-	liveJson := ihttp.New().WithUrl("https://api.live.bilibili.com/room/v1/Room/get_info").
+	liveJson, err := ihttp.New().WithUrl("https://api.live.bilibili.com/room/v1/Room/get_info").
 		WithAddQuery("room_id", roomID).WithHeaders(iheaders).WithCookie(cookie).
-		Get().WithError(func(err error) { log.Error("[bilibili] getRoomJsonRoomID().ihttp请求错误: ", err) }).ToGson()
+		Get().ToGson()
+	if err != nil {
+		log.Error("[bilibili] getRoomJsonRoomID().ihttp请求错误: ", err)
+	}
 	log.Trace("[bilibili] rawRoomJson: ", liveJson.JSON("", ""))
 	if liveJson.Get("code").Int() != 0 {
 		log.Error("[parse] 直播间(RoomID) ", roomID, " 信息获取错误: ", liveJson.JSON("", ""))

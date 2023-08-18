@@ -51,9 +51,12 @@ func biliSearch(keyword string, kind string) string {
 		}
 		return ""
 	}(v.GetInt("search.settings.imageSize"))
-	g := ihttp.New().WithUrl("https://api.bilibili.com/x/web-interface/search/type").
-		WithAddQuerys(map[string]string{"search_type": kind, "keyword": keyword}).WithHeaders(iheaders).WithCookie(cookie).
-		Get().WithError(func(err error) { log.Error("[ihttp] 请求错误: ", err) }).ToGson()
+	g, err := ihttp.New().WithUrl("https://api.bilibili.com/x/web-interface/search/type").
+		WithAddQuerys(map[string]any{"search_type": kind, "keyword": keyword}).WithHeaders(iheaders).WithCookie(cookie).
+		Get().ToGson()
+	if err != nil {
+		log.Error("[ihttp] biliSearch().ihttp请求错误: ", err)
+	}
 	log.Trace("[search] body: ", g.JSON("", ""))
 	if g.Get("code").Int() != 0 {
 		return ""
@@ -113,9 +116,9 @@ func biliSearch(keyword string, kind string) string {
 	return ""
 }
 
-func checkSearch(msg gocqMessage) {
-	result := regexp.MustCompile(biliSearchRegexp).FindAllStringSubmatch(msg.message, -1)
-	if len(result) == 0 {
+func checkSearch(ctx gocqMessage) {
+	reg := regexp.MustCompile(biliSearchRegexp).FindAllStringSubmatch(ctx.message, -1)
+	if len(reg) == 0 {
 		return
 	}
 	message := func(keyword string, kind string) string {
@@ -145,11 +148,6 @@ func checkSearch(msg gocqMessage) {
 			}
 			return ""
 		}(kind))
-	}(result[0][2], result[0][1])
-	switch msg.message_type {
-	case "group":
-		sendMsgSingle(0, msg.group_id, message)
-	case "private":
-		sendMsgSingle(msg.user_id, 0, message)
-	}
+	}(reg[0][2], reg[0][1])
+	sendMsgCTX(ctx, message)
 }
