@@ -6,7 +6,6 @@ import (
 	"sort"
 	"strconv"
 	"strings"
-	"time"
 )
 
 func formatAt(atID int, group int) []map[string]any {
@@ -39,28 +38,25 @@ func formatAt(atID int, group int) []map[string]any {
 	if atListLen > 99 { //超过100条合并转发放不下
 		atListLen = 99
 	}
-	forwardNode = append(forwardNode, func() map[string]any {
-		return map[string]any{"type": "node", "data": map[string]any{"name": "NothingBot", "uin": selfID,
-			"content": func() string {
+	forwardNode = appendForwardNode(forwardNode, gocqNodeData{
+		name: "NothingBot",
+		uin:  selfID,
+		content: []string{
+			func() string {
 				if group != 0 {
 					return fmt.Sprintf("群%d中最近%d条at过%d的消息：", group, atListLen, atID)
 				} else {
 					return fmt.Sprintf("所有群中最近%d条at过%d的消息：", atListLen, atID)
 				}
 			}(),
-			"time": time.Now().Unix()}}
-	}())
+		},
+	})
 	for i := 0; i < atListLen; i++ {
 		atMsg := atList[i]
 		name := fmt.Sprintf(
 			`(%s)%s%s%s`,
 			atMsg.timeF,
-			func() string {
-				if atMsg.sender_card != "" {
-					return atMsg.sender_card
-				}
-				return atMsg.sender_nickname
-			}(),
+			cardORnickname(atMsg),
 			func() string {
 				if group != 0 {
 					return ""
@@ -79,14 +75,18 @@ func formatAt(atID int, group int) []map[string]any {
 					return ""
 				}
 			}())
-		content := strings.ReplaceAll(atMsg.messageF, "CQ:at,", "CQ:at,​") //插入零宽空格阻止CQ码解析
-		forwardNode = append(forwardNode, map[string]any{"type": "node", "data": map[string]any{"name": name, "uin": atMsg.user_id, "content": content}})
+		content := strings.ReplaceAll(atMsg.message, "CQ:at,", "CQ:at,​") //插入零宽空格阻止CQ码解析
+		forwardNode = appendForwardNode(forwardNode, gocqNodeData{
+			name:    name,
+			uin:     atMsg.user_id,
+			content: []string{content},
+		})
 	}
 	return forwardNode
 }
 
 func checkAt(ctx gocqMessage) {
-	reg := regexp.MustCompile(`^谁[aA艾]?[tT特]?@?(我|(\s?\[CQ:at,qq=)?([0-9]{1,11})?(\]\s?))$`).FindAllStringSubmatch(ctx.message, -1)
+	reg := regexp.MustCompile(`^谁@?[aA艾]?[tT特]?(我|(\s?\[CQ:at,qq=)?([0-9]{1,11})?(\]\s?))$`).FindAllStringSubmatch(ctx.message, -1)
 	if len(reg) > 0 {
 		var atID int
 		if reg[0][1] == "我" {

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"flag"
 	"fmt"
 	"io"
 	"os"
@@ -76,7 +77,7 @@ var (
 	mainBlock          = make(chan os.Signal)              //main阻塞
 	tempBlock          = make(chan struct{})               //其他阻塞 热更新时重置
 	logLever           = DebugLevel                        //日志等级
-	configPath         = "./config.yaml"                   //配置路径
+	configPath         = ""                                //配置路径
 	v                  = viper.New()                       //配置体
 	connLost           = make(chan struct{})               //
 	reconnectCount     = 0                                 //
@@ -86,7 +87,7 @@ var (
 	heartbeatLostCount = 0                                 //
 	heartbeatChan      = make(chan struct{})               //
 	selfID             = 0                                 //机器人QQ
-	suID               = []int{}                           //超管QQ
+	suID               = []int{}                           //超级用户
 	msgTableGroup      = make(map[int]map[int]gocqMessage) //group_id:msg_id:msg
 	msgTableFriend     = make(map[int]map[int]gocqMessage) //user_id:msg_id:msg
 )
@@ -179,6 +180,14 @@ type gocqMessage struct {
 	recalled        bool   //是否被撤回
 	operator_id     int    //撤回者ID
 	atWho           []int  //@的人
+}
+
+type gocqNodeData struct { //自定义消息转发节点
+	name    string   //发送者名字
+	uin     int      //发送者头像
+	content []string //自定义消息
+	seq     string   //具体消息
+	time    int64    //时间戳
 }
 
 func connect(url string) {
@@ -345,6 +354,7 @@ func postHandler(rawPost string) {
 			go checkRecall(msg)
 			go checkAt(msg)
 			go checkInfo(msg)
+			go checkBotInternal(msg)
 		}(msg)
 	case "message_sent":
 	case "request":
@@ -459,17 +469,17 @@ func (log2SU log2SuperUsers) Trace(msg ...any) {
 	log2SU("[Trace] ", fmt.Sprint(msg...))
 }
 
-var log2SU log2SuperUsers = func(msg ...any) {
+var log2SU log2SuperUsers = func(msg ...any) { //发送日志到超级用户
 	sendMsg(suID, []int{}, "", "[NothingBot] ", fmt.Sprint(msg...))
 }
 
-func sendMsg(userID []int, groupID []int, at string, msg ...any) {
+func sendMsg(userID []int, groupID []int, at string, msg ...any) { //批量发送消息
 	if len(msg) == 0 {
 		return
 	}
 	if len(groupID) != 0 {
 		for _, group := range groupID {
-			sendGroupMsg(group, msg, at)
+			sendGroupMsg(group, fmt.Sprint(msg...), at)
 		}
 	}
 	if len(userID) != 0 {
@@ -520,9 +530,10 @@ func sendGroupMsg(group_id int, msg ...any) {
 	if group_id == 0 || len(msg) == 0 {
 		return
 	}
-	g := gson.NewFrom("")
+	g := gson.New("")
 	g.Set("action", "send_group_msg")
 	g.Set("params", map[string]any{"group_id": group_id, "message": fmt.Sprint(msg...)})
+	log.Info("[main] 发送消息到群聊 ", group_id, " ", g.Get("params.message").Str())
 	postMsg(g)
 	return
 }
@@ -534,6 +545,7 @@ func sendPrivateMsg(user_id int, msg ...any) {
 	g := gson.NewFrom("")
 	g.Set("action", "send_private_msg")
 	g.Set("params", map[string]any{"user_id": user_id, "message": fmt.Sprint(msg...)})
+	log.Info("[main] 发送消息到好友 ", user_id, " ", g.Get("params.message").Str())
 	postMsg(g)
 	return
 }
@@ -554,9 +566,10 @@ func sendGroupForwardMsg(group_id int, forwardNode []map[string]any) {
 	if group_id == 0 || len(forwardNode) == 0 {
 		return
 	}
-	g := gson.NewFrom("")
+	g := gson.New("")
 	g.Set("action", "send_group_forward_msg")
 	g.Set("params", map[string]any{"group_id": group_id, "messages": forwardNode})
+	log.Info("[main] 发送合并转发到群聊 ", group_id, " ", gson.New(forwardNode).JSON("", ""))
 	postMsg(g)
 }
 
@@ -564,27 +577,22 @@ func sendPrivateForwardMsg(user_id int, forwardNode []map[string]any) {
 	if user_id == 0 || len(forwardNode) == 0 {
 		return
 	}
-	g := gson.NewFrom("")
+	g := gson.New("")
 	g.Set("action", "send_private_forward_msg")
 	g.Set("params", map[string]any{"user_id": user_id, "messages": forwardNode})
+	log.Info("[main] 发送合并转发到好友 ", user_id, " ", gson.New(forwardNode).JSON("", ""))
 	postMsg(g)
 }
 
-func postMsg(msg gson.JSON) {
+func postMsg(msg gson.JSON) { //发送消息
 	if heartbeatOK {
-		if msg.Get("params.user_id").Int() != 0 {
-			log.Info("[main] 发送消息到好友 ", msg.Get("params.user_id").Int(), "    ", msg.Get("params.message"))
-		}
-		if msg.Get("params.group_id").Int() != 0 {
-			log.Info("[main] 发送消息到群聊 ", msg.Get("params.group_id").Int(), "    ", msg.Get("params.message"))
-		}
 		gocqConn.Write([]byte(msg.JSON("", "")))
 	} else {
 		log.Error("[main] 未连接到go-cqhttp")
 	}
 }
 
-func matchSU(user_id int) bool {
+func matchSU(user_id int) bool { //匹配超级用户
 	for _, superUser := range suID {
 		if superUser == user_id {
 			return true
@@ -593,7 +601,34 @@ func matchSU(user_id int) bool {
 	return false
 }
 
-func timeFormat(timeS int64) string {
+func cardORnickname(ctx gocqMessage) string { //群名片为空则返回昵称
+	if ctx.sender_card != "" {
+		return ctx.sender_card
+	}
+	return ctx.sender_nickname
+}
+
+func appendForwardNode(forwardNode []map[string]any, nodeData gocqNodeData) []map[string]any { //快捷添加合并转发消息
+	for _, content_ := range nodeData.content {
+		if content_ == "" {
+			break
+		}
+		timeS := nodeData.time
+		if timeS == 0 {
+			timeS = time.Now().Unix()
+		}
+		if nodeData.seq == "" {
+			forwardNode = append(forwardNode, map[string]any{"type": "node", "data": map[string]any{
+				"time": timeS, "name": nodeData.name, "uin": nodeData.uin, "content": content_}})
+		} else {
+			forwardNode = append(forwardNode, map[string]any{"type": "node", "data": map[string]any{"seq": nodeData.seq,
+				"time": timeS, "name": nodeData.name, "uin": nodeData.uin, "content": content_}})
+		}
+	}
+	return forwardNode
+}
+
+func timeFormat(timeS int64) string { //格式化时间戳至 x天x小时x分钟x秒
 	time := int(timeS)
 	days := time / (24 * 60 * 60)
 	hours := (time / (60 * 60)) % 24
@@ -611,18 +646,29 @@ func timeFormat(timeS int64) string {
 	}
 }
 
-func initConfig() {
-	v.SetConfigName("config")
-	v.SetConfigType("yaml")
-	v.AddConfigPath(".")
-	v.SetConfigFile(configPath)
-	_, err := os.Stat(configPath)
-	if err != nil {
-		os.WriteFile(configPath, []byte(defaultConfig), 0644)
-		log.Error("缺失配置文件，已生成默认配置 ", configPath, " 请修改保存后重启程序, 参考: github.com/Miuzarte/NothingBot/blob/main/config.yaml")
-		os.Exit(0)
+func initFlag() {
+	c := flag.String("c", "", "配置文件路径, 默认./config.yaml")
+	flag.Parse()
+	if *c != "" {
+		configPath = *c
 	}
-	v.ReadInConfig()
+}
+
+func initConfig() {
+	if configPath == "" {
+		log.Info("[init] 默认配置文件: ./config.yaml")
+		v.AddConfigPath(".")
+		v.SetConfigName("config")
+		v.SetConfigType("yaml")
+	} else {
+		log.Info("[init] 自定义配置文件: ", configPath)
+		v.SetConfigFile(configPath)
+	}
+	err := v.ReadInConfig()
+	if err != nil {
+		os.WriteFile("./config.yaml", []byte(defaultConfig), 0644)
+		log.Fatal("[init] 缺失配置文件, 已生成默认配置, 请修改保存后重启程序, 参考: github.com/Miuzarte/NothingBot/blob/main/config.yaml")
+	}
 	v.WatchConfig()
 	v.OnConfigChange(func(in fsnotify.Event) {
 		log.SetLevel(log.Level(v.GetInt("main.logLevel")))
@@ -632,24 +678,15 @@ func initConfig() {
 			for _, each := range suList { //[]string to []int
 				superUser, err := strconv.Atoi(each)
 				if err != nil {
-					log.Fatal("[strconv.Atoi] ", err)
+					log.Fatal("[init] superUsers内容格式有误 ", err)
 				}
 				suID = append(suID, superUser)
 			}
 		}
 		tempBlock <- struct{}{} //解除阻塞
 	})
-}
-
-func main() {
-	fmt.Println("        \n  Powered      \n         by    \n           GO  \n        ")
-	log.SetFormatter(&easy.Formatter{
-		TimestampFormat: timeLayout.M24,
-		LogFormat:       "[%time%] [%lvl%] %msg%\n",
-	})
-	initConfig()
-	gocqUrl = v.GetString("main.websocket")
 	log.SetLevel(log.Level(v.GetInt("main.logLevel")))
+	gocqUrl = v.GetString("main.websocket")
 	suList := v.GetStringSlice("main.superUsers")
 	if len(suList) != 0 {
 		for _, each := range suList { //[]string to []int
@@ -660,9 +697,27 @@ func main() {
 			suID = append(suID, superUser)
 		}
 	} else {
-		log.Fatal("[main] 请指定至少一个超级用户")
+		log.Fatal("[init] 请指定至少一个超级用户")
 	}
 	log.Info("[init] superUsers: ", suID)
+}
+
+func exitWork() {
+	runTime := timeFormat(time.Now().Unix() - startTime)
+	log2SU.Info(fmt.Sprint("[exit] 已下线\n此次运行时长：", runTime))
+	log.Info("[exit] 本次运行时长: ", runTime)
+	log.Info("[exit] 心跳包接收计数: ", heartbeatCount)
+	log.Info("[exit] 心跳包丢失计数: ", heartbeatLostCount)
+}
+
+func main() {
+	fmt.Print("        \n  Powered      \n         by    \n           GO  \n        \n")
+	log.SetFormatter(&easy.Formatter{
+		TimestampFormat: timeLayout.M24,
+		LogFormat:       "[%time%] [%lvl%] %msg%\n",
+	})
+	initFlag()
+	initConfig()
 	func() {
 		go connect(gocqUrl)
 		for {
@@ -673,13 +728,9 @@ func main() {
 	}()
 	initCorpus()
 	initPush()
-	signal.Notify(mainBlock, syscall.SIGHUP, syscall.SIGINT, syscall.SIGTERM, syscall.SIGQUIT, syscall.SIGKILL)
+	signal.Notify(mainBlock, syscall.SIGHUP, syscall.SIGINT, syscall.SIGQUIT, syscall.SIGKILL, syscall.SIGTERM)
 	select {
 	case <-mainBlock:
-		runTime := timeFormat(time.Now().Unix() - startTime)
-		log2SU.Info(fmt.Sprint("[exit] 已下线\n此次运行时长：", runTime))
-		log.Info("[exit] 本次运行时长: ", runTime)
-		log.Info("[exit] 心跳包接收计数: ", heartbeatCount)
-		log.Info("[exit] 心跳包丢失计数: ", heartbeatLostCount)
+		exitWork()
 	}
 }
