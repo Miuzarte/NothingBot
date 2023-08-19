@@ -6,6 +6,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 )
 
 func formatAt(atID int, group int) []map[string]any {
@@ -35,18 +36,16 @@ func formatAt(atID int, group int) []map[string]any {
 		return atList[i].time > atList[j].time
 	})
 	atListLen := len(atList)
-	if atListLen > 99 { //超过100条合并转发放不下
+	if atListLen > 99 { //超过100条合并转发放不下, 标题占1条
 		atListLen = 99
 	}
-	forwardNode = appendForwardNode(forwardNode, gocqNodeData{
-		name: "NothingBot",
-		uin:  selfID,
+	forwardNode = appendForwardNode(forwardNode, gocqNodeData{ //标题
 		content: []string{
 			func() string {
 				if group != 0 {
-					return fmt.Sprintf("群%d中最近%d条at过%d的消息：", group, atListLen, atID)
+					return fmt.Sprintf("%s之后群%d中最近%d条at过%d的消息：", time.Unix(startTime, 0).Format(timeLayout.M24C), group, atListLen, atID)
 				} else {
-					return fmt.Sprintf("所有群中最近%d条at过%d的消息：", atListLen, atID)
+					return fmt.Sprintf("%s之后所有群中最近%d条at过%d的消息：", time.Unix(startTime, 0).Format(timeLayout.M24C), atListLen, atID)
 				}
 			}(),
 		},

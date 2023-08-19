@@ -12,7 +12,7 @@ import (
 )
 
 func checkInfo(ctx gocqMessage) {
-	reg := regexp.MustCompile(fmt.Sprintf(`^(\[CQ:at\,qq=%d])?(检查身体|运行状态)$`, selfID)).FindAllStringSubmatch(ctx.message, -1)
+	reg := regexp.MustCompile(fmt.Sprintf(`^(\[CQ:at\,qq=%d]\s*)?(检查身体|运行状态)$`, selfID)).FindAllStringSubmatch(ctx.message, -1)
 	if len(reg) > 0 {
 		product, _ := ghw.Product()
 		cpuInfo, _ := cpu.Info()

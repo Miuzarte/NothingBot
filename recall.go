@@ -6,6 +6,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 )
 
 var recallSwitch = true
@@ -41,19 +42,16 @@ func formatRecall(id int, filter int, kind string) []map[string]any {
 		rcListLen = 99
 	}
 	forwardNode = appendForwardNode(forwardNode, gocqNodeData{ //标题
-		name: "NothingBot",
-		uin:  selfID,
 		content: []string{
 			func(kind string) string {
 				switch kind {
 				case "group":
 					if filter != 0 {
-						return fmt.Sprintf("群%d中%d的最近%d条被撤回的消息：", id, filter, rcListLen)
-					} else {
-						return fmt.Sprintf("群%d中最近%d条被撤回的消息：", id, rcListLen)
+						return fmt.Sprintf("%s之后群%d中%d的最近%d条被撤回的消息：", time.Unix(startTime, 0).Format(timeLayout.M24C), id, filter, rcListLen)
 					}
+					return fmt.Sprintf("%s之后群%d中最近%d条被撤回的消息：", time.Unix(startTime, 0).Format(timeLayout.M24C), id, rcListLen)
 				case "private":
-					return fmt.Sprintf("%d的最近%d条被撤回的消息：", id, rcListLen)
+					return fmt.Sprintf("%s之后%d的最近%d条被撤回的消息：", time.Unix(startTime, 0).Format(timeLayout.M24C), id, rcListLen)
 				}
 				return ""
 			}(kind),

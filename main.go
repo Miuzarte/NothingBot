@@ -71,25 +71,27 @@ const (
 )
 
 var (
-	startTime          = time.Now().Unix()                 //启动时间
-	gocqUrl            = ""                                //websocketurl
-	gocqConn           *websocket.Conn                     //
-	mainBlock          = make(chan os.Signal)              //main阻塞
-	tempBlock          = make(chan struct{})               //其他阻塞 热更新时重置
-	logLever           = DebugLevel                        //日志等级
-	configPath         = ""                                //配置路径
-	v                  = viper.New()                       //配置体
-	connLost           = make(chan struct{})               //
-	reconnectCount     = 0                                 //
-	heartbeatChecking  = false                             //
-	heartbeatOK        = false                             //
-	heartbeatCount     = 0                                 //
-	heartbeatLostCount = 0                                 //
-	heartbeatChan      = make(chan struct{})               //
-	selfID             = 0                                 //机器人QQ
-	suID               = []int{}                           //超级用户
-	msgTableGroup      = make(map[int]map[int]gocqMessage) //group_id:msg_id:msg
-	msgTableFriend     = make(map[int]map[int]gocqMessage) //user_id:msg_id:msg
+	startTime          = time.Now().Unix()    //启动时间
+	gocqUrl            = ""                   //websocketurl
+	gocqConn           *websocket.Conn        //
+	mainBlock          = make(chan os.Signal) //main阻塞
+	tempBlock          = make(chan struct{})  //其他阻塞 热更新时重置
+	logLever           = DebugLevel           //日志等级
+	configPath         = ""                   //配置路径
+	v                  = viper.New()          //配置体
+	connLost           = make(chan struct{})  //
+	reconnectCount     = 0                    //
+	heartbeatChecking  = false                //
+	heartbeatOK        = false                //
+	heartbeatCount     = 0                    //
+	heartbeatLostCount = 0                    //
+	heartbeatChan      = make(chan struct{})  //
+	selfID             = 0                    //机器人QQ
+	suID               = []int{}              //超级用户
+	unescape           = strings.NewReplacer( //反转义还原CQ码
+		"&amp;", "&", "&#44;", ",", "&#91;", "[", "&#93;", "]")
+	msgTableGroup  = make(map[int]map[int]gocqMessage) //group_id:msg_id:msg
+	msgTableFriend = make(map[int]map[int]gocqMessage) //user_id:msg_id:msg
 )
 
 var timeLayout = struct {
@@ -357,6 +359,7 @@ func postHandler(rawPost string) {
 			go checkBotInternal(msg)
 		}(msg)
 	case "message_sent":
+		log.Info("[gocq] 发出了一条消息")
 	case "request":
 		request = gocqRequest{}
 		_ = request
@@ -399,6 +402,9 @@ func postHandler(rawPost string) {
 					target_id: p.Get("target_id").Int(),
 				}
 				log.Info("[gocq] 收到 ", poke.sender_id, " 对 ", poke.target_id, " 的戳一戳")
+				if poke.target_id == selfID && poke.sender_id != poke.target_id {
+					go checkBotInternalPoke(poke)
+				}
 			default:
 				log.Info("[gocq] notice.notify: ", rawPost)
 				log.Info("[gocq] notice.notify.sub_type: ", p.Get("sub_type").Str())
@@ -609,20 +615,29 @@ func cardORnickname(ctx gocqMessage) string { //群名片为空则返回昵称
 }
 
 func appendForwardNode(forwardNode []map[string]any, nodeData gocqNodeData) []map[string]any { //快捷添加合并转发消息
+	timeS := nodeData.time
+	name := nodeData.name
+	uin := nodeData.uin
+	switch {
+	case timeS == 0:
+		timeS = time.Now().Unix()
+		fallthrough
+	case name == "":
+		name = "NothingBot"
+		fallthrough
+	case uin == 0:
+		uin = selfID
+	}
 	for _, content_ := range nodeData.content {
 		if content_ == "" {
 			break
 		}
-		timeS := nodeData.time
-		if timeS == 0 {
-			timeS = time.Now().Unix()
-		}
 		if nodeData.seq == "" {
 			forwardNode = append(forwardNode, map[string]any{"type": "node", "data": map[string]any{
-				"time": timeS, "name": nodeData.name, "uin": nodeData.uin, "content": content_}})
+				"time": timeS, "name": name, "uin": uin, "content": content_}})
 		} else {
 			forwardNode = append(forwardNode, map[string]any{"type": "node", "data": map[string]any{"seq": nodeData.seq,
-				"time": timeS, "name": nodeData.name, "uin": nodeData.uin, "content": content_}})
+				"time": timeS, "name": name, "uin": uin, "content": content_}})
 		}
 	}
 	return forwardNode
@@ -655,6 +670,24 @@ func initFlag() {
 }
 
 func initConfig() {
+	updateConfig := func() {
+		suID = []int{}
+		log.SetLevel(log.Level(v.GetInt("main.logLevel")))
+		gocqUrl = v.GetString("main.websocket")
+		suList := v.GetStringSlice("main.superUsers")
+		if len(suList) != 0 {
+			for _, each := range suList { //[]string to []int
+				superUser, err := strconv.Atoi(each)
+				if err != nil {
+					log.Fatal("[init] superUsers内容格式有误 ", err)
+				}
+				suID = append(suID, superUser)
+			}
+		} else {
+			log.Fatal("[init] 请指定至少一个超级用户")
+		}
+		log.Info("[init] superUsers: ", suID)
+	}
 	if configPath == "" {
 		log.Info("[init] 默认配置文件: ./config.yaml")
 		v.AddConfigPath(".")
@@ -670,44 +703,11 @@ func initConfig() {
 		log.Fatal("[init] 缺失配置文件, 已生成默认配置, 请修改保存后重启程序, 参考: github.com/Miuzarte/NothingBot/blob/main/config.yaml")
 	}
 	v.WatchConfig()
+	updateConfig()
 	v.OnConfigChange(func(in fsnotify.Event) {
-		log.SetLevel(log.Level(v.GetInt("main.logLevel")))
-		suID = []int{}
-		suList := v.GetStringSlice("main.superUsers")
-		if len(suList) != 0 {
-			for _, each := range suList { //[]string to []int
-				superUser, err := strconv.Atoi(each)
-				if err != nil {
-					log.Fatal("[init] superUsers内容格式有误 ", err)
-				}
-				suID = append(suID, superUser)
-			}
-		}
-		tempBlock <- struct{}{} //解除阻塞
+		updateConfig()
+		tempBlock <- struct{}{} //解除临时阻塞
 	})
-	log.SetLevel(log.Level(v.GetInt("main.logLevel")))
-	gocqUrl = v.GetString("main.websocket")
-	suList := v.GetStringSlice("main.superUsers")
-	if len(suList) != 0 {
-		for _, each := range suList { //[]string to []int
-			superUser, err := strconv.Atoi(each)
-			if err != nil {
-				log.Fatal("[strconv.Atoi] ", err)
-			}
-			suID = append(suID, superUser)
-		}
-	} else {
-		log.Fatal("[init] 请指定至少一个超级用户")
-	}
-	log.Info("[init] superUsers: ", suID)
-}
-
-func exitWork() {
-	runTime := timeFormat(time.Now().Unix() - startTime)
-	log2SU.Info(fmt.Sprint("[exit] 已下线\n此次运行时长：", runTime))
-	log.Info("[exit] 本次运行时长: ", runTime)
-	log.Info("[exit] 心跳包接收计数: ", heartbeatCount)
-	log.Info("[exit] 心跳包丢失计数: ", heartbeatLostCount)
 }
 
 func main() {
@@ -728,9 +728,17 @@ func main() {
 	}()
 	initCorpus()
 	initPush()
+	exitJobs()
+}
+
+func exitJobs() {
 	signal.Notify(mainBlock, syscall.SIGHUP, syscall.SIGINT, syscall.SIGQUIT, syscall.SIGKILL, syscall.SIGTERM)
 	select {
 	case <-mainBlock:
-		exitWork()
+		runTime := timeFormat(time.Now().Unix() - startTime)
+		log2SU.Info(fmt.Sprint("[exit] 已下线\n此次运行时长：", runTime))
+		log.Info("[exit] 本次运行时长: ", runTime)
+		log.Info("[exit] 心跳包接收计数: ", heartbeatCount)
+		log.Info("[exit] 心跳包丢失计数: ", heartbeatLostCount)
 	}
 }
