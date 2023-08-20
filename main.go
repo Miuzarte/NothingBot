@@ -105,11 +105,11 @@ var timeLayout = struct {
 	T24C string
 }{
 	L24:  "2006/01/02 15:04:05",
-	L24C: "2006年01月02日  15时04分05秒",
+	L24C: "2006年01月02日15时04分05秒",
 	M24:  "01/02 15:04:05",
-	M24C: "01月02日  15时04分05秒",
+	M24C: "01月02日15时04分05秒",
 	S24:  "02 15:04:05",
-	S24C: "02日  15时04分05秒",
+	S24C: "02日15时04分05秒",
 	T24:  "15:04:05",
 	T24C: "15时04分05秒",
 }
@@ -164,6 +164,7 @@ type gocqRequest struct {
 	request_type string //请求类型: "friend"好友请求, "group"群请求
 }
 
+// 消息结构体
 type gocqMessage struct {
 	message_type    string //消息类型: "private"私聊消息, "group"群消息
 	sub_type        string //消息子类型: "friend"好友, "normal"群聊, "anonymous"匿名, "group_self"群中自身发送, "group"群临时会话, "notice"系统提示, "connect"建立ws连接
@@ -184,7 +185,8 @@ type gocqMessage struct {
 	atWho           []int  //@的人
 }
 
-type gocqNodeData struct { //自定义消息转发节点
+// 自定义消息转发节点
+type gocqNodeData struct {
 	name    string   //发送者名字
 	uin     int      //发送者头像
 	content []string //自定义消息
@@ -192,6 +194,7 @@ type gocqNodeData struct { //自定义消息转发节点
 	time    int64    //时间戳
 }
 
+// 连接go-cqhttp
 func connect(url string) {
 	retryCount := 0
 	for {
@@ -229,6 +232,7 @@ func connect(url string) {
 	}
 }
 
+// gocq心跳监听
 func heartbeatCheck(interval int) {
 	log.Info("[main] 开始监听心跳")
 	retry := func() {
@@ -255,7 +259,8 @@ func heartbeatCheck(interval int) {
 	}
 }
 
-func msgEntity(p gson.JSON) string { //具体化回复  go-cqhttp没设置extra-reply-data: true时需要使用
+// 具体化回复，go-cqhttp.extra-reply-data: false时需要使用
+func msgEntity(p gson.JSON) string {
 	msg := p.Get("message").Str()
 	reg := regexp.MustCompile(`\[CQ:reply\,id=(.*?)\]`).FindAllStringSubmatch(msg, -1)
 	if len(reg) > 0 {
@@ -275,6 +280,7 @@ func msgEntity(p gson.JSON) string { //具体化回复  go-cqhttp没设置extra-
 	return msg
 }
 
+// 处理消息
 func postHandler(rawPost string) {
 	log.Trace("[gocq] 上报: ", rawPost)
 	p := gson.NewFrom(rawPost)
@@ -475,11 +481,13 @@ func (log2SU log2SuperUsers) Trace(msg ...any) {
 	log2SU("[Trace] ", fmt.Sprint(msg...))
 }
 
-var log2SU log2SuperUsers = func(msg ...any) { //发送日志到超级用户
+// 发送日志到超级用户
+var log2SU log2SuperUsers = func(msg ...any) {
 	sendMsg(suID, []int{}, "", "[NothingBot] ", fmt.Sprint(msg...))
 }
 
-func sendMsg(userID []int, groupID []int, at string, msg ...any) { //批量发送消息
+// 批量发送消息
+func sendMsg(userID []int, groupID []int, at string, msg ...any) {
 	if len(msg) == 0 {
 		return
 	}
@@ -496,7 +504,8 @@ func sendMsg(userID []int, groupID []int, at string, msg ...any) { //批量发�
 	return
 }
 
-func sendMsgCTX(ctx gocqMessage, msg ...any) { //根据上下文发送消息
+// 根据上下文发送消息
+func sendMsgCTX(ctx gocqMessage, msg ...any) {
 	if ctx.message_type == "" || len(msg) == 0 {
 		return
 	}
@@ -508,7 +517,8 @@ func sendMsgCTX(ctx gocqMessage, msg ...any) { //根据上下文发送消息
 	}
 }
 
-func sendMsgAtCTX(ctx gocqMessage, msg ...any) { //根据上下文发送消息，带@
+// 根据上下文发送消息，带@
+func sendMsgAtCTX(ctx gocqMessage, msg ...any) {
 	if ctx.message_type == "" || len(msg) == 0 {
 		return
 	}
@@ -520,7 +530,8 @@ func sendMsgAtCTX(ctx gocqMessage, msg ...any) { //根据上下文发送消息�
 	}
 }
 
-func sendMsgReplyCTX(ctx gocqMessage, msg ...any) { //根据上下文发送消息，带回复
+// 根据上下文发送消息，带回复
+func sendMsgReplyCTX(ctx gocqMessage, msg ...any) {
 	if ctx.message_type == "" || len(msg) == 0 {
 		return
 	}
@@ -532,6 +543,7 @@ func sendMsgReplyCTX(ctx gocqMessage, msg ...any) { //根据上下文发送消�
 	}
 }
 
+// 发送群聊消息
 func sendGroupMsg(group_id int, msg ...any) {
 	if group_id == 0 || len(msg) == 0 {
 		return
@@ -544,6 +556,7 @@ func sendGroupMsg(group_id int, msg ...any) {
 	return
 }
 
+// 发送私聊消息
 func sendPrivateMsg(user_id int, msg ...any) {
 	if user_id == 0 || len(msg) == 0 {
 		return
@@ -556,6 +569,7 @@ func sendPrivateMsg(user_id int, msg ...any) {
 	return
 }
 
+// 根据上下文发送合并转发消息
 func sendForwardMsgCTX(ctx gocqMessage, forwardNode []map[string]any) {
 	if ctx.message_type == "" || len(forwardNode) == 0 {
 		return
@@ -568,6 +582,7 @@ func sendForwardMsgCTX(ctx gocqMessage, forwardNode []map[string]any) {
 	}
 }
 
+// 发送群聊合并转发消息
 func sendGroupForwardMsg(group_id int, forwardNode []map[string]any) {
 	if group_id == 0 || len(forwardNode) == 0 {
 		return
@@ -579,6 +594,7 @@ func sendGroupForwardMsg(group_id int, forwardNode []map[string]any) {
 	postMsg(g)
 }
 
+// 发送私聊合并转发消息
 func sendPrivateForwardMsg(user_id int, forwardNode []map[string]any) {
 	if user_id == 0 || len(forwardNode) == 0 {
 		return
@@ -590,7 +606,8 @@ func sendPrivateForwardMsg(user_id int, forwardNode []map[string]any) {
 	postMsg(g)
 }
 
-func postMsg(msg gson.JSON) { //发送消息
+// 上报消息至go-cqhttp
+func postMsg(msg gson.JSON) {
 	if heartbeatOK {
 		gocqConn.Write([]byte(msg.JSON("", "")))
 	} else {
@@ -598,23 +615,42 @@ func postMsg(msg gson.JSON) { //发送消息
 	}
 }
 
-func matchSU(user_id int) bool { //匹配超级用户
+// 匹配超级用户
+func matchSU(ctx gocqMessage) bool {
 	for _, superUser := range suID {
-		if superUser == user_id {
+		if superUser == ctx.user_id {
 			return true
 		}
 	}
 	return false
 }
 
-func cardORnickname(ctx gocqMessage) string { //群名片为空则返回昵称
+// 匹配消息来源
+func isGroup(ctx gocqMessage) bool {
+	if ctx.message_type == "group" {
+		return true
+	}
+	return false
+}
+
+// 匹配消息来源
+func isPrivate(ctx gocqMessage) bool {
+	if ctx.message_type == "private" {
+		return true
+	}
+	return false
+}
+
+// 群名片为空则返回昵称
+func cardORnickname(ctx gocqMessage) string {
 	if ctx.sender_card != "" {
 		return ctx.sender_card
 	}
 	return ctx.sender_nickname
 }
 
-func appendForwardNode(forwardNode []map[string]any, nodeData gocqNodeData) []map[string]any { //快捷添加合并转发消息
+// 快捷添加合并转发消息
+func appendForwardNode(forwardNode []map[string]any, nodeData gocqNodeData) []map[string]any {
 	timeS := nodeData.time
 	name := nodeData.name
 	uin := nodeData.uin
@@ -643,7 +679,8 @@ func appendForwardNode(forwardNode []map[string]any, nodeData gocqNodeData) []ma
 	return forwardNode
 }
 
-func timeFormat(timeS int64) string { //格式化时间戳至 x天x小时x分钟x秒
+// 格式化时间戳至 x天x小时x分钟x秒
+func timeFormat(timeS int64) string {
 	time := int(timeS)
 	days := time / (24 * 60 * 60)
 	hours := (time / (60 * 60)) % 24
@@ -661,6 +698,7 @@ func timeFormat(timeS int64) string { //格式化时间戳至 x天x小时x分钟
 	}
 }
 
+// 初始化启动参数
 func initFlag() {
 	c := flag.String("c", "", "配置文件路径, 默认./config.yaml")
 	flag.Parse()
@@ -669,6 +707,7 @@ func initFlag() {
 	}
 }
 
+// 初始化配置
 func initConfig() {
 	updateConfig := func() {
 		suID = []int{}
@@ -731,12 +770,13 @@ func main() {
 	exitJobs()
 }
 
+// 结束运行前报告
 func exitJobs() {
 	signal.Notify(mainBlock, syscall.SIGHUP, syscall.SIGINT, syscall.SIGQUIT, syscall.SIGKILL, syscall.SIGTERM)
 	select {
 	case <-mainBlock:
 		runTime := timeFormat(time.Now().Unix() - startTime)
-		log2SU.Info(fmt.Sprint("[exit] 已下线\n此次运行时长：", runTime))
+		log2SU.Info("[exit] 已下线", "\n此次运行时长：", runTime, "\n心跳包接收计数：", heartbeatCount, "\n心跳包丢失计数：", heartbeatLostCount)
 		log.Info("[exit] 本次运行时长: ", runTime)
 		log.Info("[exit] 心跳包接收计数: ", heartbeatCount)
 		log.Info("[exit] 心跳包丢失计数: ", heartbeatLostCount)

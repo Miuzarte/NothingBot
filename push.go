@@ -37,7 +37,8 @@ var streamState = struct {
 	ROTATE:  2,
 }
 
-func initPush() { //初始化推送
+// 初始化推送
+func initPush() {
 	disconnected = true
 	go liveMonitor()
 	cookie = v.GetString("push.settings.cookie")
@@ -53,37 +54,40 @@ func initPush() { //初始化推送
 	})
 }
 
-func getBaseline() string { //返回baseline用于监听更新
+// 初始化baseline用于监听更新
+func getBaseline() (update_baseline string) {
 	g, err := ihttp.New().WithUrl("https://api.bilibili.com/x/polymer/web-dynamic/v1/feed/all").
 		WithHeaders(iheaders).WithCookie(cookie).
 		Get().ToGson()
 	if err != nil {
 		log.Error("[bilibili] getBaseline().ihttp请求错误: ", err)
 	}
-	update_baseline := g.Get("data.update_baseline").Str()
+	update_baseline = g.Get("data.update_baseline").Str()
 	if g.Get("code").Int() != 0 || g.Get("data.update_baseline").Nil() {
 		log.Error("[push] update_baseline获取错误: ", g.JSON("", ""))
 		return "-1"
 	}
-	return update_baseline
+	return
 }
 
-func getUpdate(update_baseline string) string { //是否有新动态
+// 是否有新动态
+func getUpdate(update_baseline string) (update_num string) {
 	g, err := ihttp.New().WithUrl("https://api.bilibili.com/x/polymer/web-dynamic/v1/feed/all/update").
 		WithAddQuery("update_baseline", update_baseline).WithHeaders(iheaders).WithCookie(cookie).
 		Get().ToGson()
 	if err != nil {
 		log.Error("[bilibili] getUpdate().ihttp请求错误: ", err)
 	}
-	update_num := g.Get("data.update_num").Str()
+	update_num = g.Get("data.update_num").Str()
 	if g.Get("code").Int() != 0 || g.Get("data.update_num").Nil() {
 		log.Error("[push] getUpdate获取错误: ", g.JSON("", ""))
 		return "-1"
 	}
-	return update_num
+	return
 }
 
-func cookieChecker() bool { //检测cookie有效性
+// 检测cookie有效性
+func cookieChecker() bool {
 	g, err := ihttp.New().WithUrl("https://passport.bilibili.com/x/passport-login/web/cookie/info").
 		WithHeaders(iheaders).WithCookie(cookie).
 		Get().ToGson()
@@ -106,7 +110,8 @@ func cookieChecker() bool { //检测cookie有效性
 	}
 }
 
-func dynamicMonitor() { //监听动态流
+// 监听动态流
+func dynamicMonitor() {
 	var (
 		update_num      = "0"
 		update_baseline = "0"
@@ -140,54 +145,57 @@ func dynamicMonitor() { //监听动态流
 			log.Debug("[push] 没有新动态    update_num = ", update_num, "  update_baseline = ", update_baseline)
 		default:
 			new_baseline = getBaseline()
-			log.Info("[push] 有新动态!    update_num = ", update_num, "  update_baseline = ", update_baseline, " => ", new_baseline)
-			update_baseline = new_baseline
-			go func(dynamicID string) { //检测推送
-				rawJson := getDynamicJson(dynamicID)
-				mainJson := rawJson.Get("data.item")
-				log.Debug("[push] mainJson: ", mainJson.JSON("", ""))
-				switch rawJson.Get("code").Int() {
-				case 4101131: //动态已删除，不推送
-					if dynamicHistrory[dynamicID] != "" {
-						log.Info("[push] 明确记录到一条来自 ", dynamicHistrory[dynamicID], " 的已删除动态 ", dynamicID)
-						log2SU.Info(fmt.Sprint("[push] 明确记录到一条来自 ", dynamicHistrory[dynamicID], " 的已删除动态 ", dynamicID))
-					}
-					break
-				case 500: //加载错误，请稍后再试
-					if dynamicHistrory[dynamicID] == "" { //检测是否为重复动态
-						go func(dynamicID string) {
-							for i := 0; i < 3; i++ { //重试三次
-								log.Warn("[push] (RETRY_", i+1, ") 将在10秒后重试动态 ", dynamicID)
-								time.Sleep(time.Second * 10)
-								rawJson := getDynamicJson(dynamicID)
-								mainJson := rawJson.Get("data.item")
-								log.Debug("[push] (RETRY) mainJson: ", mainJson.JSON("", ""))
-								if rawJson.Get("code").Int() == 0 {
-									log.Warn("[push] (RETRY) 成功获取动态 ", dynamicID)
-									dynamicChecker(mainJson)
-									dynamicHistrory[dynamicID] = mainJson.Get("modules.module_author.name").Str() //记录历史
-									break
+			if update_baseline == new_baseline { //重复动态
+				log.Debug("[push] 假新动态    update_num = ", update_num, "  update_baseline = ", update_baseline)
+			} else { //非重复动态
+				log.Info("[push] 有新动态!    update_num = ", update_num, "  update_baseline = ", update_baseline, " => ", new_baseline)
+				update_baseline = new_baseline
+				go func(dynamicID string) { //检测推送
+					rawJson := getDynamicJson(dynamicID)
+					mainJson := rawJson.Get("data.item")
+					log.Debug("[push] mainJson: ", mainJson.JSON("", ""))
+					switch rawJson.Get("code").Int() {
+					case 4101131: //动态已删除，不推送
+						if dynamicHistrory[dynamicID] != "" {
+							log.Info("[push] 明确记录到一条来自 ", dynamicHistrory[dynamicID], " 的已删除动态 ", dynamicID)
+							log2SU.Info(fmt.Sprint("[push] 明确记录到一条来自 ", dynamicHistrory[dynamicID], " 的已删除动态 ", dynamicID))
+						}
+						break
+					case 500: //加载错误，请稍后再试
+						if dynamicHistrory[dynamicID] == "" { //检测是否为重复动态
+							go func(dynamicID string) {
+								for i := 0; i < 3; i++ { //重试三次
+									log.Warn("[push] (RETRY_", i+1, ") 将在10秒后重试动态 ", dynamicID)
+									time.Sleep(time.Second * 10)
+									rawJson := getDynamicJson(dynamicID)
+									mainJson := rawJson.Get("data.item")
+									log.Debug("[push] (RETRY) mainJson: ", mainJson.JSON("", ""))
+									if rawJson.Get("code").Int() == 0 {
+										log.Warn("[push] (RETRY) 成功获取动态 ", dynamicID)
+										dynamicChecker(mainJson)
+										dynamicHistrory[dynamicID] = mainJson.Get("modules.module_author.name").Str() //记录历史
+										break
+									}
 								}
-							}
-						}(dynamicID)
+							}(dynamicID)
+						}
+					case 0: //正常
+						if dynamicHistrory[dynamicID] == "" { //检测是否为重复动态
+							dynamicChecker(mainJson)
+							dynamicHistrory[dynamicID] = mainJson.Get("modules.module_author.name").Str() //记录历史
+						}
+					default:
+						break
 					}
-				case 0: //正常
-					if dynamicHistrory[dynamicID] == "" { //检测是否为重复动态
-						dynamicChecker(mainJson)
-						dynamicHistrory[dynamicID] = mainJson.Get("modules.module_author.name").Str() //记录历史
-					} else {
-						log.Info("[push] 检测到一条来自 ", dynamicHistrory[dynamicID], " 的重复动态 ", dynamicID)
-					}
-				default:
-					break
-				}
-			}(new_baseline)
+				}(new_baseline)
+			}
 		}
 		time.Sleep(time.Millisecond * time.Duration(int64(v.GetFloat64("push.settings.dynamicUpdateInterval")*1000)))
 	}
 }
 
-func dynamicChecker(mainJson gson.JSON) { //mainJson：data.item
+// 匹配推送列表.Get("data.item")
+func dynamicChecker(mainJson gson.JSON) {
 	uid := mainJson.Get("modules.module_author.mid").Int()
 	name := mainJson.Get("modules.module_author.name").Str()
 	dynamicType := mainJson.Get("type").Str()
@@ -218,7 +226,8 @@ func dynamicChecker(mainJson gson.JSON) { //mainJson：data.item
 	return
 }
 
-func initLiveList() { //初始化直播监听列表
+// 初始化直播监听列表
+func initLiveList() {
 	liveListUID = []int{} //清空
 	liveList = []int{}
 	j := 0
@@ -250,7 +259,8 @@ func initLiveList() { //初始化直播监听列表
 	log.Info("[push] 直播间监听 ", k, " 个")
 }
 
-func liveMonitor() { //建立监听连接
+// 建立监听连接
+func liveMonitor() {
 	for {
 		log.Debug("[push] 直播监听    disconnected: ", disconnected, "  configChanged: ", configChanged)
 		if disconnected || configChanged {
@@ -269,7 +279,8 @@ func liveMonitor() { //建立监听连接
 	}
 }
 
-func liveChecker(pktJson gson.JSON, uid string, roomID string) { //判断数据包类型
+// 判断直播间数据包类型，匹配推送
+func liveChecker(pktJson gson.JSON, uid string, roomID string) {
 	minimumInterval := int64(v.GetFloat64("push.settings.livePushMinimumInterval"))
 	cmd := pktJson.Get("cmd").Str()
 	switch cmd {
@@ -392,7 +403,8 @@ live.bilibili.com/%s`,
 	}
 }
 
-func sendListGen(i int) (string, []int, []int) { //生成发送队列
+// 生成发送队列
+func sendListGen(i int) (string, []int, []int) {
 	//读StringSlice再转成IntSlice实现同时支持输入单个和多个数据
 	userID := []int{}
 	userList := v.GetStringSlice(fmt.Sprint("push.list.", i, ".user"))

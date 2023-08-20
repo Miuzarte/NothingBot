@@ -11,6 +11,7 @@ import (
 	"github.com/shirou/gopsutil/v3/mem"
 )
 
+// 运行状态
 func checkInfo(ctx gocqMessage) {
 	reg := regexp.MustCompile(fmt.Sprintf(`^(\[CQ:at\,qq=%d]\s*)?(检查身体|运行状态)$`, selfID)).FindAllStringSubmatch(ctx.message, -1)
 	if len(reg) > 0 {

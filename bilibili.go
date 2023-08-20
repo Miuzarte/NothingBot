@@ -10,7 +10,8 @@ import (
 	"github.com/ysmood/gson"
 )
 
-func getDynamicJson(dynamicID string) gson.JSON { //获取动态数据
+// 获取动态数据.Get("data.item")
+func getDynamicJson(dynamicID string) gson.JSON {
 	dynamicJson, err := ihttp.New().WithUrl("https://api.bilibili.com/x/polymer/web-dynamic/v1/detail").
 		WithAddQuery("id", dynamicID).WithHeaders(iheaders).WithCookie(cookie).
 		Get().ToGson()
@@ -24,7 +25,8 @@ func getDynamicJson(dynamicID string) gson.JSON { //获取动态数据
 	return dynamicJson
 }
 
-func getVoteJson(voteID string) gson.JSON { //.Get("data.info")
+// 获取投票数据.Get("data.info")
+func getVoteJson(voteID string) gson.JSON {
 	voteJson, err := ihttp.New().WithUrl("https://api.vc.bilibili.com/vote_svr/v1/vote_svr/vote_info").
 		WithAddQuery("vote_id", voteID).WithHeaders(iheaders).WithCookie(cookie).
 		Get().ToGson()
@@ -38,7 +40,8 @@ func getVoteJson(voteID string) gson.JSON { //.Get("data.info")
 	return voteJson
 }
 
-func formatDynamic(g gson.JSON) string { //主动态"data.item", 转发原动态"data.item.orig"
+// 格式化动态, 主动态.Get("data.item"), 转发原动态.Get("data.item.orig")
+func formatDynamic(g gson.JSON) string {
 	truncationLength := v.GetInt( //简介截断长度
 		"parse.settings.descTruncationLength")
 	live := gson.NewFrom(g.Get( //直播
@@ -249,13 +252,12 @@ www.bilibili.com/video/%s`,
 			play, danmaku,
 			bvid)
 	case "DYNAMIC_TYPE_ARTICLE": //文章
-		action := author.Get("pub_action").Str()     //"投稿了文章"
-		covers := func(imgUrls []gson.JSON) string { //封面组
-			var images string
+		action := author.Get("pub_action").Str()              //"投稿了文章"
+		covers := func(imgUrls []gson.JSON) (covers string) { //封面组
 			for _, j := range imgUrls {
-				images += fmt.Sprintf("[CQ:image,file=%s]", j.Str())
+				covers += fmt.Sprintf("[CQ:image,file=%s]", j.Str())
 			}
-			return images
+			return
 		}(article.Get("covers").Arr())
 		cvid := article.Get("id").Int()     //cv号数字
 		title := article.Get("title").Str() //标题
@@ -323,7 +325,8 @@ live.bilibili.com/%d`,
 		dynamicType)
 }
 
-func getArchiveJsonA(aid string) (gson.JSON, gson.JSON) { //.Get("data"))
+// av号获取视频数据.Get("data"))
+func getArchiveJsonA(aid string) (gson.JSON, gson.JSON) {
 	videoJson, err := ihttp.New().WithUrl("https://api.bilibili.com/x/web-interface/view").
 		WithAddQuery("aid", aid).WithHeaders(iheaders).
 		Get().ToGson()
@@ -348,7 +351,8 @@ func getArchiveJsonA(aid string) (gson.JSON, gson.JSON) { //.Get("data"))
 	return videoJson, statJson
 }
 
-func getArchiveJsonB(bvid string) (gson.JSON, gson.JSON) { //.Get("data"))
+// bv号获取视频数据.Get("data"))
+func getArchiveJsonB(bvid string) (gson.JSON, gson.JSON) {
 	videoJson, err := ihttp.New().WithUrl("https://api.bilibili.com/x/web-interface/view").
 		WithAddQuery("bvid", bvid).WithHeaders(iheaders).
 		Get().ToGson()
@@ -364,35 +368,38 @@ func getArchiveJsonB(bvid string) (gson.JSON, gson.JSON) { //.Get("data"))
 		WithAddQuery("bvid", bvid).WithAddQuery("cid", cid).WithHeaders(iheaders).
 		Get().ToGson()
 	if err != nil {
-		log.Error("[bilibili] getArchiveJsonA().statJson.ihttp请求错误: ", err)
+		log.Error("[bilibili] getArchiveJsonB().statJson.ihttp请求错误: ", err)
 	}
-	log.Trace("[bilibili] rawVideoJsonA.statJson: ", videoJson.JSON("", ""))
+	log.Trace("[bilibili] getArchiveJsonB.statJson: ", videoJson.JSON("", ""))
 	if statJson.Get("code").Int() != 0 {
 		log.Error("[parse] 视频 ", bvid, " 在线人数状态获取错误: ", statJson.JSON("", ""))
 	}
 	return videoJson, statJson
 }
 
-func formatArchive(g gson.JSON, h gson.JSON) string {
-	truncationLength := v.GetInt( //简介截断长度
-		"parse.settings.descTruncationLength")
-	pic := g.Get("pic").Str()          //封面
-	aid := g.Get("aid").Int()          //av号数字
-	title := g.Get("title").Str()      //标题
-	up := g.Get("owner.name").Str()    //up主
-	desc := func(desc string) string { //简介
-		if (desc != "" && desc != "-") && truncationLength > 0 {
-			if len([]rune(desc)) > truncationLength {
-				return fmt.Sprintf("\n简介：%s......", string([]rune(desc)[0:truncationLength]))
-			} else {
-				return fmt.Sprintf("\n简介：%s", desc)
-			}
+// 简介截断
+func descTrunc(desc string) string {
+	truncationLength := v.GetInt("parse.settings.descTruncationLength")
+	if (desc != "" && desc != "-") && truncationLength > 0 {
+		if len([]rune(desc)) > truncationLength {
+			return fmt.Sprintf("\n简介：%s......", string([]rune(desc)[0:truncationLength]))
+		} else {
+			return fmt.Sprintf("\n简介：%s", desc)
 		}
-		return ""
-	}(g.Get("desc").Str())
+	}
+	return ""
+}
+
+// 格式化视频.Get("data"))
+func formatArchive(g gson.JSON, h gson.JSON) string {
+	pic := g.Get("pic").Str()              //封面
+	aid := g.Get("aid").Int()              //av号数字
+	title := g.Get("title").Str()          //标题
+	up := g.Get("owner.name").Str()        //up主
+	desc := descTrunc(g.Get("desc").Str()) //简介
 	view := g.Get("stat.view").Int()       //再生
 	danmaku := g.Get("stat.danmaku").Int() //弹幕
-	reply := g.Get("stat.reply").Int()     //回复
+	reply := g.Get("stat.reply").Int()     //评论
 	like := g.Get("stat.like").Int()       //点赞
 	coin := g.Get("stat.coin").Int()       //投币
 	favor := g.Get("stat.favorite").Int()  //收藏
@@ -410,7 +417,7 @@ func formatArchive(g gson.JSON, h gson.JSON) string {
 av%d
 %s
 UP：%s%s%s
-%d播放  %d弹幕  %d回复
+%d播放  %d弹幕  %d评论
 %d点赞  %d投币  %d收藏
 www.bilibili.com/video/%s`,
 		pic,
@@ -422,7 +429,8 @@ www.bilibili.com/video/%s`,
 		bvid)
 }
 
-func getArticleJson(cvid string) gson.JSON { //.Get("data")
+// 获取文章数据.Get("data")
+func getArticleJson(cvid string) gson.JSON {
 	articleJson, err := ihttp.New().WithUrl("https://api.bilibili.com/x/article/viewinfo").
 		WithAddQuery("id", cvid).WithHeaders(iheaders).
 		Get().ToGson()
@@ -436,7 +444,8 @@ func getArticleJson(cvid string) gson.JSON { //.Get("data")
 	return articleJson
 }
 
-func formatArticle(g gson.JSON, cvid string) string { //文章信息拿不到自己的cv号
+// 格式化文章.Get("data")（文章信息拿不到自己的cv号）
+func formatArticle(g gson.JSON, cvid string) string {
 	images := func(imgUrls []gson.JSON) string { //头图
 		var images string
 		for _, j := range imgUrls {
@@ -447,7 +456,7 @@ func formatArticle(g gson.JSON, cvid string) string { //文章信息拿不到自
 	title := g.Get("title").Str()          //标题
 	author := g.Get("author_name").Str()   //作者
 	view := g.Get("stats.view").Int()      //阅读
-	reply := g.Get("stats.reply").Int()    //回复
+	reply := g.Get("stats.reply").Int()    //评论
 	share := g.Get("stats.share").Int()    //分享
 	like := g.Get("stats.like").Int()      //点赞
 	coin := g.Get("stats.coin").Int()      //投币
@@ -457,7 +466,7 @@ func formatArticle(g gson.JSON, cvid string) string { //文章信息拿不到自
 cv%s
 %s
 作者：%s
-%d阅读  %d回复  %d分享
+%d阅读  %d评论  %d分享
 %d点赞  %d投币  %d收藏
 www.bilibili.com/read/cv%s`,
 		images,
@@ -469,7 +478,8 @@ www.bilibili.com/read/cv%s`,
 		cvid)
 }
 
-func getSpaceJson(uid string) gson.JSON { //.Get("data.card")
+// 获取用户空间数据.Get("data.card")
+func getSpaceJson(uid string) gson.JSON {
 	spaceJson, err := ihttp.New().WithUrl("https://api.bilibili.com/x/web-interface/card").
 		WithAddQuery("mid", uid).WithHeaders(iheaders).
 		Get().ToGson()
@@ -483,6 +493,7 @@ func getSpaceJson(uid string) gson.JSON { //.Get("data.card")
 	return spaceJson
 }
 
+// 格式化空间.Get("data.card")
 func formatSpace(g gson.JSON) string {
 	face := g.Get("face").Str()                      //头像
 	name := g.Get("name").Str()                      //用户名
@@ -513,7 +524,8 @@ space.bilibili.com/%s`,
 		mid)
 }
 
-func getRoomJsonUID(uid string) gson.JSON { //uid获取直播间数据  .Gets("data", strconv.Itoa(uid))
+// uid获取直播间数据.Gets("data", strconv.Itoa(uid))
+func getRoomJsonUID(uid string) gson.JSON {
 	liveJson, err := ihttp.New().WithUrl("https://api.live.bilibili.com/room/v1/Room/get_status_info_by_uids").
 		WithAddQuery("uids[]", uid).WithHeaders(iheaders).WithCookie(cookie).
 		Get().ToGson()
@@ -527,7 +539,8 @@ func getRoomJsonUID(uid string) gson.JSON { //uid获取直播间数据  .Gets("d
 	return liveJson
 }
 
-func getRoomJsonRoomID(roomID string) gson.JSON { //房间号获取直播间数据（拿不到UP用户名）  .Get("data")
+// 房间号获取直播间数据.Get("data")（拿不到UP用户名）
+func getRoomJsonRoomID(roomID string) gson.JSON {
 	liveJson, err := ihttp.New().WithUrl("https://api.live.bilibili.com/room/v1/Room/get_info").
 		WithAddQuery("room_id", roomID).WithHeaders(iheaders).WithCookie(cookie).
 		Get().ToGson()
@@ -541,6 +554,7 @@ func getRoomJsonRoomID(roomID string) gson.JSON { //房间号获取直播间数�
 	return liveJson
 }
 
+// 格式化直播间
 func formatLive(g gson.JSON) string {
 	cover := g.Get("cover_from_user").Str() //封面
 	keyframe := g.Get("keyframe").Str()     //关键帧

@@ -9,6 +9,7 @@ import (
 	"time"
 )
 
+// 获取并格式化at列表
 func formatAt(atID int, group int) []map[string]any {
 	var forwardNode []map[string]any
 	var atList []gocqMessage
@@ -84,6 +85,7 @@ func formatAt(atID int, group int) []map[string]any {
 	return forwardNode
 }
 
+// 谁at我
 func checkAt(ctx gocqMessage) {
 	reg := regexp.MustCompile(`^谁@?[aA艾]?[tT特]?(我|(\s?\[CQ:at,qq=)?([0-9]{1,11})?(\]\s?))$`).FindAllStringSubmatch(ctx.message, -1)
 	if len(reg) > 0 {

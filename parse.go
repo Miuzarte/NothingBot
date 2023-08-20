@@ -51,6 +51,7 @@ type parseHistory struct {
 
 //base58: 123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz
 
+// 链接提取
 func biliLinkExtractor(str string) (id string, kind string) {
 	short := regexp.MustCompile(biliLinkRegexp.SHORT).FindAllStringSubmatch(str, -1)
 	dynamicID := regexp.MustCompile(biliLinkRegexp.DYNAMIC).FindAllStringSubmatch(str, -1)
@@ -92,6 +93,7 @@ func biliLinkExtractor(str string) (id string, kind string) {
 	return str, ""
 }
 
+// 短链解析
 func deShortLink(slug string) string {
 	url := "https://b23.tv/" + slug
 	var location string
@@ -116,6 +118,7 @@ func deShortLink(slug string) string {
 	return location
 }
 
+// 链接内容解析
 func biliLinkParse(id string, kind string) string {
 	switch kind {
 	case "":
@@ -167,6 +170,7 @@ func biliLinkParse(id string, kind string) string {
 	return ""
 }
 
+// 短时间重复解析屏蔽
 func checkOverParse(ctx gocqMessage, id string, kind string) bool {
 	if ctx.message_type == "group" { //只有群聊有限制
 		duration := int64(v.GetFloat64("parse.settings.sameParseInterval"))
@@ -186,6 +190,7 @@ func checkOverParse(ctx gocqMessage, id string, kind string) bool {
 	return true
 }
 
+// 哔哩哔哩链接解析
 func checkParse(ctx gocqMessage) {
 	reg := regexp.MustCompile(everyBiliLinkRegexp)
 	result := reg.FindAllStringSubmatch(ctx.message, -1)

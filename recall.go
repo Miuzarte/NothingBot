@@ -11,6 +11,7 @@ import (
 
 var recallSwitch = true
 
+// 获取并格式化撤回消息记录
 func formatRecall(id int, filter int, kind string) []map[string]any {
 	var forwardNode []map[string]any
 	var rcList []gocqMessage
@@ -79,10 +80,11 @@ func formatRecall(id int, filter int, kind string) []map[string]any {
 	return forwardNode
 }
 
+// 撤回消息记录
 func checkRecall(ctx gocqMessage) {
 	//开关
 	reg := regexp.MustCompile("(开启|启用|关闭|禁用)撤回记录").FindAllStringSubmatch(ctx.message, -1)
-	if matchSU(ctx.user_id) && len(reg) != 0 {
+	if matchSU(ctx) && isPrivate(ctx) && len(reg) != 0 {
 		switch reg[0][1] {
 		case "开启", "启用":
 			recallSwitch = true
@@ -117,7 +119,7 @@ func checkRecall(ctx gocqMessage) {
 				}
 				return ctx.user_id
 			}(reg[0][2])
-			if !matchSU(ctx.user_id) && ctx.user_id != id {
+			if !matchSU(ctx) && ctx.user_id != id {
 				sendPrivateMsg(ctx.user_id, "👀？只有超级用户才能查看他人的私聊撤回记录捏")
 				log2SU.Warn(fmt.Sprint("用户 ", ctx.sender_nickname, "(", ctx.user_id, ") 尝试查看 ", id, " 的私聊撤回记录"))
 				return

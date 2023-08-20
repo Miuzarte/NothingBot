@@ -9,10 +9,12 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
+// 初始化语料库
 func initCorpus() {
 	log.Info("[corpus] 语料库找到 ", len(v.GetStringSlice("corpus")), " 条")
 }
 
+// 语料库
 func checkCorpus(ctx gocqMessage) {
 	for i := 0; i < len(v.GetStringSlice("corpus")); i++ { //匹配语料库
 		reg := v.GetString(fmt.Sprint("corpus.", i, ".regexp"))
