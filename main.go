@@ -72,6 +72,7 @@ const (
 
 var (
 	startTime          = time.Now().Unix()    //启动时间
+	initCount          = 0                    //配置更新次数
 	gocqUrl            = ""                   //websocketurl
 	gocqConn           *websocket.Conn        //
 	mainBlock          = make(chan os.Signal) //main阻塞
@@ -259,25 +260,13 @@ func heartbeatCheck(interval int) {
 	}
 }
 
-// 具体化回复，go-cqhttp.extra-reply-data: false时需要使用
-func msgEntity(p gson.JSON) string {
-	msg := p.Get("message").Str()
-	reg := regexp.MustCompile(`\[CQ:reply\,id=(.*?)\]`).FindAllStringSubmatch(msg, -1)
-	if len(reg) > 0 {
-		replyID_str := reg[0][1]
-		replyID_int, _ := strconv.Atoi(replyID_str)
-		replyMsg := gocqMessage{}
-		reply := ""
-		switch p.Get("message_type").Str() {
-		case "group":
-			replyMsg = msgTableGroup[p.Get("group_id").Int()][replyID_int]
-		case "private":
-			replyMsg = msgTableFriend[p.Get("user_id").Int()][replyID_int]
-		}
-		reply = fmt.Sprint("[CQ:reply,qq=", replyMsg.user_id, ",time=", replyMsg.time, ",text=", replyMsg.message, "]")
-		msg = strings.ReplaceAll(msg, fmt.Sprint("[CQ:reply,id=", reg[0][1], "]"), reply)
+// 上报消息至go-cqhttp
+func postMsg(msg gson.JSON) {
+	if heartbeatOK {
+		gocqConn.Write([]byte(msg.JSON("", "")))
+	} else {
+		log.Error("[main] 未连接到go-cqhttp")
 	}
-	return msg
 }
 
 // 处理消息
@@ -288,17 +277,17 @@ func postHandler(rawPost string) {
 	switch p.Get("post_type").Str() { //上报类型: "message"消息, "message_sent"消息发送, "request"请求, "notice"通知, "meta_event"
 	case "message":
 		msg := gocqMessage{ //消息内容
-			message_type: p.Get("message_type").Str(),
-			sub_type:     p.Get("sub_type").Str(),
-			time:         p.Get("time").Int(),
-			timeF:        time.Unix(int64(p.Get("time").Int()), 0).Format(timeLayout.T24),
-			user_id:      p.Get("user_id").Int(),
-			group_id:     p.Get("group_id").Int(),
-			message_id:   p.Get("message_id").Int(),
-			message_seq:  p.Get("message_seq").Int(),
-			raw_message:  p.Get("raw_message").Str(),
-			message:      p.Get("message").Str(),
-			//messageF: msgEntity(p),        //go-cqhttp中extra-reply-data: false时需要使用
+			message_type:    p.Get("message_type").Str(),
+			sub_type:        p.Get("sub_type").Str(),
+			time:            p.Get("time").Int(),
+			timeF:           time.Unix(int64(p.Get("time").Int()), 0).Format(timeLayout.T24),
+			user_id:         p.Get("user_id").Int(),
+			group_id:        p.Get("group_id").Int(),
+			message_id:      p.Get("message_id").Int(),
+			message_seq:     p.Get("message_seq").Int(),
+			raw_message:     p.Get("raw_message").Str(),
+			message:         p.Get("message").Str(),
+			messageF:        msgEntity(p),
 			sender_nickname: p.Get("sender.nickname").Str(),
 			sender_card:     p.Get("sender.card").Str(),
 			sender_rold:     p.Get("sender.role").Str(),
@@ -407,10 +396,7 @@ func postHandler(rawPost string) {
 					sender_id: p.Get("sender_id").Int(),
 					target_id: p.Get("target_id").Int(),
 				}
-				log.Info("[gocq] 收到 ", poke.sender_id, " 对 ", poke.target_id, " 的戳一戳")
-				if poke.target_id == selfID && poke.sender_id != poke.target_id {
-					go checkBotInternalPoke(poke)
-				}
+				poke.pokeHandler()
 			default:
 				log.Info("[gocq] notice.notify: ", rawPost)
 				log.Info("[gocq] notice.notify.sub_type: ", p.Get("sub_type").Str())
@@ -451,95 +437,31 @@ func postHandler(rawPost string) {
 	}
 }
 
-type log2SuperUsers func(...any)
-
-func (log2SU log2SuperUsers) Panic(msg ...any) {
-	log2SU("[Panic] ", fmt.Sprint(msg...))
-}
-
-func (log2SU log2SuperUsers) Fatal(msg ...any) {
-	log2SU("[Fatal] ", fmt.Sprint(msg...))
-}
-
-func (log2SU log2SuperUsers) Error(msg ...any) {
-	log2SU("[Error] ", fmt.Sprint(msg...))
-}
-
-func (log2SU log2SuperUsers) Warn(msg ...any) {
-	log2SU("[Warn] ", fmt.Sprint(msg...))
-}
-
-func (log2SU log2SuperUsers) Info(msg ...any) {
-	log2SU("[Info] ", fmt.Sprint(msg...))
-}
-
-func (log2SU log2SuperUsers) Debug(msg ...any) {
-	log2SU("[Debug] ", fmt.Sprint(msg...))
-}
-
-func (log2SU log2SuperUsers) Trace(msg ...any) {
-	log2SU("[Trace] ", fmt.Sprint(msg...))
-}
-
-// 发送日志到超级用户
-var log2SU log2SuperUsers = func(msg ...any) {
-	sendMsg(suID, []int{}, "", "[NothingBot] ", fmt.Sprint(msg...))
-}
-
-// 批量发送消息
-func sendMsg(userID []int, groupID []int, at string, msg ...any) {
-	if len(msg) == 0 {
-		return
-	}
-	if len(groupID) != 0 {
-		for _, group := range groupID {
-			sendGroupMsg(group, fmt.Sprint(msg...), at)
+// 具体化回复，go-cqhttp.extra-reply-data: true时不需要，但是开了那玩意又会导致回复带上原文又触发一遍机器人
+func msgEntity(p gson.JSON) (msg string) {
+	reg := regexp.MustCompile(`\[CQ:reply\,id=(.*?)\]`).FindAllStringSubmatch(p.Get("message").Str(), -1)
+	if len(reg) > 0 {
+		replyID_str := reg[0][1]
+		replyID_int, _ := strconv.Atoi(replyID_str)
+		replyMsg := gocqMessage{}
+		var reply string
+		switch p.Get("message_type").Str() {
+		case "group":
+			replyMsg = msgTableGroup[p.Get("group_id").Int()][replyID_int]
+		case "private":
+			replyMsg = msgTableFriend[p.Get("user_id").Int()][replyID_int]
 		}
-	}
-	if len(userID) != 0 {
-		for _, user := range userID {
-			sendPrivateMsg(user, msg...)
-		}
+		reply = fmt.Sprint("[CQ:reply,qq=", replyMsg.user_id, ",time=", replyMsg.time, ",text=", replyMsg.message, "]")
+		msg = strings.ReplaceAll(p.Get("message").Str(), fmt.Sprint("[CQ:reply,id=", reg[0][1], "]"), reply)
 	}
 	return
 }
 
-// 根据上下文发送消息
-func sendMsgCTX(ctx gocqMessage, msg ...any) {
-	if ctx.message_type == "" || len(msg) == 0 {
-		return
-	}
-	switch ctx.message_type {
-	case "group":
-		sendGroupMsg(ctx.group_id, msg...)
-	case "private":
-		sendPrivateMsg(ctx.user_id, msg...)
-	}
-}
-
-// 根据上下文发送消息，带@
-func sendMsgAtCTX(ctx gocqMessage, msg ...any) {
-	if ctx.message_type == "" || len(msg) == 0 {
-		return
-	}
-	switch ctx.message_type {
-	case "group":
-		sendGroupMsg(ctx.group_id, fmt.Sprint("[CQ:at,qq=", ctx.user_id, "]"), fmt.Sprint(msg...))
-	case "private":
-		sendPrivateMsg(ctx.user_id, msg...)
-	}
-}
-
-// 根据上下文发送消息，带回复
-func sendMsgReplyCTX(ctx gocqMessage, msg ...any) {
-	if ctx.message_type == "" || len(msg) == 0 {
-		return
-	}
-	switch ctx.message_type {
-	case "group":
-		sendGroupMsg(ctx.group_id, fmt.Sprint("[CQ:reply,id=", ctx.message_id, "]"), fmt.Sprint(msg...))
-	case "private":
-		sendPrivateMsg(ctx.user_id, fmt.Sprint("[CQ:reply,id=", ctx.message_id, "]"), fmt.Sprint(msg...))
+// 戳一戳处理，先写死
+func (poke gocqPoke) pokeHandler() {
+	log.Info("[gocq] 收到 ", poke.sender_id, " 对 ", poke.target_id, " 的戳一戳")
+	if poke.target_id == selfID && poke.sender_id != poke.target_id && poke.group_id != 0 {
+		sendGroupMsg(poke.group_id, "[NothingBot] 在一条消息内只at我两次可以获取帮助信息~")
 	}
 }
 
@@ -569,19 +491,6 @@ func sendPrivateMsg(user_id int, msg ...any) {
 	return
 }
 
-// 根据上下文发送合并转发消息
-func sendForwardMsgCTX(ctx gocqMessage, forwardNode []map[string]any) {
-	if ctx.message_type == "" || len(forwardNode) == 0 {
-		return
-	}
-	switch ctx.message_type {
-	case "group":
-		sendGroupForwardMsg(ctx.group_id, forwardNode)
-	case "private":
-		sendPrivateForwardMsg(ctx.user_id, forwardNode)
-	}
-}
-
 // 发送群聊合并转发消息
 func sendGroupForwardMsg(group_id int, forwardNode []map[string]any) {
 	if group_id == 0 || len(forwardNode) == 0 {
@@ -606,19 +515,125 @@ func sendPrivateForwardMsg(user_id int, forwardNode []map[string]any) {
 	postMsg(g)
 }
 
-// 上报消息至go-cqhttp
-func postMsg(msg gson.JSON) {
-	if heartbeatOK {
-		gocqConn.Write([]byte(msg.JSON("", "")))
-	} else {
-		log.Error("[main] 未连接到go-cqhttp")
+type log2SuperUsers func(...any)
+
+func (log2SU log2SuperUsers) Panic(msg ...any) {
+	log2SU("[Panic] ", fmt.Sprint(msg...))
+}
+
+func (log2SU log2SuperUsers) Fatal(msg ...any) {
+	log2SU("[NothingBot] [Fatal] ", fmt.Sprint(msg...))
+}
+
+func (log2SU log2SuperUsers) Error(msg ...any) {
+	log2SU("[NothingBot] [Error] ", fmt.Sprint(msg...))
+}
+
+func (log2SU log2SuperUsers) Warn(msg ...any) {
+	log2SU("[NothingBot] [Warn] ", fmt.Sprint(msg...))
+}
+
+func (log2SU log2SuperUsers) Info(msg ...any) {
+	log2SU("[NothingBot] [Info] ", fmt.Sprint(msg...))
+}
+
+func (log2SU log2SuperUsers) Debug(msg ...any) {
+	log2SU("[NothingBot] [Debug] ", fmt.Sprint(msg...))
+}
+
+func (log2SU log2SuperUsers) Trace(msg ...any) {
+	log2SU("[NothingBot] [Trace] ", fmt.Sprint(msg...))
+}
+
+// 发送日志到超级用户
+var log2SU log2SuperUsers = func(msg ...any) {
+	sendMsg(suID, []int{}, "", msg...)
+}
+
+// 批量发送消息
+func sendMsg(userID []int, groupID []int, at string, msg ...any) {
+	if len(groupID) != 0 {
+		for _, group := range groupID {
+			sendGroupMsg(group, fmt.Sprint(msg...), at)
+		}
+	}
+	if len(userID) != 0 {
+		for _, user := range userID {
+			sendPrivateMsg(user, msg...)
+		}
+	}
+}
+
+// 批量发送合并转发消息
+func sendForwardMsg(userID []int, groupID []int, forwardNode []map[string]any) {
+	if len(groupID) != 0 {
+		for _, group := range groupID {
+			sendGroupForwardMsg(group, forwardNode)
+		}
+	}
+	if len(userID) != 0 {
+		for _, user := range userID {
+			sendPrivateForwardMsg(user, forwardNode)
+		}
+	}
+}
+
+// 根据上下文发送消息
+func (ctx gocqMessage) sendMsg(msg ...any) {
+	if ctx.message_type == "" || len(msg) == 0 {
+		return
+	}
+	switch ctx.message_type {
+	case "group":
+		sendGroupMsg(ctx.group_id, msg...)
+	case "private":
+		sendPrivateMsg(ctx.user_id, msg...)
+	}
+}
+
+// 根据上下文发送消息，带@
+func (ctx gocqMessage) sendMsgAt(msg ...any) {
+	if ctx.message_type == "" || len(msg) == 0 {
+		return
+	}
+	switch ctx.message_type {
+	case "group":
+		sendGroupMsg(ctx.group_id, fmt.Sprint("[CQ:at,qq=", ctx.user_id, "]"), fmt.Sprint(msg...))
+	case "private":
+		sendPrivateMsg(ctx.user_id, msg...)
+	}
+}
+
+// 根据上下文发送消息，带回复
+func (ctx gocqMessage) sendMsgReply(msg ...any) {
+	if ctx.message_type == "" || len(msg) == 0 {
+		return
+	}
+	switch ctx.message_type {
+	case "group":
+		sendGroupMsg(ctx.group_id, fmt.Sprint("[CQ:reply,id=", ctx.message_id, "]"), fmt.Sprint(msg...))
+	case "private":
+		sendPrivateMsg(ctx.user_id, fmt.Sprint("[CQ:reply,id=", ctx.message_id, "]"), fmt.Sprint(msg...))
+	}
+}
+
+// 根据上下文发送合并转发消息
+func (ctx gocqMessage) sendForwardMsg(forwardNode []map[string]any) {
+	if ctx.message_type == "" || len(forwardNode) == 0 {
+		return
+	}
+	switch ctx.message_type {
+	case "group":
+		sendGroupForwardMsg(ctx.group_id, forwardNode)
+	case "private":
+		sendPrivateForwardMsg(ctx.user_id, forwardNode)
 	}
 }
 
 // 匹配超级用户
-func matchSU(ctx gocqMessage) bool {
-	for _, superUser := range suID {
-		if superUser == ctx.user_id {
+func (ctx gocqMessage) isSU() bool {
+	for _, su := range suID {
+		if ctx.user_id == su {
 			return true
 		}
 	}
@@ -626,7 +641,7 @@ func matchSU(ctx gocqMessage) bool {
 }
 
 // 匹配消息来源
-func isGroup(ctx gocqMessage) bool {
+func (ctx gocqMessage) isGroup() bool {
 	if ctx.message_type == "group" {
 		return true
 	}
@@ -634,15 +649,23 @@ func isGroup(ctx gocqMessage) bool {
 }
 
 // 匹配消息来源
-func isPrivate(ctx gocqMessage) bool {
+func (ctx gocqMessage) isPrivate() bool {
 	if ctx.message_type == "private" {
 		return true
 	}
 	return false
 }
 
+// isPrivate() && isSU()
+func (ctx gocqMessage) isPrivateSU() bool {
+	if ctx.isPrivate() && ctx.isSU() {
+		return true
+	}
+	return false
+}
+
 // 群名片为空则返回昵称
-func cardORnickname(ctx gocqMessage) string {
+func (ctx gocqMessage) getCardOrNickname() string {
 	if ctx.sender_card != "" {
 		return ctx.sender_card
 	}
@@ -654,14 +677,13 @@ func appendForwardNode(forwardNode []map[string]any, nodeData gocqNodeData) []ma
 	timeS := nodeData.time
 	name := nodeData.name
 	uin := nodeData.uin
-	switch {
-	case timeS == 0:
+	if timeS == 0 {
 		timeS = time.Now().Unix()
-		fallthrough
-	case name == "":
+	}
+	if name == "" {
 		name = "NothingBot"
-		fallthrough
-	case uin == 0:
+	}
+	if uin == 0 {
 		uin = selfID
 	}
 	for _, content_ := range nodeData.content {
@@ -726,14 +748,16 @@ func initConfig() {
 			log.Fatal("[init] 请指定至少一个超级用户")
 		}
 		log.Info("[init] superUsers: ", suID)
+		go initCorpus()
+		go initPush()
 	}
 	if configPath == "" {
-		log.Info("[init] 默认配置文件: ./config.yaml")
+		log.Info("[init] 读取默认配置文件: ./config.yaml")
 		v.AddConfigPath(".")
 		v.SetConfigName("config")
 		v.SetConfigType("yaml")
 	} else {
-		log.Info("[init] 自定义配置文件: ", configPath)
+		log.Info("[init] 读取自定义配置文件: ", configPath)
 		v.SetConfigFile(configPath)
 	}
 	err := v.ReadInConfig()
@@ -744,6 +768,8 @@ func initConfig() {
 	v.WatchConfig()
 	updateConfig()
 	v.OnConfigChange(func(in fsnotify.Event) {
+		log.Info("[main] 更新了配置文件")
+		initCount++
 		updateConfig()
 		tempBlock <- struct{}{} //解除临时阻塞
 	})
@@ -765,8 +791,6 @@ func main() {
 			}
 		}
 	}()
-	initCorpus()
-	initPush()
 	exitJobs()
 }
 

@@ -63,14 +63,14 @@ func formatRecall(id int, filter int, kind string) []map[string]any {
 		name := fmt.Sprintf(
 			`(%s)%s%s`,
 			rcMsg.timeF,
-			cardORnickname(rcMsg),
+			rcMsg.getCardOrNickname(),
 			func() string {
 				if rcMsg.operator_id != rcMsg.user_id {
 					return "(他人撤回)"
 				}
 				return ""
 			}())
-		content := strings.ReplaceAll(rcMsg.message, "CQ:at,", "CQ:at,​") //插入零宽空格阻止CQ码解析
+		content := strings.ReplaceAll(rcMsg.messageF, "CQ:at,", "CQ:at,​") //插入零宽空格阻止CQ码解析
 		forwardNode = appendForwardNode(forwardNode, gocqNodeData{
 			name:    name,
 			uin:     rcMsg.user_id,
@@ -84,14 +84,14 @@ func formatRecall(id int, filter int, kind string) []map[string]any {
 func checkRecall(ctx gocqMessage) {
 	//开关
 	reg := regexp.MustCompile("(开启|启用|关闭|禁用)撤回记录").FindAllStringSubmatch(ctx.message, -1)
-	if matchSU(ctx) && isPrivate(ctx) && len(reg) != 0 {
+	if ctx.isSU() && ctx.isPrivate() && len(reg) != 0 {
 		switch reg[0][1] {
 		case "开启", "启用":
 			recallSwitch = true
-			sendMsgCTX(ctx, "撤回记录已启用")
+			ctx.sendMsg("撤回记录已启用")
 		case "关闭", "禁用":
 			recallSwitch = false
-			sendMsgCTX(ctx, "撤回记录已禁用")
+			ctx.sendMsg("撤回记录已禁用")
 		}
 		return
 	}
@@ -119,7 +119,7 @@ func checkRecall(ctx gocqMessage) {
 				}
 				return ctx.user_id
 			}(reg[0][2])
-			if !matchSU(ctx) && ctx.user_id != id {
+			if !ctx.isSU() && ctx.user_id != id {
 				sendPrivateMsg(ctx.user_id, "👀？只有超级用户才能查看他人的私聊撤回记录捏")
 				log2SU.Warn(fmt.Sprint("用户 ", ctx.sender_nickname, "(", ctx.user_id, ") 尝试查看 ", id, " 的私聊撤回记录"))
 				return

@@ -31,6 +31,6 @@ NothingBot运行时长：%s`,
 			memInfo.Used/1024/1024, memInfo.Total/1024/1024, float64(memInfo.Used)/float64(memInfo.Total)*100,
 			gpu.GraphicsCards[0].DeviceInfo.Product.Name,
 			timeFormat(time.Now().Unix()-startTime))
-		sendMsgCTX(ctx, s)
+		ctx.sendMsg(s)
 	}
 }

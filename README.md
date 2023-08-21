@@ -11,7 +11,30 @@
 
 ### 语料库（自动回复）
 
-参照[Tsuk1ko/cq-picsearcher-bot](https://github.com/Tsuk1ko/cq-picsearcher-bot)的语料库实现，在其基础上多了并发、延迟发送
+参照[Tsuk1ko/cq-picsearcher-bot](https://github.com/Tsuk1ko/cq-picsearcher-bot)的语料库实现
+
+**在其基础上多了：**
+
+并发、延迟发送、多条合并转发、自定义合并转发节点属性
+
+```yaml
+-
+  regexp: "^一条很牛逼的合并转发$"
+  reply:
+    - "111"
+    - 222
+    -
+      name: "不是QQ小冰"
+      uin: 2854196306
+      content:
+        - "彳亍"
+        - "笑死"
+    - 彳亍
+    - "[CQ:reply,qq=2854196306,text=000]333"
+  scene: "all"
+```
+
+![corpus](https://github.com/Miuzarte/NothingBot/assets/66856838/15576647-c5ea-4948-8a13-947a7ac3ad81)
 
 ### 聊天相关
 

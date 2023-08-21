@@ -18,14 +18,14 @@ func checkBotAutoRecall(msgORrecall any) {
 	var reg [][]string
 	if ctx, ok := msgORrecall.(gocqMessage); ok {
 		reg = regexp.MustCompile("(开启|启用|关闭|禁用)自动撤回").FindAllStringSubmatch(ctx.message, -1)
-		if len(reg) > 0 && isPrivate(ctx) && matchSU(ctx) {
+		if len(reg) > 0 && ctx.isPrivateSU() {
 			switch reg[0][1] {
 			case "开启", "启用":
 				autoRecallSwitch = true
-				sendMsgCTX(ctx, "自动撤回已启用")
+				ctx.sendMsg("自动撤回已启用")
 			case "关闭", "禁用":
 				autoRecallSwitch = false
-				sendMsgCTX(ctx, "自动撤回已禁用")
+				ctx.sendMsg("自动撤回已禁用")
 			}
 			return
 		}
@@ -33,17 +33,10 @@ func checkBotAutoRecall(msgORrecall any) {
 	if !autoRecallSwitch {
 		return
 	}
-	if poke, ok := msgORrecall.(gocqFriendRecall); ok {
-		_ = poke
-	} else if poke, ok := msgORrecall.(gocqGroupRecall); ok {
-		_ = poke
-	}
-}
-
-// 戳一戳回复
-func checkBotInternalPoke(poke gocqPoke) {
-	if poke.group_id != 0 {
-		sendGroupMsg(poke.group_id, "[NothingBot] 在一条消息内只at我两次可以获取帮助信息~")
+	if recall, ok := msgORrecall.(gocqFriendRecall); ok {
+		_ = recall
+	} else if recall, ok := msgORrecall.(gocqGroupRecall); ok {
+		_ = recall
 	}
 }
 
@@ -58,10 +51,10 @@ func checkBotInternal(ctx gocqMessage) {
 		if len(call) > 0 { //记录喊话
 			callSUMsgList = append(callSUMsgList, ctx)
 			callSUMsgUnread++
-			sendMsgReplyCTX(ctx, "[NothingBot] 已记录此条喊话并通知超级用户")
+			ctx.sendMsgReply("[NothingBot] 已记录此条喊话并通知超级用户")
 			log2SU.Info("收到一条新的喊话，未读", callSUMsgUnread)
 		} else { //输出帮助
-			sendForwardMsgCTX(ctx, appendForwardNode([]map[string]any{}, gocqNodeData{content: []string{
+			ctx.sendForwardMsg(appendForwardNode([]map[string]any{}, gocqNodeData{content: []string{
 				"github.com/Miuzarte/NothingBot",
 				"符号说明：\n{}: 必要参数\n[]: 可选参数\n|: 或",
 				"帮助信息：\n“@Bot@Bot”\n（“@Bot @Bot ”）\n输出帮助信息",
@@ -79,7 +72,7 @@ func checkBotInternal(ctx gocqMessage) {
 	//发送/清空收件箱
 	reg = regexp.MustCompile(`^(清空)?(喊话列表|收件箱)$`).
 		FindAllStringSubmatch(ctx.message, -1)
-	if len(reg) > 0 && isPrivate(ctx) && matchSU(ctx) {
+	if len(reg) > 0 && ctx.isPrivateSU() {
 		callSUMsgUnread = 0  //清零未读
 		if reg[0][1] == "" { //发送
 			sort.Slice(callSUMsgList, func(i, j int) bool { //根据msg的时间戳由大到小排序
@@ -87,7 +80,7 @@ func checkBotInternal(ctx gocqMessage) {
 			})
 			callSUMsgLen := len(callSUMsgList)
 			if callSUMsgLen == 0 {
-				sendMsgCTX(ctx, "[NothingBot] [Info] 收件箱为空！")
+				ctx.sendMsg("[NothingBot] [Info] 收件箱为空！")
 				return
 			}
 			if callSUMsgLen > 100 { //超过100条合并转发放不下
@@ -99,7 +92,7 @@ func checkBotInternal(ctx gocqMessage) {
 				name := fmt.Sprintf(
 					`(%s)%s  (%d)`,
 					callSUMsg.timeF,
-					cardORnickname(callSUMsg),
+					callSUMsg.getCardOrNickname(),
 					callSUMsg.group_id)
 				content := strings.ReplaceAll(callSUMsg.message, "CQ:at,", "CQ:at,​") //插入零宽空格阻止CQ码解析
 				forwardNode = appendForwardNode(forwardNode, gocqNodeData{
@@ -108,26 +101,26 @@ func checkBotInternal(ctx gocqMessage) {
 					content: []string{content},
 				})
 			}
-			sendForwardMsgCTX(ctx, forwardNode)
+			ctx.sendForwardMsg(forwardNode)
 		} else if reg[0][1] == "清空" { //清空
 			callSUMsgList = []gocqMessage{}
-			sendMsgCTX(ctx, "[NothingBot] [Info] 已清空")
+			ctx.sendMsg("[NothingBot] [Info] 已清空")
 		}
 	}
 	//注入消息
 	reg = regexp.MustCompile(fmt.Sprintf(`^\[CQ:at\,qq=%d]\s*run(.*)$`, selfID)).
 		FindAllStringSubmatch(ctx.message, -1)
 	if len(reg) > 0 {
-		sendMsgCTX(ctx, unescape.Replace(reg[0][1]))
+		ctx.sendMsg(unescape.Replace(reg[0][1]))
 	}
 	//回复我
 	reg = regexp.MustCompile(fmt.Sprintf(`^\[CQ:at\,qq=%d]\s*回复我(.*)?$`, selfID)).
 		FindAllStringSubmatch(ctx.message, -1)
 	if len(reg) > 0 {
 		if reg[0][1] == "" {
-			sendMsgReplyCTX(ctx, "回复你")
+			ctx.sendMsgReply("回复你")
 		} else {
-			sendMsgReplyCTX(ctx, unescape.Replace(reg[0][1]))
+			ctx.sendMsgReply(unescape.Replace(reg[0][1]))
 		}
 	}
 }

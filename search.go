@@ -339,6 +339,6 @@ space.bilibili.com/%d
 func checkSearch(ctx gocqMessage) {
 	reg := regexp.MustCompile(biliSearchRegexp).FindAllStringSubmatch(ctx.message, -1)
 	if len(reg) != 0 {
-		sendForwardMsgCTX(ctx, formatBiliSearch(reg[0][1], reg[0][2]))
+		ctx.sendForwardMsg(formatBiliSearch(reg[0][1], reg[0][2]))
 	}
 }

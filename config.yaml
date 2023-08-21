@@ -18,9 +18,10 @@ main: #除特殊标注以外是冷更新
 corpus: #热更新
 # - #模板
 #   regexp: "" #正则表达式
-#   reply: "" #回复内容
+#   reply: "" #回复内容  string / []string / forwardNode
 #   scene: "" #触发场景 "a"/"all" / "g"/"group" / "p"/"private"
 #   delay:  #延迟回复（秒）  支持小数
+#   [*]: reply内自定义消息转发节点属性(name(显示昵称), uin(头像))时，content也可以是[]string，等价于连着好几条同属性的消息节点
   -
     regexp: "(CQ:at,qq=.*)?/ping"
     reply: "正在 Ping 114.514.19.19 具有 810 字节的数据:"
@@ -32,55 +33,37 @@ corpus: #热更新
     scene: "a"
     delay: 4.9
   -
-    regexp: "^corpus3$"
-    reply: "delay: 5s"
-    scene: "a"
-    delay: 5
-  -
     regexp: "^所有场景$"
     reply: "all"
     scene: "all"
-    delay: 
   -
     regexp: "^群聊场景$"
     reply: "group"
     scene: "group"
-    delay: 
   -
     regexp: "^私聊场景$"
     reply: "private"
     scene: "private"
-    delay: 
   -
-    regexp: "^delay$"
-    reply: "0"
-    scene: "p"
-    delay: 
+    regexp: "^一条合并转发$"
+    reply:
+      - 第一句话
+      - 第二句话
+    scene: "a"
   -
-    regexp: "^delay$"
-    reply: "0.1"
-    scene: "p"
-    delay: 0.1
-  -
-    regexp: "^delay$"
-    reply: "0.2"
-    scene: "p"
-    delay: 0.2
-  -
-    regexp: "^delay$"
-    reply: "0.3"
-    scene: "p"
-    delay: 0.3
-  -
-    regexp: "^delay$"
-    reply: "0.4"
-    scene: "p"
-    delay: 0.4
-  -
-    regexp: "^delay$"
-    reply: "0.5"
-    scene: "p"
-    delay: 0.5
+    regexp: "^一条很牛逼的合并转发$"
+    reply:
+      - "111"
+      - 222
+      -
+        name: "不是QQ小冰"
+        uin: 2854196306
+        content:
+          - "彳亍"
+          - "笑死"
+      - 彳亍
+      - "[CQ:reply,qq=2854196306,text=000]333"
+    scene: "all"
 parse: #热更新
   settings:
     #同一会话重复解析同一链接的间隔（秒）

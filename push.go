@@ -6,7 +6,6 @@ import (
 
 	"time"
 
-	"github.com/fsnotify/fsnotify"
 	"github.com/moxcomic/ihttp"
 	log "github.com/sirupsen/logrus"
 	"github.com/ysmood/gson"
@@ -40,18 +39,18 @@ var streamState = struct {
 // 初始化推送
 func initPush() {
 	disconnected = true
-	go liveMonitor()
+	configChanged = true
 	cookie = v.GetString("push.settings.cookie")
+	if initCount != 0 {
+		time.Sleep(time.Second * 2 * time.Duration(v.GetInt("push.settings.dynamicUpdateInterval")))
+	}
+	go liveMonitor()
 	log.Trace("[push] cookie:\n", cookie)
 	if cookie == "" || cookie == "<nil>" {
 		log.Warn("[push] 未配置cookie!")
 	} else {
 		go dynamicMonitor()
 	}
-	v.OnConfigChange(func(in fsnotify.Event) {
-		cookie = v.GetString("push.settings.cookie")
-		configChanged = true
-	})
 }
 
 // 初始化baseline用于监听更新
@@ -123,6 +122,9 @@ func dynamicMonitor() {
 		log.Info("[push] update_baseline: ", update_baseline)
 	}
 	for {
+		if configChanged {
+			break
+		}
 		update_num = getUpdate(update_baseline)
 		switch update_num {
 		case "-1":

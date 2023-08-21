@@ -211,6 +211,6 @@ func checkParse(ctx gocqMessage) {
 		if !checkOverParse(ctx, id, kind) {
 			return
 		}
-		sendMsgCTX(ctx, biliLinkParse(id, kind))
+		ctx.sendMsg(biliLinkParse(id, kind))
 	}
 }
