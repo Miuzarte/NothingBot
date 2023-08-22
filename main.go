@@ -291,19 +291,36 @@ func postHandler(rawPost string) {
 			sender_nickname: p.Get("sender.nickname").Str(),
 			sender_card:     p.Get("sender.card").Str(),
 			sender_rold:     p.Get("sender.role").Str(),
-			atWho: func(msg string) []int { //@的人
-				reg := regexp.MustCompile(`\[CQ:at,qq=(.*?)\]`).FindAllStringSubmatch(msg, -1)
-				atWho := []int{}
-				if len(reg) != 0 {
+			atWho: func() (atWho []int) { //@的人
+				reg := regexp.MustCompile(`\[CQ:reply\,id=(.*?)\]`).FindAllStringSubmatch(p.Get("message").Str(), -1)
+				if len(reg) > 0 {
+					replyid, _ := strconv.Atoi(reg[0][1])
+					switch p.Get("message_type").Str() {
+					case "group":
+						atWho = append(atWho, msgTableGroup[p.Get("group_id").Int()][replyid].user_id)
+					case "private":
+						atWho = append(atWho, msgTableFriend[p.Get("user_id").Int()][replyid].user_id)
+					}
+				}
+				reg = regexp.MustCompile(`\[CQ:at,qq=(.*?)\]`).FindAllStringSubmatch(p.Get("message").Str(), -1)
+				if len(reg) > 0 {
 					for _, v := range reg {
-						atID, err := strconv.Atoi(v[1])
-						if err == nil {
+						atID, _ := strconv.Atoi(v[1])
+						repeat := func() (repeat bool) {
+							for _, a := range atWho {
+								if atID == a {
+									repeat = true
+								}
+							}
+							return
+						}()
+						if !repeat {
 							atWho = append(atWho, atID)
 						}
 					}
 				}
-				return atWho
-			}(p.Get("message").Str()),
+				return
+			}(),
 		}
 		switch msg.message_type {
 		case "group":
@@ -352,6 +369,7 @@ func postHandler(rawPost string) {
 			go checkAt(msg)
 			go checkInfo(msg)
 			go checkBotInternal(msg)
+			go checkSetu(msg)
 		}(msg)
 	case "message_sent":
 		log.Info("[gocq] 发出了一条消息")
@@ -439,20 +457,22 @@ func postHandler(rawPost string) {
 
 // 具体化回复，go-cqhttp.extra-reply-data: true时不需要，但是开了那玩意又会导致回复带上原文又触发一遍机器人
 func msgEntity(p gson.JSON) (msg string) {
-	reg := regexp.MustCompile(`\[CQ:reply\,id=(.*?)\]`).FindAllStringSubmatch(p.Get("message").Str(), -1)
-	if len(reg) > 0 {
-		replyID_str := reg[0][1]
-		replyID_int, _ := strconv.Atoi(replyID_str)
+	match := regexp.MustCompile(`\[CQ:reply\,id=(.*?)\]`).FindAllStringSubmatch(p.Get("message").Str(), -1)
+	if len(match) > 0 {
+		replyid_str := match[0][1]
+		replyid_int, _ := strconv.Atoi(replyid_str)
 		replyMsg := gocqMessage{}
 		var reply string
 		switch p.Get("message_type").Str() {
 		case "group":
-			replyMsg = msgTableGroup[p.Get("group_id").Int()][replyID_int]
+			replyMsg = msgTableGroup[p.Get("group_id").Int()][replyid_int]
 		case "private":
-			replyMsg = msgTableFriend[p.Get("user_id").Int()][replyID_int]
+			replyMsg = msgTableFriend[p.Get("user_id").Int()][replyid_int]
 		}
 		reply = fmt.Sprint("[CQ:reply,qq=", replyMsg.user_id, ",time=", replyMsg.time, ",text=", replyMsg.message, "]")
-		msg = strings.ReplaceAll(p.Get("message").Str(), fmt.Sprint("[CQ:reply,id=", reg[0][1], "]"), reply)
+		msg = strings.ReplaceAll(p.Get("message").Str(), match[0][0], reply)
+	} else {
+		msg = p.Get("message").Str()
 	}
 	return
 }
@@ -461,7 +481,7 @@ func msgEntity(p gson.JSON) (msg string) {
 func (poke gocqPoke) pokeHandler() {
 	log.Info("[gocq] 收到 ", poke.sender_id, " 对 ", poke.target_id, " 的戳一戳")
 	if poke.target_id == selfID && poke.sender_id != poke.target_id && poke.group_id != 0 {
-		sendGroupMsg(poke.group_id, "[NothingBot] 在一条消息内只at我两次可以获取帮助信息~")
+		sendGroupMsg(poke.group_id, "[NothingBot] 在一条消息内只at我两次可以获取帮助信息～")
 	}
 }
 
@@ -552,12 +572,12 @@ var log2SU log2SuperUsers = func(msg ...any) {
 
 // 批量发送消息
 func sendMsg(userID []int, groupID []int, at string, msg ...any) {
-	if len(groupID) != 0 {
+	if len(groupID) > 0 {
 		for _, group := range groupID {
 			sendGroupMsg(group, fmt.Sprint(msg...), at)
 		}
 	}
-	if len(userID) != 0 {
+	if len(userID) > 0 {
 		for _, user := range userID {
 			sendPrivateMsg(user, msg...)
 		}
@@ -566,12 +586,12 @@ func sendMsg(userID []int, groupID []int, at string, msg ...any) {
 
 // 批量发送合并转发消息
 func sendForwardMsg(userID []int, groupID []int, forwardNode []map[string]any) {
-	if len(groupID) != 0 {
+	if len(groupID) > 0 {
 		for _, group := range groupID {
 			sendGroupForwardMsg(group, forwardNode)
 		}
 	}
-	if len(userID) != 0 {
+	if len(userID) > 0 {
 		for _, user := range userID {
 			sendPrivateForwardMsg(user, forwardNode)
 		}
@@ -736,7 +756,7 @@ func initConfig() {
 		log.SetLevel(log.Level(v.GetInt("main.logLevel")))
 		gocqUrl = v.GetString("main.websocket")
 		suList := v.GetStringSlice("main.superUsers")
-		if len(suList) != 0 {
+		if len(suList) > 0 {
 			for _, each := range suList { //[]string to []int
 				superUser, err := strconv.Atoi(each)
 				if err != nil {

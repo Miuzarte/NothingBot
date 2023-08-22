@@ -7,7 +7,7 @@ require (
 	github.com/fsnotify/fsnotify v1.6.0
 	github.com/gorilla/websocket v1.5.0
 	github.com/jaypipes/ghw v0.12.0
-	github.com/moxcomic/ihttp v0.0.10
+	github.com/moxcomic/ihttp v0.0.13
 	github.com/shirou/gopsutil/v3 v3.23.7
 	github.com/sirupsen/logrus v1.9.3
 	github.com/spf13/viper v1.16.0

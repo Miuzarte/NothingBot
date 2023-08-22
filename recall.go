@@ -84,7 +84,7 @@ func formatRecall(id int, filter int, kind string) []map[string]any {
 func checkRecall(ctx gocqMessage) {
 	//开关
 	reg := regexp.MustCompile("(开启|启用|关闭|禁用)撤回记录").FindAllStringSubmatch(ctx.message, -1)
-	if ctx.isSU() && ctx.isPrivate() && len(reg) != 0 {
+	if ctx.isSU() && ctx.isPrivate() && len(reg) > 0 {
 		switch reg[0][1] {
 		case "开启", "启用":
 			recallSwitch = true
@@ -100,7 +100,7 @@ func checkRecall(ctx gocqMessage) {
 	}
 	//发送
 	reg = regexp.MustCompile(`^让我康康(\s?\[CQ:at,qq=)?([0-9]{1,11})?(\]\s?)?撤回了什么$`).FindAllStringSubmatch(ctx.message, -1)
-	if len(reg) != 0 {
+	if len(reg) > 0 {
 		switch ctx.message_type {
 		case "group": //群内使用filter为群成员
 			filter := func(reg string) int {

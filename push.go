@@ -360,7 +360,7 @@ live.bilibili.com/%s`,
 					}
 				}()
 				sendMsg(userID, groupID, at, fmt.Sprintf(
-					`%s下播了~
+					`%s下播了～
 [CQ:image,file=%s]
 %s
 %s`,
@@ -410,7 +410,7 @@ func sendListGen(i int) (string, []int, []int) {
 	//读StringSlice再转成IntSlice实现同时支持输入单个和多个数据
 	userID := []int{}
 	userList := v.GetStringSlice(fmt.Sprint("push.list.", i, ".user"))
-	if len(userList) != 0 {
+	if len(userList) > 0 {
 		for _, each := range userList {
 			user, err := strconv.Atoi(each)
 			if err != nil {
@@ -423,7 +423,7 @@ func sendListGen(i int) (string, []int, []int) {
 	log.Debug("[push] 推送用户: ", userID)
 	groupID := []int{}
 	groupList := v.GetStringSlice(fmt.Sprint("push.list.", i, ".group"))
-	if len(groupList) != 0 {
+	if len(groupList) > 0 {
 		for _, each := range groupList {
 			group, err := strconv.Atoi(each)
 			if err != nil {
@@ -436,7 +436,7 @@ func sendListGen(i int) (string, []int, []int) {
 	log.Debug("[push] 推送群组: ", groupID)
 	at := ""
 	atList := v.GetStringSlice(fmt.Sprint("push.list.", i, ".at"))
-	if len(atList) != 0 {
+	if len(atList) > 0 {
 		at += "\n"
 		for _, each := range atList {
 			at += "[CQ:at,qq=" + each + "]"

@@ -8,19 +8,16 @@ import (
 	"regexp"
 
 	log "github.com/sirupsen/logrus"
+	"github.com/ysmood/gson"
 )
 
 type corpus struct {
 	regStr    string
 	regexp    *regexp.Regexp
-	regexpOK  bool
 	reply     string
 	replyNode []map[string]any
-	replyOK   bool
 	scene     string
-	sceneOK   bool
 	delay     time.Duration
-	delayOK   bool
 }
 
 var corpuses []corpus
@@ -37,25 +34,24 @@ func initCorpus() {
 	log.Info("[corpus] 语料库找到 ", corpusFound, " 条")
 	var errorLog string
 	for i := 0; i < corpusFound; i++ { //读取语料库并验证合法性
-		c := corpus{
-			regexpOK: true,
-			replyOK:  true,
-			sceneOK:  true,
-			delayOK:  true,
-		}
+		c := corpus{}
+		regexpOK := true
+		replyOK := true
+		sceneOK := true
+		delayOK := true
 
 		regRaw := v.Get(fmt.Sprint("corpus.", i, ".regexp"))
 		regStr, ok := regRaw.(string)
 		regExpression, err := regexp.Compile(regStr)
 		switch {
 		case !ok:
-			c.regexpOK = false
-			log.Error("[corpus] 第 ", i+1, " 条语料库: 正则表达式项格式错误!")
+			regexpOK = false
+			log.Error("[corpus] 第 ", i+1, " 条语料库.regexp: 正则表达式项格式错误!")
 		case err != nil:
-			c.regexpOK = false
-			log.Error("[corpus] 第 ", i+1, " 条语料库: 正则表达式内容语法错误!")
+			regexpOK = false
+			log.Error("[corpus] 第 ", i+1, " 条语料库.regexp: 正则表达式内容语法错误!")
 		default:
-			c.regexpOK = true
+			regexpOK = true
 			c.regStr = regStr
 			c.regexp = regExpression
 		}
@@ -63,13 +59,12 @@ func initCorpus() {
 		replyRaw := v.Get(fmt.Sprint("corpus.", i, ".reply"))
 		replyString, isString := replyRaw.(string)
 		replySlice, isSlice := replyRaw.([]any)
-
 		switch {
 		case !isString && !isSlice:
-			c.replyOK = false
-			log.Error("[corpus] 第 ", i+1, " 条语料库: 回复项格式错误!")
+			replyOK = false
+			log.Error("[corpus] 第 ", i+1, " 条语料库.reply: 回复项格式错误!")
 		default:
-			c.replyOK = true
+			replyOK = true
 			switch {
 			case isString:
 				c.reply = replyString
@@ -120,12 +115,12 @@ func initCorpus() {
 		sceneRaw := v.Get(fmt.Sprint("corpus.", i, ".scene"))
 		scene := fmt.Sprint(sceneRaw)
 		switch scene {
-		case "a", "all", "p", "private", "g", "group":
-			c.sceneOK = true
+		case "a", "all", "g", "group", "p", "private":
+			sceneOK = true
 			c.scene = scene
 		default:
-			c.sceneOK = false
-			log.Error("[corpus] 第 ", i+1, " 条语料库: 必须指定触发场景!")
+			sceneOK = false
+			log.Error("[corpus] 第 ", i+1, " 条语料库.scene: 需要在\"a\",\"g\",\"p\"之间指定一个触发场景!")
 		}
 
 		delayRaw := v.Get(fmt.Sprint("corpus.", i, ".delay"))
@@ -135,13 +130,13 @@ func initCorpus() {
 		delayParseFloat, err := strconv.ParseFloat(delayString, 64)
 		switch {
 		case delayRaw == nil:
-			c.delayOK = true
+			delayOK = true
 			c.delay = 0
 		case (!isInt && !isFloat && !isString) || (isString && err != nil):
-			c.delayOK = false
-			log.Error("[corpus] 第 ", i+1, " 条语料库: 延迟格式错误!  isInt: ", isInt, "  isFloat: ", isFloat, "  isString: ", isString, "  err: ", err)
-		default: //(isInt || isFloat || isString) && err == nil
-			c.delayOK = true
+			delayOK = false
+			log.Error("[corpus] 第 ", i+1, " 条语料库.delay: 延迟格式错误!  isInt: ", isInt, "  isFloat: ", isFloat, "  isString: ", isString, "  err: ", err)
+		default: //(isInt || isFloat || isString) && (!isString || err == nil)
+			delayOK = true
 			switch {
 			case isInt:
 				c.delay = time.Millisecond * time.Duration(delayInt*1000)
@@ -152,24 +147,12 @@ func initCorpus() {
 			}
 		}
 
-		allOK := c.regexpOK && c.replyOK && c.sceneOK && c.delayOK
-		if allOK {
+		if regexpOK && replyOK && sceneOK && delayOK {
 			corpuses = append(corpuses, c)
 		} else {
-			switch {
-			case !c.regexpOK:
-				fallthrough
-			case !c.replyOK:
-				fallthrough
-			case !c.sceneOK:
-				fallthrough
-			case !c.delayOK:
-				fallthrough
-			default:
-				errorLog += fmt.Sprintf(`
+			errorLog += fmt.Sprintf(`
 corpus[%d]    regexpOK: %t  replyOK: %t  sceneOK: %t  delayOK: %t`,
-					i, c.regexpOK, c.replyOK, c.sceneOK, c.delayOK)
-			}
+				i, regexpOK, replyOK, sceneOK, delayOK)
 		}
 	}
 	corpusAdded := len(corpuses)
@@ -180,7 +163,12 @@ corpus[%d]    regexpOK: %t  replyOK: %t  sceneOK: %t  delayOK: %t`,
 		log2SU.Warn("仅成功解析 ", corpusAdded, " 条语料库，详细错误信息请查看控制台输出")
 	}
 	for i, c := range corpuses {
-		log.Trace("[corpus] ", i, ": ", c)
+		log.Trace("[corpus] ", i, "  -  regexp: ", c.regStr, "  reply: ", c.reply, func(str string) string {
+			if str == "null" {
+				return "  "
+			}
+			return "\n" + str + "\n"
+		}(gson.New(c.replyNode).JSON("", "")), "scene: ", c.scene, "  delay: ", c.delay)
 	}
 }
 
@@ -205,17 +193,14 @@ func checkCorpus(ctx gocqMessage) {
 			}
 			if ok {
 				log.Info("[corpus] 成功匹配语料库 ", i, "   正则: ", c.regStr)
-				if c.reply != "" {
-					go func(c corpus) {
-						time.Sleep(c.delay)
+				go func(c corpus) {
+					time.Sleep(c.delay)
+					if c.reply != "" {
 						ctx.sendMsg(c.reply[0])
-					}(c)
-				} else {
-					go func(c corpus) {
-						time.Sleep(c.delay)
+					} else {
 						ctx.sendForwardMsg(c.replyNode)
-					}(c)
-				}
+					}
+				}(c)
 			}
 		}
 	}
