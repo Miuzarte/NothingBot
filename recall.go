@@ -62,7 +62,7 @@ func formatRecall(id int, filter int, kind string) []map[string]any {
 		rcMsg := rcList[i]
 		name := fmt.Sprintf(
 			`(%s)%s%s`,
-			rcMsg.timeF,
+			rcMsg.timeFormat,
 			rcMsg.getCardOrNickname(),
 			func() string {
 				if rcMsg.operator_id != rcMsg.user_id {
@@ -70,7 +70,7 @@ func formatRecall(id int, filter int, kind string) []map[string]any {
 				}
 				return ""
 			}())
-		content := strings.ReplaceAll(rcMsg.messageF, "CQ:at,", "CQ:at,​") //插入零宽空格阻止CQ码解析
+		content := strings.ReplaceAll(rcMsg.messageWithReply, "CQ:at,", "CQ:at,​") //插入零宽空格阻止CQ码解析
 		forwardNode = appendForwardNode(forwardNode, gocqNodeData{
 			name:    name,
 			uin:     rcMsg.user_id,

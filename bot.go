@@ -91,7 +91,7 @@ func checkBotInternal(ctx gocqMessage) {
 				callSUMsg := callSUMsgList[i]
 				name := fmt.Sprintf(
 					`(%s)%s  (%d)`,
-					callSUMsg.timeF,
+					callSUMsg.timeFormat,
 					callSUMsg.getCardOrNickname(),
 					callSUMsg.group_id)
 				content := strings.ReplaceAll(callSUMsg.message, "CQ:at,", "CQ:at,​") //插入零宽空格阻止CQ码解析

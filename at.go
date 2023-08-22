@@ -55,7 +55,7 @@ func formatAt(atID int, group int) []map[string]any {
 		atMsg := atList[i]
 		name := fmt.Sprintf(
 			`(%s)%s%s%s`,
-			atMsg.timeF,
+			atMsg.timeFormat,
 			atMsg.getCardOrNickname(),
 			func() string {
 				if group != 0 {
@@ -75,7 +75,7 @@ func formatAt(atID int, group int) []map[string]any {
 					return ""
 				}
 			}())
-		content := strings.ReplaceAll(atMsg.messageF, "CQ:at,", "CQ:at,​") //插入零宽空格阻止CQ码解析
+		content := strings.ReplaceAll(atMsg.messageWithReply, "CQ:at,", "CQ:at,​") //插入零宽空格阻止CQ码解析
 		forwardNode = appendForwardNode(forwardNode, gocqNodeData{
 			name:    name,
 			uin:     atMsg.user_id,

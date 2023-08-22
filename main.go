@@ -80,6 +80,7 @@ var (
 	logLever           = DebugLevel           //日志等级
 	configPath         = ""                   //配置路径
 	v                  = viper.New()          //配置体
+	botName            = ""                   //bot称呼, 用于判断ctx.isToMe()
 	connLost           = make(chan struct{})  //
 	reconnectCount     = 0                    //
 	heartbeatChecking  = false                //
@@ -167,23 +168,23 @@ type gocqRequest struct {
 
 // 消息结构体
 type gocqMessage struct {
-	message_type    string //消息类型: "private"私聊消息, "group"群消息
-	sub_type        string //消息子类型: "friend"好友, "normal"群聊, "anonymous"匿名, "group_self"群中自身发送, "group"群临时会话, "notice"系统提示, "connect"建立ws连接
-	time            int    //时间戳
-	timeF           string //格式化的时间
-	user_id         int    //来源用户
-	group_id        int    //来源群聊
-	message_id      int    //消息ID
-	message_seq     int    //消息序列
-	raw_message     string //消息内容
-	message         string //消息内容
-	messageF        string //具体化回复后的消息内容
-	sender_nickname string //QQ昵称
-	sender_card     string //群名片
-	sender_rold     string //群身份: "owner", "admin", "member"
-	recalled        bool   //是否被撤回
-	operator_id     int    //撤回者ID
-	atWho           []int  //@的人
+	message_type     string //消息类型: "private"私聊消息, "group"群消息
+	sub_type         string //消息子类型: "friend"好友, "normal"群聊, "anonymous"匿名, "group_self"群中自身发送, "group"群临时会话, "notice"系统提示, "connect"建立ws连接
+	time             int    //时间戳
+	timeFormat       string //格式化的时间
+	user_id          int    //来源用户
+	group_id         int    //来源群聊
+	message_id       int    //消息ID
+	message_seq      int    //消息序列
+	raw_message      string //消息内容
+	message          string //消息内容
+	messageWithReply string //带回复内容的消息
+	sender_nickname  string //QQ昵称
+	sender_card      string //群名片
+	sender_rold      string //群身份: "owner", "admin", "member"
+	recalled         bool   //是否被撤回
+	operator_id      int    //撤回者ID
+	atWho            []int  //@的人
 }
 
 // 自定义消息转发节点
@@ -277,20 +278,20 @@ func postHandler(rawPost string) {
 	switch p.Get("post_type").Str() { //上报类型: "message"消息, "message_sent"消息发送, "request"请求, "notice"通知, "meta_event"
 	case "message":
 		msg := gocqMessage{ //消息内容
-			message_type:    p.Get("message_type").Str(),
-			sub_type:        p.Get("sub_type").Str(),
-			time:            p.Get("time").Int(),
-			timeF:           time.Unix(int64(p.Get("time").Int()), 0).Format(timeLayout.T24),
-			user_id:         p.Get("user_id").Int(),
-			group_id:        p.Get("group_id").Int(),
-			message_id:      p.Get("message_id").Int(),
-			message_seq:     p.Get("message_seq").Int(),
-			raw_message:     p.Get("raw_message").Str(),
-			message:         p.Get("message").Str(),
-			messageF:        msgEntity(p),
-			sender_nickname: p.Get("sender.nickname").Str(),
-			sender_card:     p.Get("sender.card").Str(),
-			sender_rold:     p.Get("sender.role").Str(),
+			message_type:     p.Get("message_type").Str(),
+			sub_type:         p.Get("sub_type").Str(),
+			time:             p.Get("time").Int(),
+			timeFormat:       time.Unix(int64(p.Get("time").Int()), 0).Format(timeLayout.T24),
+			user_id:          p.Get("user_id").Int(),
+			group_id:         p.Get("group_id").Int(),
+			message_id:       p.Get("message_id").Int(),
+			message_seq:      p.Get("message_seq").Int(),
+			raw_message:      p.Get("raw_message").Str(),
+			message:          p.Get("message").Str(),
+			messageWithReply: replyEntity(p),
+			sender_nickname:  p.Get("sender.nickname").Str(),
+			sender_card:      p.Get("sender.card").Str(),
+			sender_rold:      p.Get("sender.role").Str(),
 			atWho: func() (atWho []int) { //@的人
 				reg := regexp.MustCompile(`\[CQ:reply\,id=(.*?)\]`).FindAllStringSubmatch(p.Get("message").Str(), -1)
 				if len(reg) > 0 {
@@ -456,7 +457,7 @@ func postHandler(rawPost string) {
 }
 
 // 具体化回复，go-cqhttp.extra-reply-data: true时不需要，但是开了那玩意又会导致回复带上原文又触发一遍机器人
-func msgEntity(p gson.JSON) (msg string) {
+func replyEntity(p gson.JSON) (msg string) {
 	match := regexp.MustCompile(`\[CQ:reply\,id=(.*?)\]`).FindAllStringSubmatch(p.Get("message").Str(), -1)
 	if len(match) > 0 {
 		replyid_str := match[0][1]
@@ -680,6 +681,16 @@ func (ctx gocqMessage) isPrivate() bool {
 func (ctx gocqMessage) isPrivateSU() bool {
 	if ctx.isPrivate() && ctx.isSU() {
 		return true
+	}
+	return false
+}
+
+func (ctx gocqMessage) isToMe() bool {
+	if botName != "" {
+		match := regexp.MustCompile(botName).FindAllStringSubmatch(ctx.message, -1)
+		if len(match) > 0 {
+			return true
+		}
 	}
 	return false
 }

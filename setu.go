@@ -36,7 +36,9 @@ var numberMap = map[string]int{
 }
 
 func checkSetu(ctx gocqMessage) {
-	match := regexp.MustCompile(`^([Rr]18)?的?(.*)?的?色图来(点|.*张)?$|^来(点|.*张)?([Rr]18)?的?(.*)?的?色图$`).FindAllStringSubmatch(unescape.Replace(ctx.message), -1)
+	msg := unescape.Replace(ctx.message)
+	reg := regexp.MustCompile(`^(?P<r18>[Rr]18)?的?(?P<tag>.*)?的?[色瑟涩铯][图圖]来(?P<num>点|.*张)?$|^来(?P<num>点|.*张)?(?P<r18>[Rr]18)?的?(?P<tag>.*)?的?[色瑟涩铯][图圖]$`)
+	match := reg.FindAllStringSubmatch(msg, -1) // 一条正则多个同名捕获组只会索引第一个
 	var ok bool
 	reqR18 := 0
 	reqNum := 1
@@ -47,7 +49,7 @@ func checkSetu(ctx gocqMessage) {
 			reqR18 = 1
 		}
 		num := strings.ReplaceAll(match[0][3]+match[0][4], "张", "")
-		if num == "" {
+		if num == "" || num == "点" {
 			reqNum = 1
 			ok = true
 		} else {
