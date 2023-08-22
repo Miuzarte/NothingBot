@@ -36,33 +36,39 @@ var numberMap = map[string]int{
 }
 
 func checkSetu(ctx gocqMessage) {
-	match := regexp.MustCompile(`^([Rr]18)?的?(.*)?的?色图来(点|.*张)?$|^来(点|.*张)?([Rr]18)?的?(.*)?的?色图$`).FindAllStringSubmatch(ctx.message, -1)
+	match := regexp.MustCompile(`^([Rr]18)?的?(.*)?的?色图来(点|.*张)?$|^来(点|.*张)?([Rr]18)?的?(.*)?的?色图$`).FindAllStringSubmatch(unescape.Replace(ctx.message), -1)
 	var ok bool
 	reqR18 := 0
 	reqNum := 1
 	reqTag := []string{}
 	if len(match) > 0 {
 		r18 := match[0][1] + match[0][5]
-		if r18 == "R18" || r18 == "r18" {
+		if r18 != "" {
 			reqR18 = 1
 		}
 		num := strings.ReplaceAll(match[0][3]+match[0][4], "张", "")
-		numChar, found := numberMap[num]
-		if !found {
-			numInt, err := strconv.Atoi(num)
-			if err != nil {
+		if num == "" {
+			reqNum = 1
+			ok = true
+		} else {
+			numChar, found := numberMap[num]
+			if !found {
+				numInt, err := strconv.Atoi(num)
+				if err != nil {
+				} else {
+					if numInt >= 1 && numInt <= 20 {
+						reqNum = numInt
+						ok = true
+					}
+				}
 			} else {
-				if numInt >= 1 && numInt <= 20 {
+				if numChar >= 1 && numChar <= 20 {
+					reqNum = numChar
 					ok = true
-					reqNum = numInt
 				}
 			}
-		} else {
-			if numChar >= 1 && numChar <= 20 {
-				ok = true
-				reqNum = numChar
-			}
 		}
+		reqTag = regexp.MustCompile(`&`).Split(match[0][2]+match[0][6], -1)
 		if !ok {
 			ctx.sendMsg("[setu] 请在1-20之间选择数量")
 			return
@@ -74,41 +80,46 @@ func checkSetu(ctx gocqMessage) {
 				Tag:  reqTag,
 				Size: []string{"original", "regular"},
 			}
-			results := setu.get()
-			resultsCount := len(results)
-			content := []string{fmt.Sprintf("r18: %t\nnum: %d\ntag: %v", func() bool {
-				if reqR18 == 0 {
-					return false
-				}
-				return true
-			}(), reqNum, reqTag)}
-			content = append(content, func() (head string) {
-				head += fmt.Sprint("在api.lolicon.app/setu/v2根据以上条件搜索到了", resultsCount, "张setu")
-				if reqNum > resultsCount {
-					head += "\nあれれ？似乎没有那么多符合这个条件的setu呢"
-				}
-				return
-			}())
-			content = append(content, results...)
-			forwardNode = appendForwardNode(forwardNode, gocqNodeData{
-				content: content,
-			})
-			ctx.sendForwardMsg(forwardNode)
+			results, errMsg := setu.get()
+			if errMsg == "" {
+				resultsCount := len(results)
+				content := []string{fmt.Sprintf("r18: %t\nnum: %d\ntag: %v", func() bool {
+					if reqR18 == 0 {
+						return false
+					}
+					return true
+				}(), reqNum, reqTag)}
+				content = append(content, func() (head string) {
+					head += fmt.Sprint("在api.lolicon.app/setu/v2根据以上条件搜索到了", resultsCount, "张setu")
+					if reqNum > resultsCount {
+						head += "\nあれれ？似乎没有那么多符合这个条件的setu呢"
+					}
+					return
+				}())
+				content = append(content, results...)
+				forwardNode = appendForwardNode(forwardNode, gocqNodeData{
+					content: content,
+				})
+				ctx.sendForwardMsg(forwardNode)
+			} else {
+				ctx.sendMsg(errMsg)
+			}
 		}
 	}
 }
 
-func (param setu) get() (results []string) {
+func (param setu) get() (results []string, errMsg string) {
 	postData, _ := json.Marshal(param)
+	log.Debug("[setu] 请求setu: ", param)
 	setu, err := ihttp.New().WithUrl("https://api.lolicon.app/setu/v2").
 		WithHeader("Content-Type", "application/json").
 		WithBody(postData).Post().ToGson()
 	if err != nil {
 		log.Error("[setu] getSetu().ihttp请求错误: ", err)
-		results = append(results, fmt.Sprint("[setu] getSetu().ihttp请求错误: ", err))
+		errMsg += fmt.Sprint("[setu] getSetu().ihttp请求错误: ", err)
 	} else if setu.Get("error").Str() != "" && setu.Get("error").Str() != "<nil>" {
 		log.Error("[setu] getSetu().ihttp响应错误: ", setu.Get("error").Str())
-		results = append(results, fmt.Sprint("[setu] getSetu().ihttp响应错误: ", setu.Get("error").Str()))
+		errMsg += fmt.Sprint("[setu] getSetu().ihttp响应错误: ", setu.Get("error").Str())
 	}
 	data, _ := setu.Gets("data")
 	for _, g := range data.Arr() {
