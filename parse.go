@@ -191,16 +191,16 @@ func checkOverParse(ctx gocqMessage, id string, kind string) bool {
 // 哔哩哔哩链接解析
 func checkParse(ctx gocqMessage) {
 	reg := regexp.MustCompile(everyBiliLinkRegexp)
-	result := reg.FindAllStringSubmatch(ctx.message, -1)
-	if len(result) > 0 {
-		log.Debug("[parse] 识别到哔哩哔哩链接: ", result[0][0])
-		id, kind := biliLinkExtractor(result[0][0])
+	match := reg.FindAllStringSubmatch(ctx.message, -1)
+	if len(match) > 0 {
+		log.Debug("[parse] 识别到哔哩哔哩链接: ", match[0][0])
+		id, kind := biliLinkExtractor(match[0][0])
 		if kind == "SHORT" { //短链先解析提取再往下
 			loc := deShortLink(id)
-			result = reg.FindAllStringSubmatch(loc, -1)
-			if len(result) > 0 {
-				log.Debug("[parse] 短链解析结果: ", result[0][0])
-				id, kind = biliLinkExtractor(result[0][0])
+			match = reg.FindAllStringSubmatch(loc, -1)
+			if len(match) > 0 {
+				log.Debug("[parse] 短链解析结果: ", match[0][0])
+				id, kind = biliLinkExtractor(match[0][0])
 			} else {
 				log.Debug("[parse] 短链解析失败: ", loc)
 				return

@@ -2,7 +2,6 @@ package main
 
 import (
 	"fmt"
-	"regexp"
 	"sort"
 	"strings"
 )
@@ -17,7 +16,7 @@ var (
 func checkBotAutoRecall(msgORrecall any) {
 	var reg [][]string
 	if ctx, ok := msgORrecall.(gocqMessage); ok {
-		reg = regexp.MustCompile("(开启|启用|关闭|禁用)自动撤回").FindAllStringSubmatch(ctx.message, -1)
+		reg = ctx.regexpMustCompile("(开启|启用|关闭|禁用)自动撤回")
 		if len(reg) > 0 && ctx.isPrivateSU() {
 			switch reg[0][1] {
 			case "开启", "启用":
@@ -42,12 +41,11 @@ func checkBotAutoRecall(msgORrecall any) {
 
 // Bot内置逻辑
 func checkBotInternal(ctx gocqMessage) {
-	var reg [][]string
+	var match [][]string
 	//连续at两次获取帮助, 带文字则视为喊话超级用户
-	reg = regexp.MustCompile(fmt.Sprintf(`^\[CQ:at\,qq=%d]\s*\[CQ:at\,qq=%d]\s*(.*)$`, selfID, selfID)).
-		FindAllStringSubmatch(ctx.message, -1)
-	if len(reg) > 0 {
-		call := reg[0][1]
+	match = ctx.regexpMustCompile(fmt.Sprintf(`^\[CQ:at,qq=%d]\s*\[CQ:at,qq=%d]\s*(.*)$`, selfID, selfID))
+	if len(match) > 0 {
+		call := match[0][1]
 		if len(call) > 0 { //记录喊话
 			callSUMsgList = append(callSUMsgList, ctx)
 			callSUMsgUnread++
@@ -65,16 +63,16 @@ func checkBotInternal(ctx gocqMessage) {
 				"哔哩哔哩快捷搜索：\n“B搜{视频|番剧|影视|直播间|直播|主播|专栏|用户}{keywords}”\n（“B搜用户謬紗特”）\n取决于类别，B站只会返回最多20或30条结果",
 				fmt.Sprintf("注入消息：\n“@Botrun{text}”\n（“@Bot run[CQ:at,​qq=%d]”）\n输出相应消息，支持CQ码", selfID),
 				"回复：\n“@Bot回复我[text]”\n（“@Bot 回复我114514”）\n回复对应消息，支持CQ码",
-				"运行状态：\n“[@Bot]{检查身体|运行状态}”\n（“检查身体”）\n输出NothingBot运行信息",
+				"运行状态：\n“{@Bot}{检查身体|运行状态}”\n（“检查身体”）\n输出NothingBot运行信息",
+				"setu：\n“{@Bot}”",
 			}}))
 		}
 	}
 	//发送/清空收件箱
-	reg = regexp.MustCompile(`^(清空)?(喊话列表|收件箱)$`).
-		FindAllStringSubmatch(ctx.message, -1)
-	if len(reg) > 0 && ctx.isPrivateSU() {
-		callSUMsgUnread = 0  //清零未读
-		if reg[0][1] == "" { //发送
+	match = ctx.regexpMustCompile(`^(清空)?(喊话列表|收件箱)$`)
+	if len(match) > 0 && ctx.isPrivateSU() {
+		callSUMsgUnread = 0    //清零未读
+		if match[0][1] == "" { //发送
 			sort.Slice(callSUMsgList, func(i, j int) bool { //根据msg的时间戳由大到小排序
 				return callSUMsgList[i].time > callSUMsgList[j].time
 			})
@@ -91,7 +89,7 @@ func checkBotInternal(ctx gocqMessage) {
 				callSUMsg := callSUMsgList[i]
 				name := fmt.Sprintf(
 					`(%s)%s  (%d)`,
-					callSUMsg.timeFormat,
+					callSUMsg.extra.timeFormat,
 					callSUMsg.getCardOrNickname(),
 					callSUMsg.group_id)
 				content := strings.ReplaceAll(callSUMsg.message, "CQ:at,", "CQ:at,​") //插入零宽空格阻止CQ码解析
@@ -102,25 +100,23 @@ func checkBotInternal(ctx gocqMessage) {
 				})
 			}
 			ctx.sendForwardMsg(forwardNode)
-		} else if reg[0][1] == "清空" { //清空
+		} else if match[0][1] == "清空" { //清空
 			callSUMsgList = []gocqMessage{}
 			ctx.sendMsg("[NothingBot] [Info] 已清空")
 		}
 	}
 	//注入消息
-	reg = regexp.MustCompile(fmt.Sprintf(`^\[CQ:at\,qq=%d]\s*run(.*)$`, selfID)).
-		FindAllStringSubmatch(ctx.message, -1)
-	if len(reg) > 0 {
-		ctx.sendMsg(unescape.Replace(reg[0][1]))
+	match = ctx.regexpMustCompile(`run(.*)`)
+	if len(match) > 0 && ctx.isToMe() {
+		ctx.sendMsg(unescape.Replace(match[0][1]))
 	}
 	//回复我
-	reg = regexp.MustCompile(fmt.Sprintf(`^\[CQ:at\,qq=%d]\s*回复我(.*)?$`, selfID)).
-		FindAllStringSubmatch(ctx.message, -1)
-	if len(reg) > 0 {
-		if reg[0][1] == "" {
+	match = ctx.regexpMustCompile(`回复我(.*)?`)
+	if len(match) > 0 && ctx.isToMe() {
+		if match[0][1] == "" {
 			ctx.sendMsgReply("回复你")
 		} else {
-			ctx.sendMsgReply(unescape.Replace(reg[0][1]))
+			ctx.sendMsgReply(unescape.Replace(match[0][1]))
 		}
 	}
 }

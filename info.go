@@ -2,7 +2,6 @@ package main
 
 import (
 	"fmt"
-	"regexp"
 	"strings"
 	"time"
 
@@ -13,8 +12,8 @@ import (
 
 // 运行状态
 func checkInfo(ctx gocqMessage) {
-	reg := regexp.MustCompile(fmt.Sprintf(`^(\[CQ:at\,qq=%d]\s*)?(检查身体|运行状态)$`, selfID)).FindAllStringSubmatch(ctx.message, -1)
-	if len(reg) > 0 {
+	match := ctx.regexpMustCompile(`检查身体|运行状态`)
+	if len(match) > 0 && ctx.isToMe() {
 		product, _ := ghw.Product()
 		cpuInfo, _ := cpu.Info()
 		memInfo, _ := mem.VirtualMemory()

@@ -2,7 +2,6 @@ package main
 
 import (
 	"fmt"
-	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -335,8 +334,8 @@ space.bilibili.com/%d
 
 // 哔哩哔哩快捷搜索
 func checkSearch(ctx gocqMessage) {
-	reg := regexp.MustCompile(biliSearchRegexp).FindAllStringSubmatch(ctx.message, -1)
-	if len(reg) > 0 {
-		ctx.sendForwardMsg(formatBiliSearch(reg[0][1], reg[0][2]))
+	match := ctx.regexpMustCompile(biliSearchRegexp)
+	if len(match) > 0 {
+		ctx.sendForwardMsg(formatBiliSearch(match[0][1], match[0][2]))
 	}
 }

@@ -168,22 +168,26 @@ type gocqRequest struct {
 
 // 消息结构体
 type gocqMessage struct {
-	message_type     string //消息类型: "private"私聊消息, "group"群消息
-	sub_type         string //消息子类型: "friend"好友, "normal"群聊, "anonymous"匿名, "group_self"群中自身发送, "group"群临时会话, "notice"系统提示, "connect"建立ws连接
-	time             int    //时间戳
-	timeFormat       string //格式化的时间
-	user_id          int    //来源用户
-	group_id         int    //来源群聊
-	message_id       int    //消息ID
-	message_seq      int    //消息序列
-	raw_message      string //消息内容
-	message          string //消息内容
-	messageWithReply string //带回复内容的消息
-	sender_nickname  string //QQ昵称
-	sender_card      string //群名片
-	sender_rold      string //群身份: "owner", "admin", "member"
+	message_type    string //消息类型: "private"私聊消息, "group"群消息
+	sub_type        string //消息子类型: "friend"好友, "normal"群聊, "anonymous"匿名, "group_self"群中自身发送, "group"群临时会话, "notice"系统提示, "connect"建立ws连接
+	time            int    //时间戳
+	user_id         int    //来源用户
+	group_id        int    //来源群聊
+	message_id      int    //消息ID
+	message_seq     int    //消息序列
+	raw_message     string //消息内容
+	message         string //消息内容
+	sender_nickname string //QQ昵称
+	sender_card     string //群名片
+	sender_rold     string //群身份: "owner", "admin", "member"
+	extra           gocqMessageExtra
+}
+
+type gocqMessageExtra struct { //非标数据
 	recalled         bool   //是否被撤回
 	operator_id      int    //撤回者ID
+	timeFormat       string //格式化的时间
+	messageWithReply string //带回复内容的消息
 	atWho            []int  //@的人
 }
 
@@ -278,50 +282,23 @@ func postHandler(rawPost string) {
 	switch p.Get("post_type").Str() { //上报类型: "message"消息, "message_sent"消息发送, "request"请求, "notice"通知, "meta_event"
 	case "message":
 		msg := gocqMessage{ //消息内容
-			message_type:     p.Get("message_type").Str(),
-			sub_type:         p.Get("sub_type").Str(),
-			time:             p.Get("time").Int(),
+			message_type:    p.Get("message_type").Str(),
+			sub_type:        p.Get("sub_type").Str(),
+			time:            p.Get("time").Int(),
+			user_id:         p.Get("user_id").Int(),
+			group_id:        p.Get("group_id").Int(),
+			message_id:      p.Get("message_id").Int(),
+			message_seq:     p.Get("message_seq").Int(),
+			raw_message:     p.Get("raw_message").Str(),
+			message:         p.Get("message").Str(),
+			sender_nickname: p.Get("sender.nickname").Str(),
+			sender_card:     p.Get("sender.card").Str(),
+			sender_rold:     p.Get("sender.role").Str(),
+		}
+		msg.extra = gocqMessageExtra{
 			timeFormat:       time.Unix(int64(p.Get("time").Int()), 0).Format(timeLayout.T24),
-			user_id:          p.Get("user_id").Int(),
-			group_id:         p.Get("group_id").Int(),
-			message_id:       p.Get("message_id").Int(),
-			message_seq:      p.Get("message_seq").Int(),
-			raw_message:      p.Get("raw_message").Str(),
-			message:          p.Get("message").Str(),
-			messageWithReply: replyEntity(p),
-			sender_nickname:  p.Get("sender.nickname").Str(),
-			sender_card:      p.Get("sender.card").Str(),
-			sender_rold:      p.Get("sender.role").Str(),
-			atWho: func() (atWho []int) { //@的人
-				reg := regexp.MustCompile(`\[CQ:reply\,id=(.*?)\]`).FindAllStringSubmatch(p.Get("message").Str(), -1)
-				if len(reg) > 0 {
-					replyid, _ := strconv.Atoi(reg[0][1])
-					switch p.Get("message_type").Str() {
-					case "group":
-						atWho = append(atWho, msgTableGroup[p.Get("group_id").Int()][replyid].user_id)
-					case "private":
-						atWho = append(atWho, msgTableFriend[p.Get("user_id").Int()][replyid].user_id)
-					}
-				}
-				reg = regexp.MustCompile(`\[CQ:at,qq=(.*?)\]`).FindAllStringSubmatch(p.Get("message").Str(), -1)
-				if len(reg) > 0 {
-					for _, v := range reg {
-						atID, _ := strconv.Atoi(v[1])
-						repeat := func() (repeat bool) {
-							for _, a := range atWho {
-								if atID == a {
-									repeat = true
-								}
-							}
-							return
-						}()
-						if !repeat {
-							atWho = append(atWho, atID)
-						}
-					}
-				}
-				return
-			}(),
+			messageWithReply: msg.replyEntity(),
+			atWho:            msg.collectAt(),
 		}
 		switch msg.message_type {
 		case "group":
@@ -391,8 +368,8 @@ func postHandler(rawPost string) {
 			log.Info("[gocq] 在 ", recall.group_id, " 收到 ", recall.user_id, " 撤回群聊消息: ", msgTableGroup[recall.group_id][recall.message_id].message, " (", recall.message_id, ")")
 			if msgTableGroup[recall.group_id] != nil { //防止开机刚好遇到撤回
 				msg := msgTableGroup[recall.group_id][recall.message_id]
-				msg.recalled = true //标记撤回
-				msg.operator_id = recall.operator_id
+				msg.extra.recalled = true //标记撤回
+				msg.extra.operator_id = recall.operator_id
 				msgTableGroup[recall.group_id][recall.message_id] = msg
 			}
 		case "friend_recall": //好友消息撤回
@@ -404,7 +381,7 @@ func postHandler(rawPost string) {
 			log.Info("[gocq] 收到 ", recall.user_id, " 撤回私聊消息: ", msgTableFriend[recall.user_id][recall.message_id], " (", recall.message_id, ")")
 			if msgTableFriend[recall.user_id] != nil { //防止开机刚好遇到撤回
 				msg := msgTableFriend[recall.user_id][recall.message_id]
-				msg.recalled = true //标记撤回
+				msg.extra.recalled = true //标记撤回
 				msgTableFriend[recall.user_id][recall.message_id] = msg
 			}
 		case "notify": //通知
@@ -456,24 +433,62 @@ func postHandler(rawPost string) {
 	}
 }
 
-// 具体化回复，go-cqhttp.extra-reply-data: true时不需要，但是开了那玩意又会导致回复带上原文又触发一遍机器人
-func replyEntity(p gson.JSON) (msg string) {
-	match := regexp.MustCompile(`\[CQ:reply\,id=(.*?)\]`).FindAllStringSubmatch(p.Get("message").Str(), -1)
+// 反转义还原CQ码
+func (ctx gocqMessage) unescape() gocqMessage {
+	ctx.message = unescape.Replace(ctx.message)
+	return ctx
+}
+
+// 具体化回复，go-cqhttp.extra-reply-data: true时不必要，但是开了那玩意又会导致回复带上原文又触发一遍机器人
+func (ctx gocqMessage) replyEntity() (messageWithReply string) {
+	match := ctx.regexpMustCompile(`\[CQ:reply,id=(.*)]`)
 	if len(match) > 0 {
 		replyid_str := match[0][1]
 		replyid_int, _ := strconv.Atoi(replyid_str)
 		replyMsg := gocqMessage{}
 		var reply string
-		switch p.Get("message_type").Str() {
+		switch ctx.message_type {
 		case "group":
-			replyMsg = msgTableGroup[p.Get("group_id").Int()][replyid_int]
+			replyMsg = msgTableGroup[ctx.group_id][replyid_int]
 		case "private":
-			replyMsg = msgTableFriend[p.Get("user_id").Int()][replyid_int]
+			replyMsg = msgTableFriend[ctx.user_id][replyid_int]
 		}
 		reply = fmt.Sprint("[CQ:reply,qq=", replyMsg.user_id, ",time=", replyMsg.time, ",text=", replyMsg.message, "]")
-		msg = strings.ReplaceAll(p.Get("message").Str(), match[0][0], reply)
+		messageWithReply = strings.ReplaceAll(ctx.message, match[0][0], reply)
 	} else {
-		msg = p.Get("message").Str()
+		messageWithReply = ctx.message
+	}
+	return
+}
+
+// @的人列表
+func (ctx gocqMessage) collectAt() (atWho []int) {
+	match := ctx.regexpMustCompile(`\[CQ:reply,id=(.*)]`) //回复也算@
+	if len(match) > 0 {
+		replyid, _ := strconv.Atoi(match[0][1])
+		switch ctx.message_type {
+		case "group":
+			atWho = append(atWho, msgTableGroup[ctx.group_id][replyid].user_id)
+		case "private":
+			atWho = append(atWho, msgTableFriend[ctx.user_id][replyid].user_id)
+		}
+	}
+	match = ctx.regexpMustCompile(`\[CQ:at,qq=(.*)]`)
+	if len(match) > 0 {
+		for _, v := range match {
+			atID, _ := strconv.Atoi(v[1])
+			repeat := func() (repeat bool) { //检查重复收录
+				for _, a := range atWho {
+					if atID == a {
+						repeat = true
+					}
+				}
+				return
+			}()
+			if !repeat {
+				atWho = append(atWho, atID)
+			}
+		}
 	}
 	return
 }
@@ -651,6 +666,11 @@ func (ctx gocqMessage) sendForwardMsg(forwardNode []map[string]any) {
 	}
 }
 
+// 正则完全匹配
+func (ctx gocqMessage) regexpMustCompile(str string) (match [][]string) {
+	return regexp.MustCompile(str).FindAllStringSubmatch(ctx.message, -1)
+}
+
 // 匹配超级用户
 func (ctx gocqMessage) isSU() bool {
 	for _, su := range suID {
@@ -676,14 +696,26 @@ func (ctx gocqMessage) isPrivateSU() bool {
 	return ctx.isPrivate() && ctx.isSU()
 }
 
+// 是否提及了Bot
 func (ctx gocqMessage) isToMe() bool {
-	if botName != "" {
-		match := regexp.MustCompile(botName).FindAllStringSubmatch(ctx.message, -1)
+	atMe := func() bool {
+		match := ctx.regexpMustCompile(fmt.Sprintf(`\[CQ:at,qq=%d]`, selfID))
 		if len(match) > 0 {
 			return true
 		}
-	}
-	return false
+		return false
+	}()
+	callMe := func() bool {
+		if botName == "" {
+			return false
+		}
+		match := ctx.regexpMustCompile(botName)
+		if len(match) > 0 {
+			return true
+		}
+		return false
+	}()
+	return atMe || callMe || ctx.isPrivate() //私聊永远都是
 }
 
 // 群名片为空则返回昵称

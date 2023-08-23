@@ -2,7 +2,6 @@ package main
 
 import (
 	"fmt"
-	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -25,7 +24,7 @@ func formatAt(atID int, group int) (forwardNode []map[string]any) {
 	for _, i := range tables {
 		table := msgTableGroup[i]
 		for _, msg := range table {
-			for _, at := range msg.atWho {
+			for _, at := range msg.extra.atWho {
 				if atID == at {
 					atList = append(atList, msg)
 				}
@@ -54,7 +53,7 @@ func formatAt(atID int, group int) (forwardNode []map[string]any) {
 		atMsg := atList[i]
 		name := fmt.Sprintf(
 			`(%s)%s%s%s`,
-			atMsg.timeFormat,
+			atMsg.extra.timeFormat,
 			atMsg.getCardOrNickname(),
 			func() string {
 				if group != 0 {
@@ -64,8 +63,8 @@ func formatAt(atID int, group int) (forwardNode []map[string]any) {
 				}
 			}(),
 			func() string {
-				if atMsg.recalled {
-					if atMsg.operator_id == atMsg.user_id {
+				if atMsg.extra.recalled {
+					if atMsg.extra.operator_id == atMsg.user_id {
 						return "(已撤回)"
 					} else {
 						return "(已被他人撤回)"
@@ -74,7 +73,7 @@ func formatAt(atID int, group int) (forwardNode []map[string]any) {
 					return ""
 				}
 			}())
-		content := strings.ReplaceAll(atMsg.messageWithReply, "CQ:at,", "CQ:at,​") //插入零宽空格阻止CQ码解析
+		content := strings.ReplaceAll(atMsg.extra.messageWithReply, "CQ:at,", "CQ:at,​") //插入零宽空格阻止CQ码解析
 		forwardNode = appendForwardNode(forwardNode, gocqNodeData{
 			name:    name,
 			uin:     atMsg.user_id,
@@ -86,14 +85,14 @@ func formatAt(atID int, group int) (forwardNode []map[string]any) {
 
 // 谁at我
 func checkAt(ctx gocqMessage) {
-	reg := regexp.MustCompile(`^谁@?[aA艾]?[tT特]?(我|(\s?\[CQ:at,qq=)?([0-9]{1,11})?(\]\s?))$`).FindAllStringSubmatch(ctx.message, -1)
-	if len(reg) > 0 {
+	match := ctx.regexpMustCompile(`^谁@?[aA艾]?[tT特]?(我|(\s*\[CQ:at,qq=)?([0-9]{1,11})?(]\s*))$`)
+	if len(match) > 0 {
 		var atID int
-		if reg[0][1] == "我" {
+		if match[0][1] == "我" {
 			atID = ctx.user_id
 		} else {
 			var err error
-			atID, err = strconv.Atoi(reg[0][3])
+			atID, err = strconv.Atoi(match[0][3])
 			if err != nil {
 				return
 			}

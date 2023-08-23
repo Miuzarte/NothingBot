@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"math/rand"
 	"regexp"
 	"strconv"
 	"strings"
@@ -36,26 +37,33 @@ var numberMap = map[string]int{
 }
 
 func checkSetu(ctx gocqMessage) {
-	msg := unescape.Replace(ctx.message)
-	reg := regexp.MustCompile(`^来(?P<num>点|.*张)?(?P<r18>[Rr]18)?的?(?P<tag>.*)?的?[色瑟涩铯][图圖]$|^(?P<r18>[Rr]18)?的?(?P<tag>.*)?的?[色瑟涩铯][图圖]来(?P<num>点|.*张)?$`)
-	match := reg.FindAllStringSubmatch(msg, -1) // 一条正则多个同名捕获组只会索引第一个
-	var ok bool
-	reqR18 := 0
-	reqNum := 1
-	reqTag := []string{}
-	if len(match) > 0 {
-		r18 := match[0][1] + match[0][5]
+	match := ctx.unescape().regexpMustCompile(`来(?P<num>点|一点|几张|几份|.*张|.*份)?(?P<r18>[Rr]18)?的?(?P<tag>.*)?的?[色瑟涩铯][图圖]|(?P<r18>[Rr]18)?的?(?P<tag>.*)?的?[色瑟涩铯][图圖]来(?P<num>点|一点|几张|几份|.*张|.*份)?`)
+	// 一条正则多个同名捕获组只会索引到第一个, 所以下面直接把对应的捕获组全加起来
+	if len(match) > 0 && ctx.isToMe() {
+		var ok bool
+		reqR18 := 0
+		reqNum := 1
+		reqTag := []string{}
+		r18 := match[0][2] + match[0][4]
 		if r18 != "" {
 			reqR18 = 1
 		}
-		num := strings.ReplaceAll(match[0][3]+match[0][4], "张", "")
-		if num == "" || num == "点" || num == "一点" {
+		log.Debug("[setu] r18: ", r18)
+		log.Debug("[setu] reqR18: ", reqR18)
+
+		num := match[0][1] + match[0][6]
+		switch num {
+		case "":
 			reqNum = 1
 			ok = true
-		} else {
-			numChar, found := numberMap[num]
+		case "点", "一点", "几张", "几份":
+			reqNum = rand.Intn(4) + 3 // [3,6]
+			ok = true
+		default:
+			numNoUnit := strings.NewReplacer("张", "", "份", "").Replace(num)
+			numChar, found := numberMap[numNoUnit]
 			if !found {
-				numInt, err := strconv.Atoi(num)
+				numInt, err := strconv.Atoi(numNoUnit)
 				if err != nil {
 				} else {
 					if numInt >= 1 && numInt <= 20 {
@@ -70,7 +78,14 @@ func checkSetu(ctx gocqMessage) {
 				}
 			}
 		}
-		reqTag = regexp.MustCompile(`&`).Split(match[0][2]+match[0][6], -1)
+		log.Debug("[setu] num: ", match[0][1]+match[0][6])
+		log.Debug("[setu] reqNum: ", reqNum)
+
+		tag := match[0][3] + match[0][5]
+		reqTag = regexp.MustCompile(`&`).Split(tag, -1)
+		log.Debug("[setu] tag: ", tag)
+		log.Debug("[setu] reqTag: ", reqTag)
+
 		if !ok {
 			ctx.sendMsg("[setu] 请在1-20之间选择数量")
 			return

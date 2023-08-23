@@ -267,6 +267,7 @@ func RecvLoop(connection connection) {
 				cmd := pktJson.Get("cmd").Str()
 				switch cmd {
 				case "AREA_RANK_CHANGED":
+				case "COMBO_SEND":
 				case "COMBO_END":
 				case "COMMON_NOTICE_DANMAKU":
 				case "DANMU_AGGREGATION":
@@ -307,11 +308,11 @@ func RecvLoop(connection connection) {
 				case "WIDGET_GIFT_STAR_PROCESS":
 				default:
 					cmd := pktJson.Get("cmd").Str()
-					log.Debug("[danmaku] 直播间 ", connection.roomID, " 接收数据: \"cmd\": ", cmd)
+					log.Debug("[danmaku] 直播间 ", connection.roomID, " 接收数据: {\"cmd\": ", cmd, "}")
 				}
 			case !pktJson.Get("code").Nil():
 				code := pktJson.Get("code").Str()
-				log.Debug("[danmaku] 直播间 ", connection.roomID, " 接收数据: \"code\": ", code)
+				log.Info("[danmaku] 直播间 ", connection.roomID, " 接收数据: {\"code\": ", code, "}")
 			default:
 				if len(string(pkt.Body)) > 4 { //过滤奇怪的数据包导致控制台发声
 					log.Debug("[danmaku] 直播间 ", connection.roomID, " 原始数据: ", string(pkt.Body))
@@ -323,6 +324,32 @@ func RecvLoop(connection connection) {
 }
 
 func HeartBeatLoop(conn *websocket.Conn) {
+	boolChange := make(chan struct{})
+	go func() {
+		for {
+			time.Sleep(time.Second)
+			if anyChanged := disconnected || configChanged; anyChanged {
+				boolChange <- struct{}{}
+			}
+		}
+	}()
+	pkt := NewPacket(Plain, HeartBeat, nil).Build()
+	for {
+		select {
+		case <-time.After(time.Second * 30):
+			if err := conn.WriteMessage(websocket.BinaryMessage, pkt); err != nil {
+				log.Error("[danmaku] heartbeat error: ", err)
+				disconnected = true
+				break
+			}
+		case <-boolChange:
+			log.Info("[danmaku] heartbeat stop, disconnected || configChanged: ", disconnected || configChanged)
+			break
+		}
+	}
+}
+
+func HeartBeatLoopp(conn *websocket.Conn) {
 	pkt := NewPacket(Plain, HeartBeat, nil).Build()
 	for {
 		if disconnected || configChanged {
