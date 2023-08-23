@@ -10,8 +10,7 @@ import (
 )
 
 // 获取并格式化at列表
-func formatAt(atID int, group int) []map[string]any {
-	var forwardNode []map[string]any
+func formatAt(atID int, group int) (forwardNode []map[string]any) {
 	var atList []gocqMessage
 	tables := func() []int {
 		if group == 0 {
@@ -82,7 +81,7 @@ func formatAt(atID int, group int) []map[string]any {
 			content: []string{content},
 		})
 	}
-	return forwardNode
+	return
 }
 
 // 谁at我

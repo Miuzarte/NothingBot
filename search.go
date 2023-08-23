@@ -41,7 +41,7 @@ var searchTypes = struct {
 }
 
 // 获取搜索并格式化
-func formatBiliSearch(KIND string, keyword string) []map[string]any {
+func formatBiliSearch(KIND string, keyword string) (forwardNode []map[string]any) {
 	//KIND = "用户", kind = "bili_user"
 	kind := func() string {
 		switch KIND {
@@ -75,7 +75,7 @@ func formatBiliSearch(KIND string, keyword string) []map[string]any {
 	}
 	results := g.Get("data.result").Arr()
 	resultCount := len(results)
-	forwardNode := appendForwardNode([]map[string]any{}, gocqNodeData{ //标题
+	forwardNode = appendForwardNode(forwardNode, gocqNodeData{ //标题
 		content: []string{fmt.Sprint("快捷搜索", KIND, "(", kind, ") ：\n", keyword, "\n", "共", resultCount, "个结果")},
 	})
 	switch kind {
@@ -329,10 +329,8 @@ space.bilibili.com/%d
 				return
 			}(),
 		})
-	default:
-		return []map[string]any{}
 	}
-	return forwardNode
+	return
 }
 
 // 哔哩哔哩快捷搜索

@@ -12,8 +12,7 @@ import (
 var recallSwitch = true
 
 // 获取并格式化撤回消息记录
-func formatRecall(id int, filter int, kind string) []map[string]any {
-	var forwardNode []map[string]any
+func formatRecall(id int, filter int, kind string) (forwardNode []map[string]any) {
 	var rcList []gocqMessage
 	table := func() map[int]gocqMessage {
 		switch kind {
@@ -44,18 +43,18 @@ func formatRecall(id int, filter int, kind string) []map[string]any {
 	}
 	forwardNode = appendForwardNode(forwardNode, gocqNodeData{ //标题
 		content: []string{
-			func(kind string) string {
-				switch kind {
-				case "group":
+			func() string {
+				if kind == "group" {
 					if filter != 0 {
 						return fmt.Sprintf("%s之后群%d中%d的最近%d条被撤回的消息：", time.Unix(startTime, 0).Format(timeLayout.M24C), id, filter, rcListLen)
+					} else {
+						return fmt.Sprintf("%s之后群%d中最近%d条被撤回的消息：", time.Unix(startTime, 0).Format(timeLayout.M24C), id, rcListLen)
 					}
-					return fmt.Sprintf("%s之后群%d中最近%d条被撤回的消息：", time.Unix(startTime, 0).Format(timeLayout.M24C), id, rcListLen)
-				case "private":
+				} else if kind == "private" {
 					return fmt.Sprintf("%s之后%d的最近%d条被撤回的消息：", time.Unix(startTime, 0).Format(timeLayout.M24C), id, rcListLen)
 				}
 				return ""
-			}(kind),
+			}(),
 		},
 	})
 	for i := 0; i < rcListLen; i++ {
@@ -77,14 +76,14 @@ func formatRecall(id int, filter int, kind string) []map[string]any {
 			content: []string{content},
 		})
 	}
-	return forwardNode
+	return
 }
 
 // 撤回消息记录
 func checkRecall(ctx gocqMessage) {
 	//开关
 	reg := regexp.MustCompile("(开启|启用|关闭|禁用)撤回记录").FindAllStringSubmatch(ctx.message, -1)
-	if ctx.isSU() && ctx.isPrivate() && len(reg) > 0 {
+	if ctx.isPrivateSU() && len(reg) > 0 {
 		switch reg[0][1] {
 		case "开启", "启用":
 			recallSwitch = true

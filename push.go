@@ -11,13 +11,16 @@ import (
 	"github.com/ysmood/gson"
 )
 
-var disconnected bool
-var configChanged bool
-var cookie string
-var dynamicHistrory = make(map[string]string)
-var liveListUID []int
-var liveList []int
-var liveStateList = make(map[string]liveState)
+var (
+	disconnected         bool
+	configChanged        bool
+	cookie               string
+	dynamicCheckDuration time.Duration
+	dynamicHistrory      = make(map[string]string)
+	liveListUID          []int
+	liveList             []int
+	liveStateList        = make(map[string]liveState)
+)
 
 type liveState struct {
 	STATE int
@@ -41,6 +44,7 @@ func initPush() {
 	disconnected = true
 	configChanged = true
 	cookie = v.GetString("push.settings.cookie")
+	dynamicCheckDuration = time.Millisecond * time.Duration(v.GetFloat64("push.settings.dynamicUpdateInterval")*1000)
 	if initCount != 0 {
 		time.Sleep(time.Second * 2 * time.Duration(v.GetInt("push.settings.dynamicUpdateInterval")))
 	}
@@ -154,25 +158,26 @@ func dynamicMonitor() {
 				update_baseline = new_baseline
 				go func(dynamicID string) { //检测推送
 					rawJson := getDynamicJson(dynamicID)
+					stateCode := rawJson.Get("code").Int()
 					mainJson := rawJson.Get("data.item")
 					log.Debug("[push] mainJson: ", mainJson.JSON("", ""))
-					switch rawJson.Get("code").Int() {
+					switch stateCode {
 					case 4101131: //动态已删除，不推送
 						if dynamicHistrory[dynamicID] != "" {
 							log.Info("[push] 明确记录到一条来自 ", dynamicHistrory[dynamicID], " 的已删除动态 ", dynamicID)
 							log2SU.Info(fmt.Sprint("[push] 明确记录到一条来自 ", dynamicHistrory[dynamicID], " 的已删除动态 ", dynamicID))
 						}
-						break
 					case 500: //加载错误，请稍后再试
 						if dynamicHistrory[dynamicID] == "" { //检测是否为重复动态
 							go func(dynamicID string) {
 								for i := 0; i < 3; i++ { //重试三次
-									log.Warn("[push] (RETRY_", i+1, ") 将在10秒后重试动态 ", dynamicID)
-									time.Sleep(time.Second * 10)
+									log.Warn("[push] (RETRY_", i+1, ") 将在 ", dynamicCheckDuration*3, " 后重试动态 ", dynamicID)
+									time.Sleep(dynamicCheckDuration * 3)
 									rawJson := getDynamicJson(dynamicID)
+									stateCode := rawJson.Get("code").Int()
 									mainJson := rawJson.Get("data.item")
 									log.Debug("[push] (RETRY) mainJson: ", mainJson.JSON("", ""))
-									if rawJson.Get("code").Int() == 0 {
+									if stateCode == 0 {
 										log.Warn("[push] (RETRY) 成功获取动态 ", dynamicID)
 										dynamicChecker(mainJson)
 										dynamicHistrory[dynamicID] = mainJson.Get("modules.module_author.name").Str() //记录历史
@@ -187,12 +192,12 @@ func dynamicMonitor() {
 							dynamicHistrory[dynamicID] = mainJson.Get("modules.module_author.name").Str() //记录历史
 						}
 					default:
-						break
+						log.Warn("[push] other code: ", stateCode)
 					}
 				}(new_baseline)
 			}
 		}
-		time.Sleep(time.Millisecond * time.Duration(int64(v.GetFloat64("push.settings.dynamicUpdateInterval")*1000)))
+		time.Sleep(dynamicCheckDuration)
 	}
 }
 
@@ -225,7 +230,6 @@ func dynamicChecker(mainJson gson.JSON) {
 	} else {
 		log.Error("[push] 动态信息获取错误: ", mainJson.JSON("", ""))
 	}
-	return
 }
 
 // 初始化直播监听列表
@@ -235,11 +239,10 @@ func initLiveList() {
 	j := 0
 	k := 0
 	for i := 0; i < len(v.GetStringSlice("push.list")); i++ {
-		var uid int
-		var roomID int
+		j++
 		if v.GetInt(fmt.Sprint("push.list.", i, ".live")) != 0 {
-			uid = v.GetInt(fmt.Sprint("push.list.", i, ".uid"))
-			roomID = v.GetInt(fmt.Sprint("push.list.", i, ".live"))
+			uid := v.GetInt(fmt.Sprint("push.list.", i, ".uid"))
+			roomID := v.GetInt(fmt.Sprint("push.list.", i, ".live"))
 			liveListUID = append(liveListUID, uid)
 			liveList = append(liveList, roomID)
 			g, ok := getRoomJsonUID(strconv.Itoa(uid)).Gets("data", strconv.Itoa(uid))
@@ -253,9 +256,8 @@ func initLiveList() {
 					TIME:  time.Now().Unix()}
 			}
 			log.Debug("[push] uid为 ", uid, " 的直播间 ", roomID, " 加入监听列表  目前状态: ", liveStateList[strconv.Itoa(roomID)].STATE)
-			k += 1
+			k++
 		}
-		j += 1
 	}
 	log.Info("[push] 动态推送 ", j, " 个")
 	log.Info("[push] 直播间监听 ", k, " 个")
@@ -406,9 +408,8 @@ live.bilibili.com/%s`,
 }
 
 // 生成发送队列
-func sendListGen(i int) (string, []int, []int) {
+func sendListGen(i int) (atStr string, userID []int, groupID []int) {
 	//读StringSlice再转成IntSlice实现同时支持输入单个和多个数据
-	userID := []int{}
 	userList := v.GetStringSlice(fmt.Sprint("push.list.", i, ".user"))
 	if len(userList) > 0 {
 		for _, each := range userList {
@@ -421,7 +422,6 @@ func sendListGen(i int) (string, []int, []int) {
 		}
 	}
 	log.Debug("[push] 推送用户: ", userID)
-	groupID := []int{}
 	groupList := v.GetStringSlice(fmt.Sprint("push.list.", i, ".group"))
 	if len(groupList) > 0 {
 		for _, each := range groupList {
@@ -434,14 +434,13 @@ func sendListGen(i int) (string, []int, []int) {
 		}
 	}
 	log.Debug("[push] 推送群组: ", groupID)
-	at := ""
 	atList := v.GetStringSlice(fmt.Sprint("push.list.", i, ".at"))
 	if len(atList) > 0 {
-		at += "\n"
-		for _, each := range atList {
-			at += "[CQ:at,qq=" + each + "]"
+		atStr += "\n"
+		for _, at := range atList {
+			atStr += "[CQ:at,qq=" + at + "]"
 		}
 	}
 	log.Debug("[push] at: ", atList)
-	return at, userID, groupID
+	return
 }

@@ -94,9 +94,8 @@ func biliLinkExtractor(str string) (id string, kind string) {
 }
 
 // 短链解析
-func deShortLink(slug string) string {
+func deShortLink(slug string) (location string) {
 	url := "https://b23.tv/" + slug
-	var location string
 	var statusCode string
 	header, err := ihttp.New().WithUrl(url).
 		WithHijackRedirect().Head().ToHeader()
@@ -113,9 +112,8 @@ func deShortLink(slug string) string {
 	switch statusCode {
 	case "-404":
 		log.Warn("[parse] 短链解析失败: ", statusCode, "  location: ", location)
-		return ""
 	}
-	return location
+	return
 }
 
 // 链接内容解析

@@ -42,7 +42,7 @@ func initCorpus() {
 
 		regRaw := v.Get(fmt.Sprint("corpus.", i, ".regexp"))
 		regStr, ok := regRaw.(string)
-		regExpression, err := regexp.Compile(regStr)
+		regCompiler, err := regexp.Compile(regStr)
 		switch {
 		case !ok:
 			regexpOK = false
@@ -53,49 +53,60 @@ func initCorpus() {
 		default:
 			regexpOK = true
 			c.regStr = regStr
-			c.regexp = regExpression
+			c.regexp = regCompiler
 		}
 
 		replyRaw := v.Get(fmt.Sprint("corpus.", i, ".reply"))
+		replyInt, isInt := replyRaw.(int)
+		replyFloat, isFloat := replyRaw.(float64)
 		replyString, isString := replyRaw.(string)
 		replySlice, isSlice := replyRaw.([]any)
 		switch {
-		case !isString && !isSlice:
+		case !isInt && !isFloat && !isString && !isSlice:
 			replyOK = false
 			log.Error("[corpus] 第 ", i+1, " 条语料库.reply: 回复项格式错误!")
 		default:
 			replyOK = true
 			switch {
+			case isInt:
+				c.reply = fmt.Sprint(replyInt)
+			case isFloat:
+				c.reply = fmt.Sprint(replyFloat)
 			case isString:
 				c.reply = replyString
 			case isSlice:
 				for _, a := range replySlice {
 					var nodeData gocqNodeData
-					str, isString := a.(string)
-					node, isCustomNode := a.(map[string]any)
-					if isString {
-						nodeData.content = []string{str}
-					} else if isCustomNode {
-						if node["name"] != nil {
-							nodeData.name = fmt.Sprint(node["name"])
+					aInt, isInt := a.(int)
+					aFloat, isFloat := a.(float64)
+					aStr, isString := a.(string)
+					aNode, isCustomNode := a.(map[string]any)
+					switch {
+					case isInt:
+						nodeData.content = []string{fmt.Sprint(aInt)}
+					case isFloat:
+						nodeData.content = []string{fmt.Sprint(aFloat)}
+					case isString:
+						nodeData.content = []string{aStr}
+					case isCustomNode:
+						if aNode["name"] != nil {
+							nodeData.name = fmt.Sprint(aNode["name"])
 						}
-						if node["uin"] != nil {
-							uin, isInt := node["uin"].(int)
-							str, isString := node["uin"].(string)
+						if aNode["uin"] != nil {
+							uinInt, isInt := aNode["uin"].(int)
+							uinStr, isString := aNode["uin"].(string)
 							if isInt {
-								nodeData.uin = uin
+								nodeData.uin = uinInt
 							} else if isString {
-								atoi, err := strconv.Atoi(str)
+								uinAtoi, err := strconv.Atoi(uinStr)
 								if err == nil {
-									nodeData.uin = atoi
-								} else {
-									nodeData.uin = selfID
+									nodeData.uin = uinAtoi
 								}
 							}
 						}
-						if node["content"] != nil {
-							contentString, isString := node["content"].(string)
-							contentNode, isSlice := node["content"].([]any)
+						if aNode["content"] != nil {
+							contentString, isString := aNode["content"].(string)
+							contentNode, isSlice := aNode["content"].([]any)
 							if isString {
 								nodeData.content = []string{contentString}
 							} else if isSlice {
@@ -104,7 +115,7 @@ func initCorpus() {
 								}
 							}
 						}
-					} else {
+					default:
 						nodeData.content = []string{fmt.Sprint(a)}
 					}
 					c.replyNode = appendForwardNode(c.replyNode, nodeData)
@@ -135,7 +146,7 @@ func initCorpus() {
 		case (!isInt && !isFloat && !isString) || (isString && err != nil):
 			delayOK = false
 			log.Error("[corpus] 第 ", i+1, " 条语料库.delay: 延迟格式错误!  isInt: ", isInt, "  isFloat: ", isFloat, "  isString: ", isString, "  err: ", err)
-		default: //(isInt || isFloat || isString) && (!isString || err == nil)
+		default: // (isInt || isFloat || isString) && (!isString || err == nil)
 			delayOK = true
 			switch {
 			case isInt:

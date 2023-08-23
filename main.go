@@ -663,26 +663,17 @@ func (ctx gocqMessage) isSU() bool {
 
 // 匹配消息来源
 func (ctx gocqMessage) isGroup() bool {
-	if ctx.message_type == "group" {
-		return true
-	}
-	return false
+	return ctx.message_type == "group"
 }
 
 // 匹配消息来源
 func (ctx gocqMessage) isPrivate() bool {
-	if ctx.message_type == "private" {
-		return true
-	}
-	return false
+	return ctx.message_type == "private"
 }
 
 // isPrivate() && isSU()
 func (ctx gocqMessage) isPrivateSU() bool {
-	if ctx.isPrivate() && ctx.isSU() {
-		return true
-	}
-	return false
+	return ctx.isPrivate() && ctx.isSU()
 }
 
 func (ctx gocqMessage) isToMe() bool {

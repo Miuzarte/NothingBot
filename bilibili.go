@@ -54,28 +54,22 @@ func formatDynamic(g gson.JSON) string {
 	id := g.Get("id_str").Str()
 	name := g.Get("modules.module_author.name").Str()
 	additionalType := dynamic.Get("additional.type").Str() //动态子项类型
-	appendReserve := func(g gson.JSON) string {            //预约格式化
-		return fmt.Sprintf(
-			`%s
-%s
-%s`,
+	getTopic := func(g gson.JSON) string {                 //话题格式化
+		if !g.Get("topic.name").Nil() {
+			return "\n#" + dynamic.Get("topic.name").Str() + "#"
+		}
+		return ""
+	}
+	appendReserve := func(g gson.JSON) string { //预约格式化
+		return fmt.Sprintf("%s\n%s\n%s",
 			g.Get("title").Str(),
 			g.Get("desc1.text").Str(), //"预计xxx发布"
 			g.Get("desc2.text").Str()) //"xx人预约"/"xx观看"
 	}
 	appendVote := func(g gson.JSON) string { //投票格式化
-		name := g.Get("name").Str()        //发起者
-		title := g.Get("title").Str()      //标题
-		desc := func(desc string) string { //简介
-			if (desc != "" && desc != "-") && truncationLength > 0 {
-				if len([]rune(desc)) > truncationLength {
-					return fmt.Sprintf("\n简介：%s......", string([]rune(desc)[0:truncationLength]))
-				} else {
-					return fmt.Sprintf("\n简介：%s", desc)
-				}
-			}
-			return ""
-		}(g.Get("desc").Str())
+		name := g.Get("name").Str()            //发起者
+		title := g.Get("title").Str()          //标题
+		desc := descTrunc(g.Get("desc").Str()) //简介
 		startTime, endTime := func(timeS1 int64, timeS2 int64) (string, string) {
 			time1 := time.Unix(timeS1, 0)
 			time2 := time.Unix(timeS2, 0)
@@ -88,10 +82,9 @@ func formatDynamic(g gson.JSON) string {
 			}
 			return time1.Format(timeLayout.L24), time2.Format(timeLayout.L24)
 		}(int64(g.Get("starttime").Int()), int64(g.Get("endtime").Int()))
-		c_cnt := g.Get("choice_cnt").Int()           //最大选择数
-		cnt := g.Get("cnt").Int()                    //参与数
-		option := func(options []gson.JSON) string { //图片
-			var option string
+		c_cnt := g.Get("choice_cnt").Int()                    //最大选择数
+		cnt := g.Get("cnt").Int()                             //参与数
+		option := func(options []gson.JSON) (option string) { //选项
 			for _, j := range options {
 				if !j.Get("cnt").Nil() {
 					option += fmt.Sprintf("\n%d. %s  %d人选择",
@@ -102,9 +95,10 @@ func formatDynamic(g gson.JSON) string {
 					option += fmt.Sprintf("\n%d. %s",
 						j.Get("idx").Int(),  //序号
 						j.Get("desc").Str()) //描述
+					//cookie失效时拿不到选择数
 				}
 			}
-			return option
+			return
 		}(g.Get("options").Arr())
 		return fmt.Sprintf(
 			`%s发起的投票：%s%s
@@ -114,17 +108,13 @@ func formatDynamic(g gson.JSON) string {
 			startTime, endTime,
 			c_cnt, cnt, option)
 	}
+
 	dynamicType := g.Get("type").Str() //动态类型
 	log.Debug("[bilibili] dynamicType: ", dynamicType)
 	switch dynamicType {
 	case "DYNAMIC_TYPE_FORWARD": //转发
-		topic := func(exist bool, topic string) string { //话题
-			if exist {
-				return fmt.Sprintf("\n#%s#", topic)
-			}
-			return ""
-		}(!dynamic.Get("topic.name").Nil(), dynamic.Get("topic.name").Str())
-		text := dynamic.Get("desc.text").Str() //文本
+		topic := getTopic(dynamic.Get("topic.name")) //话题
+		text := dynamic.Get("desc.text").Str()       //文本
 		return fmt.Sprintf(
 			`t.bilibili.com/%s
 %s：转发动态%s
@@ -138,23 +128,18 @@ func formatDynamic(g gson.JSON) string {
 	case "DYNAMIC_TYPE_NONE": //转发的动态已删除
 		return g.Get("modules.module_dynamic.major.none.tips").Str() //错误提示: "源动态已被作者删除"
 	case "DYNAMIC_TYPE_WORD": //文本
-		topic := func(exist bool, topic string) string { //话题
-			if exist {
-				return fmt.Sprintf("\n#%s#", topic)
-			}
-			return ""
-		}(!dynamic.Get("topic.name").Nil(), dynamic.Get("topic.name").Str())
+		topic := getTopic(dynamic.Get("topic.name"))                //话题
 		text := dynamic.Get("desc.text").Str()                      //文本
 		reserve := func(exist bool, reserveJson gson.JSON) string { //预约
 			if exist {
-				return fmt.Sprintf("\n%s", appendReserve(reserveJson))
+				return fmt.Sprint("\n", appendReserve(reserveJson))
 			}
 			return ""
 		}(additionalType == "ADDITIONAL_TYPE_RESERVE", dynamic.Get("additional.reserve"))
 		vote := func(exist bool, g gson.JSON) string { //投票
 			if exist {
 				voteJson := getVoteJson(strconv.Itoa(g.Get("vote_id").Int())).Get("data.info")
-				return fmt.Sprintf("\n%s", appendVote(voteJson))
+				return fmt.Sprint("\n", appendVote(voteJson))
 			}
 			return ""
 		}(additionalType == "ADDITIONAL_TYPE_VOTE", dynamic.Get("additional.vote"))
@@ -169,27 +154,22 @@ func formatDynamic(g gson.JSON) string {
 		images := func(imgUrls []gson.JSON) string { //图片
 			var images string
 			for _, j := range imgUrls {
-				images += fmt.Sprintf("[CQ:image,file=%s]", j.Get("src").Str())
+				images += fmt.Sprint("[CQ:image,file=", j.Get("src").Str(), "]")
 			}
 			return images
 		}(draw.Get("items").Arr())
-		topic := func(exist bool, topic string) string { //话题
-			if exist {
-				return fmt.Sprintf("\n#%s#", topic)
-			}
-			return ""
-		}(!dynamic.Get("topic.name").Nil(), dynamic.Get("topic.name").Str())
+		topic := getTopic(dynamic.Get("topic.name"))                //话题
 		text := dynamic.Get("desc.text").Str()                      //文本
 		reserve := func(exist bool, reserveJson gson.JSON) string { //预约
 			if exist {
-				return fmt.Sprintf("\n%s", appendReserve(reserveJson))
+				return fmt.Sprint("\n", appendReserve(reserveJson))
 			}
 			return ""
 		}(additionalType == "ADDITIONAL_TYPE_RESERVE", dynamic.Get("additional.reserve"))
 		vote := func(exist bool, g gson.JSON) string { //投票
 			if exist {
 				voteJson := getVoteJson(strconv.Itoa(g.Get("vote_id").Int())).Get("data.info")
-				return fmt.Sprintf("\n%s", appendVote(voteJson))
+				return fmt.Sprint("\n", appendVote(voteJson))
 			}
 			return ""
 		}(additionalType == "ADDITIONAL_TYPE_VOTE", dynamic.Get("additional.vote"))
@@ -203,19 +183,14 @@ func formatDynamic(g gson.JSON) string {
 			text,
 			images, vote, reserve)
 	case "DYNAMIC_TYPE_AV": //视频
-		action := author.Get("pub_action").Str()         //"投稿了视频"/"发布了动态视频"
-		topic := func(exist bool, topic string) string { //话题
-			if exist {
-				return fmt.Sprintf("\n#%s#", topic)
-			}
-			return ""
-		}(!dynamic.Get("topic.name").Nil(), dynamic.Get("topic.name").Str())
+		action := author.Get("pub_action").Str()       //"投稿了视频"/"发布了动态视频"
+		topic := getTopic(dynamic.Get("topic.name"))   //话题
 		text := func(exist bool, text string) string { //文本
 			if text == archive.Get("desc").Str() { //如果文本和简介相同，不显示文本
 				return ""
 			}
 			if exist {
-				return fmt.Sprintf("\n%s", text)
+				return fmt.Sprint("\n", text)
 			}
 			return ""
 		}(!dynamic.Get("desc.text").Nil(), dynamic.Get("desc.text").Str())
@@ -382,9 +357,9 @@ func descTrunc(desc string) string {
 	truncationLength := v.GetInt("parse.settings.descTruncationLength")
 	if (desc != "" && desc != "-") && truncationLength > 0 {
 		if len([]rune(desc)) > truncationLength {
-			return fmt.Sprintf("\n简介：%s......", string([]rune(desc)[0:truncationLength]))
+			return fmt.Sprint("\n简介：", string([]rune(desc)[0:truncationLength]), "......")
 		} else {
-			return fmt.Sprintf("\n简介：%s", desc)
+			return fmt.Sprint("\n简介：", desc)
 		}
 	}
 	return ""
