@@ -29,18 +29,22 @@ type setu struct {
 
 var useOriginalUrl bool
 
-var numberMap = map[string]int{
-	"一": 1, "二": 2, "两": 2, "三": 3, "四": 4, "五": 5,
+var numberMap = map[string]int{"两": 2,
+	"一": 1, "二": 2, "三": 3, "四": 4, "五": 5,
+	"壹": 1, "贰": 2, "叁": 3, "肆": 4, "伍": 5,
 	"六": 6, "七": 7, "八": 8, "九": 9, "十": 10,
+	"陆": 6, "柒": 7, "捌": 8, "玖": 9, "拾": 10,
 	"十一": 11, "十二": 12, "十三": 13, "十四": 14, "十五": 15,
+	"拾壹": 11, "拾贰": 12, "拾叁": 13, "拾肆": 14, "拾伍": 15,
 	"十六": 16, "十七": 17, "十八": 18, "十九": 19, "二十": 20,
+	"拾陆": 16, "拾柒": 17, "拾捌": 18, "拾玖": 19, "贰拾": 20,
 }
 
 func checkSetu(ctx gocqMessage) {
 	match := ctx.unescape().regexpMustCompile(`来(?P<num>点|一点|几张|几份|.*张|.*份)?(?P<r18>[Rr]18)?的?(?P<tag>.*)?的?[色瑟涩铯][图圖]|(?P<r18>[Rr]18)?的?(?P<tag>.*)?的?[色瑟涩铯][图圖]来(?P<num>点|一点|几张|几份|.*张|.*份)?`)
 	// 一条正则多个同名捕获组只会索引到第一个, 所以下面直接把对应的捕获组全加起来
 	if len(match) > 0 && ctx.isToMe() {
-		var ok bool
+		var numOK bool
 		reqR18 := 0
 		reqNum := 1
 		reqTag := []string{}
@@ -55,10 +59,10 @@ func checkSetu(ctx gocqMessage) {
 		switch num {
 		case "":
 			reqNum = 1
-			ok = true
+			numOK = true
 		case "点", "一点", "几张", "几份":
 			reqNum = rand.Intn(4) + 3 // [3,6]
-			ok = true
+			numOK = true
 		default:
 			numNoUnit := strings.NewReplacer("张", "", "份", "").Replace(num)
 			numChar, found := numberMap[numNoUnit]
@@ -68,13 +72,13 @@ func checkSetu(ctx gocqMessage) {
 				} else {
 					if numInt >= 1 && numInt <= 20 {
 						reqNum = numInt
-						ok = true
+						numOK = true
 					}
 				}
 			} else {
 				if numChar >= 1 && numChar <= 20 {
 					reqNum = numChar
-					ok = true
+					numOK = true
 				}
 			}
 		}
@@ -86,7 +90,7 @@ func checkSetu(ctx gocqMessage) {
 		log.Debug("[setu] tag: ", tag)
 		log.Debug("[setu] reqTag: ", reqTag)
 
-		if !ok {
+		if !numOK {
 			ctx.sendMsg("[setu] 请在1-20之间选择数量")
 			return
 		} else {
@@ -107,7 +111,7 @@ func checkSetu(ctx gocqMessage) {
 					return true
 				}(), reqNum, reqTag)}
 				content = append(content, func() (head string) {
-					head += fmt.Sprint("在api.lolicon.app/setu/v2根据以上条件搜索到了", resultsCount, "张setu")
+					head += fmt.Sprint("在 api.lolicon.app/setu/v2 根据以上条件搜索到了", resultsCount, "张setu")
 					if reqNum > resultsCount {
 						head += "\nあれれ？似乎没有那么多符合这个条件的setu呢"
 					}
@@ -132,11 +136,11 @@ func (param setu) get() (results []string, errMsg string) {
 		WithHeader("Content-Type", "application/json").
 		WithBody(postData).Post().ToGson()
 	if err != nil {
-		log.Error("[setu] getSetu().ihttp请求错误: ", err)
 		errMsg += fmt.Sprint("[setu] getSetu().ihttp请求错误: ", err)
+		log.Error(errMsg)
 	} else if setu.Get("error").Str() != "" && setu.Get("error").Str() != "<nil>" {
-		log.Error("[setu] getSetu().ihttp响应错误: ", setu.Get("error").Str())
 		errMsg += fmt.Sprint("[setu] getSetu().ihttp响应错误: ", setu.Get("error").Str())
+		log.Error(errMsg)
 	}
 	data, _ := setu.Gets("data")
 	for _, g := range data.Arr() {

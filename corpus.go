@@ -187,8 +187,8 @@ corpus[%d]    regexpOK: %t  replyOK: %t  sceneOK: %t  delayOK: %t`,
 func checkCorpus(ctx gocqMessage) {
 	for i, c := range corpuses {
 		log.Trace("[corpus] 匹配语料库: ", i, "   正则: ", c.regStr)
-		result := c.regexp.FindAllStringSubmatch(ctx.message, -1)
-		if result != nil {
+		match := c.regexp.FindAllStringSubmatch(ctx.message, -1)
+		if len(match) > 0 {
 			var ok bool
 			switch c.scene {
 			case "a", "all":

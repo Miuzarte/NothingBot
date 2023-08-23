@@ -82,7 +82,7 @@ func formatRecall(id int, filter int, kind string) (forwardNode []map[string]any
 func checkRecall(ctx gocqMessage) {
 	//开关
 	match := ctx.regexpMustCompile(`(开启|启用|关闭|禁用)撤回记录`)
-	if ctx.isPrivateSU() && len(match) > 0 {
+	if len(match) > 0 && ctx.isPrivateSU() {
 		switch match[0][1] {
 		case "开启", "启用":
 			recallSwitch = true

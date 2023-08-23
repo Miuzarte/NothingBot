@@ -39,6 +39,55 @@ var streamState = struct {
 	ROTATE:  2,
 }
 
+type push struct {
+	userID  []int
+	groupID []int
+	at      string
+}
+
+// 推送消息
+func (p push) send(msg ...any) {
+	sendMsg(p.userID, p.groupID, p.at, msg...)
+}
+
+// 生成推送对象
+func genPush(i int) (p push) {
+	//读StringSlice再转成IntSlice实现同时支持输入单个和多个数据
+	userList := v.GetStringSlice(fmt.Sprint("push.list.", i, ".user"))
+	if len(userList) > 0 {
+		for _, each := range userList {
+			user, err := strconv.Atoi(each)
+			if err != nil {
+				log.Error("[strconv.Atoi] ", err)
+				log2SU.Error(fmt.Sprint("[strconv.Atoi] ", err))
+			}
+			p.userID = append(p.userID, user)
+		}
+	}
+	log.Debug("[push] 推送用户: ", p.userID)
+	groupList := v.GetStringSlice(fmt.Sprint("push.list.", i, ".group"))
+	if len(groupList) > 0 {
+		for _, each := range groupList {
+			group, err := strconv.Atoi(each)
+			if err != nil {
+				log.Error("[strconv.Atoi] ", err)
+				log2SU.Error(fmt.Sprint("[strconv.Atoi] ", err))
+			}
+			p.groupID = append(p.groupID, group)
+		}
+	}
+	log.Debug("[push] 推送群组: ", p.groupID)
+	atList := v.GetStringSlice(fmt.Sprint("push.list.", i, ".at"))
+	if len(atList) > 0 {
+		p.at += "\n"
+		for _, at := range atList {
+			p.at += "[CQ:at,qq=" + at + "]"
+		}
+	}
+	log.Debug("[push] at: ", atList)
+	return
+}
+
 // 初始化推送
 func initPush() {
 	disconnected = true
@@ -222,8 +271,7 @@ func dynamicChecker(mainJson gson.JSON) {
 			}
 			if uidMatch && filterMatch {
 				log.Info("[push] 处于推送列表: ", name, uid)
-				at, userID, groupID := sendListGen(i)
-				sendMsg(userID, groupID, at, formatDynamic(mainJson))
+				genPush(i).send(formatDynamic(mainJson))
 			}
 		}
 		log.Info("[push] 不处于推送列表: ", name, " ", uid)
@@ -291,7 +339,7 @@ func liveChecker(pktJson gson.JSON, uid string, roomID string) {
 	case "LIVE":
 		for i := 0; i < len(v.GetStringSlice("push.list")); i++ {
 			if roomID == strconv.Itoa(v.GetInt(fmt.Sprint("push.list.", i, ".live"))) {
-				at, userID, groupID := sendListGen(i)
+				push := genPush(i)
 				if liveStateList[roomID].STATE == streamState.ONLINE {
 					switch {
 					case time.Now().Unix()-liveStateList[roomID].TIME < minimumInterval:
@@ -309,13 +357,13 @@ func liveChecker(pktJson gson.JSON, uid string, roomID string) {
 				roomJson, ok := getRoomJsonUID(uid).Gets("data", uid)
 				if !ok {
 					log.Error("[push] 获取 ", uid, " 的直播间 ", roomID, " 信息失败")
-					sendMsg(userID, groupID, at, fmt.Sprint("[NothingBot] [ERROR] [push] 推送 ", uid, " 的直播间 ", roomID, " 开播时无法获取直播间信息"))
+					push.send("[NothingBot] [ERROR] [push] 推送 ", uid, " 的直播间 ", roomID, " 开播时无法获取直播间信息")
 					return
 				}
 				name := roomJson.Get("uname").Str()
 				cover := roomJson.Get("cover_from_user").Str()
 				title := roomJson.Get("title").Str()
-				sendMsg(userID, groupID, at, fmt.Sprintf(
+				push.send(fmt.Sprintf(
 					`%s开播了！
 [CQ:image,file=%s]
 %s
@@ -330,7 +378,7 @@ live.bilibili.com/%s`,
 	case "PREPARING":
 		for i := 0; i < len(v.GetStringSlice("push.list")); i++ {
 			if roomID == strconv.Itoa(v.GetInt(fmt.Sprint("push.list.", i, ".live"))) {
-				at, userID, groupID := sendListGen(i)
+				push := genPush(i)
 				if liveStateList[roomID].STATE == streamState.OFFLINE || liveStateList[roomID].STATE == streamState.ROTATE {
 					switch {
 					case time.Now().Unix()-liveStateList[roomID].TIME < minimumInterval:
@@ -348,7 +396,7 @@ live.bilibili.com/%s`,
 				roomJson, ok := getRoomJsonUID(uid).Gets("data", uid)
 				if !ok {
 					log.Error("[push] 获取 ", uid, " 的直播间 ", roomID, " 信息失败")
-					sendMsg(userID, groupID, at, fmt.Sprint("[NothingBot] [ERROR] [push] 推送 ", uid, " 的直播间 ", roomID, " 下播时无法获取直播间信息"))
+					push.send("[NothingBot] [ERROR] [push] 推送 ", uid, " 的直播间 ", roomID, " 下播时无法获取直播间信息")
 					return
 				}
 				name := roomJson.Get("uname").Str()
@@ -361,7 +409,7 @@ live.bilibili.com/%s`,
 						return "未记录本次开播时间"
 					}
 				}()
-				sendMsg(userID, groupID, at, fmt.Sprintf(
+				push.send(fmt.Sprintf(
 					`%s下播了～
 [CQ:image,file=%s]
 %s
@@ -379,12 +427,12 @@ live.bilibili.com/%s`,
 		}
 		for i := 0; i < len(v.GetStringSlice("push.list")); i++ {
 			if roomID == strconv.Itoa(v.GetInt(fmt.Sprint("push.list.", i, ".live"))) {
-				at, userID, groupID := sendListGen(i)
+				push := genPush(i)
 				log.Info("[push] 推送 ", uid, " 的直播间 ", roomID, " 房间信息更新")
 				roomJson, ok := getRoomJsonUID(uid).Gets("data", uid)
 				if !ok {
 					log.Error("[push] 获取直播间信息失败")
-					sendMsg(userID, groupID, at, fmt.Sprint("[NothingBot] [ERROR] [push] 推送 ", uid, " 的直播间 ", roomID, " 房间信息更新时无法获取直播间信息"))
+					push.send("[NothingBot] [ERROR] [push] 推送 ", uid, " 的直播间 ", roomID, " 房间信息更新时无法获取直播间信息")
 					return
 				}
 				area := fmt.Sprintf("%s - %s\n", //分区
@@ -392,7 +440,7 @@ live.bilibili.com/%s`,
 					roomJson.Get("area_v2_name").Str())
 				name := roomJson.Get("uname").Str()
 				title := roomJson.Get("title").Str()
-				sendMsg(userID, groupID, at, fmt.Sprintf(
+				push.send(fmt.Sprintf(
 					`%s更改了房间信息
 房间名：%s
 %s
@@ -405,42 +453,4 @@ live.bilibili.com/%s`,
 			}
 		}
 	}
-}
-
-// 生成发送队列
-func sendListGen(i int) (atStr string, userID []int, groupID []int) {
-	//读StringSlice再转成IntSlice实现同时支持输入单个和多个数据
-	userList := v.GetStringSlice(fmt.Sprint("push.list.", i, ".user"))
-	if len(userList) > 0 {
-		for _, each := range userList {
-			user, err := strconv.Atoi(each)
-			if err != nil {
-				log.Error("[strconv.Atoi] ", err)
-				log2SU.Error(fmt.Sprint("[strconv.Atoi] ", err))
-			}
-			userID = append(userID, user)
-		}
-	}
-	log.Debug("[push] 推送用户: ", userID)
-	groupList := v.GetStringSlice(fmt.Sprint("push.list.", i, ".group"))
-	if len(groupList) > 0 {
-		for _, each := range groupList {
-			group, err := strconv.Atoi(each)
-			if err != nil {
-				log.Error("[strconv.Atoi] ", err)
-				log2SU.Error(fmt.Sprint("[strconv.Atoi] ", err))
-			}
-			groupID = append(groupID, group)
-		}
-	}
-	log.Debug("[push] 推送群组: ", groupID)
-	atList := v.GetStringSlice(fmt.Sprint("push.list.", i, ".at"))
-	if len(atList) > 0 {
-		atStr += "\n"
-		for _, at := range atList {
-			atStr += "[CQ:at,qq=" + at + "]"
-		}
-	}
-	log.Debug("[push] at: ", atList)
-	return
 }

@@ -21,7 +21,7 @@ import (
 	"golang.org/x/net/websocket"
 )
 
-const defaultConfig string = `main: #冷更新
+const defaultConfig = `main: #冷更新
   websocket: "ws://127.0.0.1:9820" #go-cqhttp
   superUsers:  #int / []int
   #控制台日志等级，越大输出越多
@@ -33,17 +33,25 @@ const defaultConfig string = `main: #冷更新
   #Debug = 5
   #Trace = 6
   logLevel: 4
-  #语料库、推送配置请参照: https://github.com/Miuzarte/NothingBot/blob/main/config.yaml
+  #其他配置请参照: https://github.com/Miuzarte/NothingBot/blob/main/config.yaml
 corpus: #热更新
 # - #模板
 #   regexp: "" #正则表达式
-#   reply: "" #回复内容
+#   reply: "" #回复内容  string / []string  多于一条则发送合并转发消息，内容可以为空字符串，但是会被发送函数无视
 #   scene: "" #触发场景 "a"/"all" / "g"/"group" / "p"/"private"
 #   delay:  #延迟回复（秒）  支持小数
-push: #热更新，但最起码不要在5s内保存多次，发起直播监听连接需要时间，直播间越多越久
+parse: #热更新
   settings:
-    dynamicUpdateInterval: 3 #拉取更新间隔
+    #同一会话重复解析同一链接的间隔（秒）
+    sameParseInterval: 60
+    #过长的视频/投票简介保留长度（中英字符）
+    descTruncationLength: 32
+push: #热更新
+  settings:
+    livePushMinimumInterval: 300 #同一直播间多次开播推送的最小间隔（秒）  用于解决某些主播因网络问题频繁重新推流导致多次推送
+    dynamicUpdateInterval: 3 #拉取更新间隔（秒）
     resetCheckInterval: 15 #直播监听重连检测间隔（秒）
+    roomChangeInfo: false #直播监控推送房间名更新（如果主播开播同时改房间名会导致推送两条）
     #通过拉取动态流进行推送，必须设置B站cookie，且需要关注想要推送的up
     cookie: ""
   list:
@@ -52,12 +60,12 @@ push: #热更新，但最起码不要在5s内保存多次，发起直播监听�
   # live: #up的直播间号，存在则监听并推送直播  int ONLY
   # user: #推送到的用户  int / []int
   # group: #推送到的群组  int / []int
-  # at: #推送到群组时消息末尾at的人  int / []int    --------（有点鸡肋，之后想想怎么改又能不用群号当键）
+  # at: #推送到群组时消息末尾at的人  int / []int
   # filter: #此键存在内容时仅推送包含在内的动态类型（白名单） []string
-  #     - "DYNAMIC_TYPE_WORD" #文本动态（包括投票/预约）
-  #     - "DYNAMIC_TYPE_DRAW" #图文动态（包括投票/预约）
-  #     - "DYNAMIC_TYPE_AV" #视频投稿（包括动态视频）
-  #     - "DYNAMIC_TYPE_ARTICLE" #文章投稿
+  #   - "DYNAMIC_TYPE_WORD" #文本动态（包括投票/预约）
+  #   - "DYNAMIC_TYPE_DRAW" #图文动态（包括投票/预约）
+  #   - "DYNAMIC_TYPE_AV" #视频投稿（包括动态视频）
+  #   - "DYNAMIC_TYPE_ARTICLE" #文章投稿
 `
 
 const (
@@ -183,7 +191,8 @@ type gocqMessage struct {
 	extra           gocqMessageExtra
 }
 
-type gocqMessageExtra struct { //非标数据
+// 非标数据
+type gocqMessageExtra struct {
 	recalled         bool   //是否被撤回
 	operator_id      int    //撤回者ID
 	timeFormat       string //格式化的时间
@@ -297,7 +306,7 @@ func postHandler(rawPost string) {
 		}
 		msg.extra = gocqMessageExtra{
 			timeFormat:       time.Unix(int64(p.Get("time").Int()), 0).Format(timeLayout.T24),
-			messageWithReply: msg.replyEntity(),
+			messageWithReply: msg.entityReply(),
 			atWho:            msg.collectAt(),
 		}
 		switch msg.message_type {
@@ -440,7 +449,7 @@ func (ctx gocqMessage) unescape() gocqMessage {
 }
 
 // 具体化回复，go-cqhttp.extra-reply-data: true时不必要，但是开了那玩意又会导致回复带上原文又触发一遍机器人
-func (ctx gocqMessage) replyEntity() (messageWithReply string) {
+func (ctx gocqMessage) entityReply() (messageWithReply string) {
 	match := ctx.regexpMustCompile(`\[CQ:reply,id=(.*)]`)
 	if len(match) > 0 {
 		replyid_str := match[0][1]
@@ -583,7 +592,7 @@ func (log2SU log2SuperUsers) Trace(msg ...any) {
 
 // 发送日志到超级用户
 var log2SU log2SuperUsers = func(msg ...any) {
-	sendMsg(suID, []int{}, "", msg...)
+	sendMsg(suID, nil, "", msg...)
 }
 
 // 批量发送消息
