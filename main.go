@@ -443,9 +443,9 @@ func postHandler(rawPost string) {
 }
 
 // 反转义还原CQ码
-func (ctx gocqMessage) unescape() gocqMessage {
-	ctx.message = unescape.Replace(ctx.message)
-	return ctx
+func (g gocqMessage) unescape() gocqMessage {
+	g.message = unescape.Replace(g.message)
+	return g
 }
 
 // 具体化回复，go-cqhttp.extra-reply-data: true时不必要，但是开了那玩意又会导致回复带上原文又触发一遍机器人
