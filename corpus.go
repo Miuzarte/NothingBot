@@ -25,6 +25,7 @@ var corpuses []corpus
 // 初始化语料库
 func initCorpus() {
 	for { //拿到selfID才能存合并转发的自身uin
+		time.Sleep(time.Second)
 		if selfID != 0 {
 			break
 		}

@@ -344,6 +344,7 @@ func HeartBeatLoop(conn *websocket.Conn) {
 			}
 		case <-boolChange:
 			log.Info("[danmaku] heartbeat stop, disconnected || configChanged: ", disconnected || configChanged)
+			time.Sleep(time.Second)
 			break
 		}
 	}

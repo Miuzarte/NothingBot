@@ -849,6 +849,7 @@ func main() {
 	func() {
 		go connect(gocqUrl)
 		for {
+			time.Sleep(time.Second)
 			if heartbeatOK {
 				return
 			}
