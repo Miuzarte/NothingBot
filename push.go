@@ -12,22 +12,21 @@ import (
 )
 
 var (
-	disconnected         bool
-	configChanged        bool
 	cookie               string
 	dynamicCheckDuration time.Duration
 	dynamicHistrory      = make(map[string]string)
-	liveListUID          []int
-	liveList             []int
-	liveStateList        = make(map[string]liveState)
+	liveList             = make(map[int]liveInfo) // roomid : liveInfo
 )
 
-type liveState struct {
-	STATE int
-	TIME  int64
+type liveInfo struct {
+	live   *danmaku
+	uid    int
+	roomid int
+	state  int
+	time   int64
 }
 
-var streamState = struct {
+var liveState = struct {
 	UNKNOWN int
 	OFFLINE int
 	ONLINE  int
@@ -90,19 +89,89 @@ func genPush(i int) (p push) {
 
 // 初始化推送
 func initPush() {
-	disconnected = true
-	configChanged = true
 	cookie = v.GetString("push.settings.cookie")
 	dynamicCheckDuration = time.Millisecond * time.Duration(v.GetFloat64("push.settings.dynamicUpdateInterval")*1000)
 	if initCount != 0 {
 		time.Sleep(time.Second * 2 * time.Duration(v.GetInt("push.settings.dynamicUpdateInterval")))
 	}
-	go liveMonitor()
 	log.Trace("[push] cookie:\n", cookie)
 	if cookie == "" || cookie == "<nil>" {
 		log.Warn("[push] 未配置cookie!")
 	} else {
 		go dynamicMonitor()
+	}
+	go initLive()
+}
+
+// 初始化直播监听并建立连接
+func initLive() {
+	var newLiveList map[int]liveInfo
+	j := 0
+	k := 0
+	for i := 0; i < len(v.GetStringSlice("push.list")); i++ {
+		j++
+		if v.GetInt(fmt.Sprint("push.list.", i, ".live")) != 0 {
+			k++
+			uid := v.GetInt(fmt.Sprint("push.list.", i, ".uid"))
+			roomid := v.GetInt(fmt.Sprint("push.list.", i, ".live"))
+			d := NewDanmaku(uid, roomid).OnDanmakuRecv(func(recv gson.JSON, uid, roomid int) {
+				go checkLive(recv, uid, roomid)
+			})
+			var state int
+			var timeS int64
+			g, ok := getRoomJsonUID(strconv.Itoa(uid)).Gets("data", strconv.Itoa(uid))
+			if ok { //开播状态可以获取开播时间
+				state = g.Get("live_status").Int()
+				timeS = int64(g.Get("live_time").Int())
+				log.Debug("[push] 直播间 ", roomid, "(uid: ", uid, ") 此次开播时间: ", time.Unix(timeS, 0).Format(timeLayout.S24C))
+			} else {
+				state = liveState.UNKNOWN
+				timeS = time.Now().Unix()
+				log.Debug("[push] 直播间 ", roomid, "(uid: ", uid, ") 未开播")
+			}
+			newLiveList[roomid] = liveInfo{
+				live:   d,
+				uid:    uid,
+				roomid: roomid,
+				state:  state,
+				time:   timeS,
+			}
+		}
+	}
+	log.Info("[push] 动态推送 ", j, " 个")
+	log.Info("[push] 直播间监听 ", k, " 个")
+	//热更新处理
+	if len(liveList) == 0 { //初始状态
+		liveList = newLiveList
+		for _, l := range liveList {
+			log.Info("[push] 直播间 ", l.roomid, "(uid: ", l.uid, ") 正在建立监听连接  目前状态: ", l.state)
+			l.live.Start()
+			time.Sleep(time.Second)
+		}
+	} else { //找出新增, 减少的直播间
+		added := make(map[int]liveInfo)
+		removed := make(map[int]liveInfo)
+		for key, l := range liveList { //找出减少的键值对
+			if _, ok := newLiveList[key]; !ok {
+				removed[key] = l
+			}
+		}
+		for key, l := range newLiveList { //找出新增的键值对
+			if _, ok := liveList[key]; !ok {
+				added[key] = l
+			}
+		}
+		for _, l := range removed {
+			log.Info("[push] 移除的直播间 ", l.roomid, "(uid: ", l.uid, ") 已断开监听连接  目前状态: ", l.state)
+			l.live.Stop()
+			time.Sleep(time.Second)
+		}
+		for _, l := range added {
+			log.Info("[push] 新增的直播间 ", l.roomid, "(uid: ", l.uid, ") 正在建立监听连接  目前状态: ", l.state)
+			l.live.Start()
+			time.Sleep(time.Second)
+		}
+		liveList = newLiveList
 	}
 }
 
@@ -175,9 +244,6 @@ func dynamicMonitor() {
 		log.Info("[push] update_baseline: ", update_baseline)
 	}
 	for {
-		if configChanged {
-			break
-		}
 		update_num = getUpdate(update_baseline)
 		switch update_num {
 		case "-1":
@@ -280,144 +346,95 @@ func dynamicChecker(mainJson gson.JSON) {
 	}
 }
 
-// 初始化直播监听列表
-func initLiveList() {
-	liveListUID = []int{} //清空
-	liveList = []int{}
-	j := 0
-	k := 0
-	for i := 0; i < len(v.GetStringSlice("push.list")); i++ {
-		j++
-		if v.GetInt(fmt.Sprint("push.list.", i, ".live")) != 0 {
-			uid := v.GetInt(fmt.Sprint("push.list.", i, ".uid"))
-			roomID := v.GetInt(fmt.Sprint("push.list.", i, ".live"))
-			liveListUID = append(liveListUID, uid)
-			liveList = append(liveList, roomID)
-			g, ok := getRoomJsonUID(strconv.Itoa(uid)).Gets("data", strconv.Itoa(uid))
-			if ok {
-				liveStateList[strconv.Itoa(roomID)] = liveState{ //开播状态可以获取开播时间
-					STATE: g.Get("live_status").Int(),
-					TIME:  int64(g.Get("live_time").Int())}
-			} else {
-				liveStateList[strconv.Itoa(roomID)] = liveState{
-					STATE: streamState.UNKNOWN,
-					TIME:  time.Now().Unix()}
-			}
-			log.Debug("[push] uid为 ", uid, " 的直播间 ", roomID, " 加入监听列表  目前状态: ", liveStateList[strconv.Itoa(roomID)].STATE)
-			k++
-		}
-	}
-	log.Info("[push] 动态推送 ", j, " 个")
-	log.Info("[push] 直播间监听 ", k, " 个")
-}
-
-// 建立监听连接
-func liveMonitor() {
-	for {
-		log.Debug("[push] 直播监听    disconnected: ", disconnected, "  configChanged: ", configChanged)
-		if disconnected || configChanged {
-			disconnected = false
-			configChanged = false
-			log.Info("[push] 开始建立监听连接")
-			initLiveList()
-			log.Trace("[push] len(liveList): ", len(liveList))
-			for i := 0; i < len(liveList); i++ {
-				log.Trace("[push] 建立监听连接    uid: ", liveListUID[i], "  roomID: ", liveList[i])
-				go connectDanmu(liveListUID[i], liveList[i])
-				time.Sleep(time.Second * 1)
-			}
-		}
-		time.Sleep(time.Millisecond * time.Duration(int64(v.GetFloat64("push.settings.resetCheckInterval")*1000)))
-	}
-}
-
 // 判断直播间数据包类型，匹配推送
-func liveChecker(pktJson gson.JSON, uid string, roomID string) {
+func checkLive(pktJson gson.JSON, uid int, roomid int) {
 	minimumInterval := int64(v.GetFloat64("push.settings.livePushMinimumInterval"))
 	cmd := pktJson.Get("cmd").Str()
 	switch cmd {
 	case "LIVE":
 		for i := 0; i < len(v.GetStringSlice("push.list")); i++ {
-			if roomID == strconv.Itoa(v.GetInt(fmt.Sprint("push.list.", i, ".live"))) {
-				push := genPush(i)
-				if liveStateList[roomID].STATE == streamState.ONLINE {
+			if roomid == v.GetInt(fmt.Sprint("push.list.", i, ".live")) {
+				go func(time int64) { //记录开播, 强迫症, 跟下面下播的defer对应
+					liveInfo := liveList[roomid]
+					liveInfo.state = liveState.ONLINE
+					liveInfo.time = time
+					liveList[roomid] = liveInfo
+				}(time.Now().Unix())
+				if liveList[roomid].state == liveState.ONLINE {
 					switch {
-					case time.Now().Unix()-liveStateList[roomID].TIME < minimumInterval:
+					case time.Now().Unix()-liveList[roomid].time < minimumInterval:
 						log.Warn("[push] 屏蔽了一次间隔小于 ", minimumInterval, " 秒的开播推送")
 						return
 					}
 				}
-				go func(roomID string, time int64) {
-					liveStateList[roomID] = liveState{ //记录开播
-						STATE: streamState.ONLINE,
-						TIME:  time}
-				}(roomID, time.Now().Unix())
-				log.Info("[push] 推送 ", uid, " 的直播间 ", roomID, " 开播")
-				log.Info("[push] 记录开播时间: ", time.Unix(int64(liveStateList[roomID].TIME), 0).Format(timeLayout.L24))
-				roomJson, ok := getRoomJsonUID(uid).Gets("data", uid)
-				if !ok {
-					log.Error("[push] 获取 ", uid, " 的直播间 ", roomID, " 信息失败")
-					push.send("[NothingBot] [ERROR] [push] 推送 ", uid, " 的直播间 ", roomID, " 开播时无法获取直播间信息")
-					return
-				}
-				name := roomJson.Get("uname").Str()
-				cover := roomJson.Get("cover_from_user").Str()
-				title := roomJson.Get("title").Str()
-				push.send(fmt.Sprintf(
-					`%s开播了！
+				push := genPush(i)
+				log.Info("[push] 推送 ", uid, " 的直播间 ", roomid, " 开播")
+				log.Info("[push] 记录开播时间: ", time.Unix(liveList[roomid].time, 0).Format(timeLayout.L24))
+				roomJson, ok := getRoomJsonUID(strconv.Itoa(uid)).Gets("data", strconv.Itoa(uid))
+				if ok {
+					name := roomJson.Get("uname").Str()
+					cover := roomJson.Get("cover_from_user").Str()
+					title := roomJson.Get("title").Str()
+					push.send(fmt.Sprintf(
+						`%s开播了！
 [CQ:image,file=%s]
 %s
-live.bilibili.com/%s`,
-					name,
-					cover,
-					title,
-					roomID))
+live.bilibili.com/%d`,
+						name,
+						cover,
+						title,
+						roomid))
+				} else {
+					log.Error("[push] 获取 ", uid, " 的直播间 ", roomid, " 信息失败")
+					push.send("[NothingBot] [ERROR] [push] 推送 ", uid, " 的直播间 ", roomid, " 开播时无法获取直播间信息")
+				}
 				return
 			}
 		}
 	case "PREPARING":
 		for i := 0; i < len(v.GetStringSlice("push.list")); i++ {
-			if roomID == strconv.Itoa(v.GetInt(fmt.Sprint("push.list.", i, ".live"))) {
-				push := genPush(i)
-				if liveStateList[roomID].STATE == streamState.OFFLINE || liveStateList[roomID].STATE == streamState.ROTATE {
+			if roomid == v.GetInt(fmt.Sprint("push.list.", i, ".live")) {
+				defer func(time int64) { //记录下播
+					liveInfo := liveList[roomid]
+					liveInfo.state = liveState.OFFLINE
+					liveInfo.time = time
+					liveList[roomid] = liveInfo
+				}(time.Now().Unix())
+				if liveList[roomid].state == liveState.OFFLINE || liveList[roomid].state == liveState.ROTATE {
 					switch {
-					case time.Now().Unix()-liveStateList[roomID].TIME < minimumInterval:
+					case time.Now().Unix()-liveList[roomid].time < minimumInterval:
 						log.Warn("[push] 屏蔽了一次间隔小于 ", minimumInterval, " 秒的下播推送")
 						return
 					}
 				}
-				defer func(roomID string, time int64) {
-					liveStateList[roomID] = liveState{ //记录下播
-						STATE: streamState.OFFLINE,
-						TIME:  time}
-				}(roomID, time.Now().Unix())
-				log.Info("[push] 推送 ", uid, " 的直播间", roomID, " 下播")
-				log.Info("[push] 缓存的开播时间: ", time.Unix(int64(liveStateList[roomID].TIME), 0).Format(timeLayout.L24))
-				roomJson, ok := getRoomJsonUID(uid).Gets("data", uid)
-				if !ok {
-					log.Error("[push] 获取 ", uid, " 的直播间 ", roomID, " 信息失败")
-					push.send("[NothingBot] [ERROR] [push] 推送 ", uid, " 的直播间 ", roomID, " 下播时无法获取直播间信息")
-					return
-				}
-				name := roomJson.Get("uname").Str()
-				cover := roomJson.Get("keyframe").Str()
-				title := roomJson.Get("title").Str()
-				duration := func() string {
-					if liveStateList[roomID].TIME != 0 {
-						return "本次直播持续了" + timeFormat(time.Now().Unix()-liveStateList[roomID].TIME)
-					} else {
-						return "未记录本次开播时间"
-					}
-				}()
-				push.send(fmt.Sprintf(
-					`%s下播了～
+				push := genPush(i)
+				log.Info("[push] 推送 ", uid, " 的直播间", roomid, " 下播")
+				log.Info("[push] 缓存的开播时间: ", time.Unix(int64(liveList[roomid].time), 0).Format(timeLayout.L24))
+				roomJson, ok := getRoomJsonUID(strconv.Itoa(uid)).Gets("data", strconv.Itoa(uid))
+				if ok {
+					name := roomJson.Get("uname").Str()
+					cover := roomJson.Get("keyframe").Str()
+					title := roomJson.Get("title").Str()
+					duration := func() string {
+						if liveList[roomid].time != 0 {
+							return "本次直播持续了" + timeFormat(time.Now().Unix()-liveList[roomid].time)
+						} else {
+							return "未记录本次开播时间"
+						}
+					}()
+					push.send(fmt.Sprintf(
+						`%s下播了～
 [CQ:image,file=%s]
 %s
 %s`,
-					name,
-					cover,
-					title,
-					duration))
+						name,
+						cover,
+						title,
+						duration))
+				} else {
+					log.Error("[push] 获取 ", uid, " 的直播间 ", roomid, " 信息失败")
+					push.send("[NothingBot] [ERROR] [push] 推送 ", uid, " 的直播间 ", roomid, " 下播时无法获取直播间信息")
+				}
 				return
 			}
 		}
@@ -426,29 +443,29 @@ live.bilibili.com/%s`,
 			return
 		}
 		for i := 0; i < len(v.GetStringSlice("push.list")); i++ {
-			if roomID == strconv.Itoa(v.GetInt(fmt.Sprint("push.list.", i, ".live"))) {
+			if roomid == v.GetInt(fmt.Sprint("push.list.", i, ".live")) {
 				push := genPush(i)
-				log.Info("[push] 推送 ", uid, " 的直播间 ", roomID, " 房间信息更新")
-				roomJson, ok := getRoomJsonUID(uid).Gets("data", uid)
-				if !ok {
-					log.Error("[push] 获取直播间信息失败")
-					push.send("[NothingBot] [ERROR] [push] 推送 ", uid, " 的直播间 ", roomID, " 房间信息更新时无法获取直播间信息")
-					return
-				}
-				area := fmt.Sprintf("%s - %s\n", //分区
-					roomJson.Get("area_v2_parent_name").Str(),
-					roomJson.Get("area_v2_name").Str())
-				name := roomJson.Get("uname").Str()
-				title := roomJson.Get("title").Str()
-				push.send(fmt.Sprintf(
-					`%s更改了房间信息
+				log.Info("[push] 推送 ", uid, " 的直播间 ", roomid, " 房间信息更新")
+				roomJson, ok := getRoomJsonUID(strconv.Itoa(uid)).Gets("data", strconv.Itoa(uid))
+				if ok {
+					area := fmt.Sprintf("%s - %s\n", //分区
+						roomJson.Get("area_v2_parent_name").Str(),
+						roomJson.Get("area_v2_name").Str())
+					name := roomJson.Get("uname").Str()
+					title := roomJson.Get("title").Str()
+					push.send(fmt.Sprintf(
+						`%s更改了房间信息
 房间名：%s
 %s
-live.bilibili.com/%s`,
-					name,
-					title,
-					area,
-					roomID))
+live.bilibili.com/%d`,
+						name,
+						title,
+						area,
+						roomid))
+				} else {
+					log.Error("[push] 获取直播间信息失败")
+					push.send("[NothingBot] [ERROR] [push] 推送 ", uid, " 的直播间 ", roomid, " 房间信息更新时无法获取直播间信息")
+				}
 				return
 			}
 		}

@@ -249,7 +249,7 @@ func connect(url string) {
 
 // gocq心跳监听
 func heartbeatCheck(interval int) {
-	log.Info("[main] 开始监听心跳")
+	log.Info("[main] 开始监听 go-cqhttp 心跳")
 	retry := func() {
 		reconnectCount++
 		heartbeatOK = false

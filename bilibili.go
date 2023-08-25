@@ -549,19 +549,19 @@ func formatLive(g gson.JSON) string {
 	title := g.Get("title").Str()               //房间名
 	parea := g.Get("area_v2_parent_name").Str() //主分区
 	sarea := g.Get("area_v2_name").Str()        //子分区
-	history := func(state int) string {         //bot记录
-		if liveStateList[g.Get("room_id").Str()].TIME != 0 {
-			switch state {
-			case streamState.ONLINE:
-				return fmt.Sprintf("\n机器人缓存的上一次开播时间：\n%s",
-					time.Unix(liveStateList[g.Get("room_id").Str()].TIME, 0).Format(timeLayout.M24C))
-			case streamState.OFFLINE:
-				return fmt.Sprintf("\n机器人缓存的上一次下播时间：\n%s",
-					time.Unix(liveStateList[g.Get("room_id").Str()].TIME, 0).Format(timeLayout.M24C))
+	history := func() (history string) {        //bot记录
+		if liveList[g.Get("room_id").Int()].time != 0 {
+			switch liveList[g.Get("room_id").Int()].state {
+			case liveState.ONLINE:
+				history = fmt.Sprintf("\n机器人缓存的上一次开播时间：\n%s",
+					time.Unix(liveList[g.Get("room_id").Int()].time, 0).Format(timeLayout.M24C))
+			case liveState.OFFLINE:
+				history = fmt.Sprintf("\n机器人缓存的上一次下播时间：\n%s",
+					time.Unix(liveList[g.Get("room_id").Int()].time, 0).Format(timeLayout.M24C))
 			}
 		}
-		return ""
-	}(liveStateList[g.Get("room_id").Str()].STATE)
+		return
+	}()
 	roomID := g.Get("room_id").Int() //房间号
 	return fmt.Sprintf(
 		`[CQ:image,file=%s][CQ:image,file=%s]

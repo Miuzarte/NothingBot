@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"strconv"
 	"time"
 
 	"github.com/andybalholm/brotli"
@@ -17,6 +16,197 @@ import (
 	"github.com/spf13/viper"
 	"github.com/ysmood/gson"
 )
+
+type danmaku struct {
+	conn           *websocket.Conn
+	connected      bool
+	uid            int
+	roomid         int
+	onDanmakuRecv_ func(recv gson.JSON, uid int, roomid int)
+}
+
+func NewDanmaku(uid int, roomid int) (d *danmaku) {
+	return &danmaku{
+		uid:    uid,
+		roomid: roomid,
+	}
+}
+
+func (d *danmaku) OnDanmakuRecv(f func(recv gson.JSON, uid int, roomid int)) *danmaku {
+	d.onDanmakuRecv_ = f
+	return d
+}
+
+func (d *danmaku) Start() {
+	go func() {
+		for {
+			if !d.connected {
+				d.connect()
+			}
+			time.Sleep(time.Second)
+		}
+	}()
+	go func() {
+		for {
+			if d.connected {
+				go d.recvLoop()
+				break
+			}
+			time.Sleep(time.Second)
+		}
+	}()
+}
+
+func (d *danmaku) Stop() {
+	d.conn.Close()
+}
+
+func (d *danmaku) connect() {
+	roomInfo := GetRoomInfo(d.roomid)
+	if roomInfo == nil {
+		log.Error("[danmaku] roomid: ", d.roomid, " room info is invalid.")
+	}
+	host := []string{"broadcastlv.chat.bilibili.com"}
+	for _, h := range roomInfo.Get("data.host_list").([]any) {
+		host = append(host, h.(map[string]any)["host"].(string))
+	}
+	token := roomInfo.GetString("data.token")
+	if token == "" {
+		log.Error("[danmaku] roomid: ", d.roomid, " token is invalid.")
+	}
+	reqHeader := &http.Header{}
+	reqHeader.Set("User-Agent", iheaders["User-Agent"])
+	conn, _, err := websocket.DefaultDialer.Dial(fmt.Sprintf("wss://%s/sub", host[0]), *reqHeader)
+	if err != nil {
+		log.Error("[danmaku] roomid: ", d.roomid, " failed to establish websocket connection: ", err)
+	}
+	err = SendEnterPacket(conn, d.uid, d.roomid, token)
+	if err != nil {
+		log.Error("[danmaku] roomid: ", d.roomid, " can not enter: ", err)
+	}
+	d.conn = conn
+	d.connected = true
+}
+
+func (d *danmaku) recvLoop() {
+	var pktJson gson.JSON
+	go d.heartBeatLoop()
+	for {
+		if !d.connected {
+			time.Sleep(time.Second)
+			continue
+		}
+		msgType, data, err := d.conn.ReadMessage()
+		if err == io.EOF {
+			log.Error("[danmaku] roomid: ", d.roomid, " disconnected: ", err)
+			d.connected = false
+			time.Sleep(time.Second * 10)
+			continue
+		}
+		if err != nil {
+			log.Error("[danmaku] roomid: ", d.roomid, " get error message: ", err)
+			d.connected = false
+			time.Sleep(time.Second * 10)
+			continue
+		}
+		if msgType != websocket.BinaryMessage {
+			log.Error("[danmaku] roomid: ", d.roomid, " packet not binary.")
+			d.connected = false
+			time.Sleep(time.Second * 10)
+			continue
+		}
+		for _, pkt := range NewPacketFromBytes(data).Parse() {
+			pktJson = gson.NewFrom(string(pkt.Body))
+			log.Trace("[danmaku] roomid: ", d.roomid, " 接收数据包: ", string(pkt.Body))
+			switch {
+			case !pktJson.Get("cmd").Nil():
+				cmd := pktJson.Get("cmd").Str()
+				switch cmd {
+				case "AREA_RANK_CHANGED":
+				case "COMBO_SEND":
+				case "COMBO_END":
+				case "COMMON_NOTICE_DANMAKU":
+				case "DANMU_AGGREGATION":
+				case "DANMU_MSG":
+				case "ENTRY_EFFECT":
+				case "ENTRY_EFFECT_MUST_RECEIVE":
+				case "GUARD_HONOR_THOUSAND":
+				case "INTERACT_WORD":
+				case "LIKE_INFO_V3_CLICK":
+				case "LIKE_INFO_V3_UPDATE":
+				case "LIVE_PANEL_CHANGE":
+				//case "LIVE":
+				case "MESSAGEBOX_USER_GAIN_MEDAL":
+				case "NOTICE_MSG":
+				case "ONLINE_RANK_COUNT":
+				case "ONLINE_RANK_V2":
+				case "ONLINE_RANK_TOP3":
+				case "PK_BATTLE_END":
+				case "PK_BATTLE_FINAL_PROCESS":
+				case "PK_BATTLE_PRE":
+				case "PK_BATTLE_PRE_NEW":
+				case "PK_BATTLE_START":
+				case "PK_BATTLE_START_NEW":
+				case "PK_BATTLE_PROCESS":
+				case "PK_BATTLE_PROCESS_NEW":
+				case "PK_BATTLE_SETTLE":
+				case "PK_BATTLE_SETTLE_USER":
+				case "PK_BATTLE_SETTLE_V2":
+				case "POPULAR_RANK_CHANGED":
+				case "POPULARITY_RED_POCKET_WINNER_LIST":
+				//case "PREPARING":
+				//case "ROOM_CHANGE":
+				case "ROOM_REAL_TIME_MESSAGE_UPDATE":
+				case "SEND_GIFT":
+				case "SPREAD_SHOW_FEET_V2":
+				case "STOP_LIVE_ROOM_LIST":
+				case "SUPER_CHAT_MESSAGE":
+				case "WATCHED_CHANGE":
+				case "WIDGET_BANNER":
+				case "WIDGET_GIFT_STAR_PROCESS":
+				default:
+					log.Debug("[danmaku] 直播间 ", d.roomid, " 接收数据: {\"cmd\": ", cmd, "}")
+				}
+			case !pktJson.Get("code").Nil():
+				code := pktJson.Get("code").Str()
+				log.Info("[danmaku] roomid: ", d.roomid, " 接收数据: {\"code\": ", code, "}")
+			default:
+				if len(string(pkt.Body)) > 4 { //过滤奇怪的数据包导致控制台发声
+					log.Debug("[danmaku] roomid: ", d.roomid, " 原始数据: ", string(pkt.Body))
+				}
+			}
+			if d.onDanmakuRecv_ != nil {
+				d.onDanmakuRecv_(pktJson, d.uid, d.roomid)
+			}
+		}
+	}
+}
+
+func (d *danmaku) heartBeatLoop() {
+	pkt := NewPacket(Plain, HeartBeat, nil).Build()
+	boolChange := make(chan struct{})
+	go func() {
+		for {
+			if !d.connected {
+				boolChange <- struct{}{}
+				break
+			}
+			time.Sleep(time.Second)
+		}
+	}()
+	for {
+		select {
+		case <-time.After(time.Second * 30):
+			if err := d.conn.WriteMessage(websocket.BinaryMessage, pkt); err != nil {
+				log.Warn("[danmaku] heartbeat error: ", err)
+				d.connected = false
+				break
+			}
+		case <-boolChange:
+			break
+		}
+	}
+}
 
 const (
 	Plain = iota
@@ -189,178 +379,4 @@ func brotliParser(b []byte) ([]byte, error) {
 		return nil, err
 	}
 	return rdBuf, nil
-}
-
-type connection struct {
-	conn   *websocket.Conn
-	uid    string
-	roomID string
-}
-
-func connectDanmu(uid int, roomID int) {
-	roomInfo := GetRoomInfo(roomID)
-	if roomInfo == nil {
-		log.Error("[danmaku] room info is invalid.")
-		disconnected = true
-		return
-	}
-	host := []string{"broadcastlv.chat.bilibili.com"}
-	for _, h := range roomInfo.Get("data.host_list").([]any) {
-		host = append(host, h.(map[string]any)["host"].(string))
-	}
-	token := roomInfo.GetString("data.token")
-	if token == "" {
-		log.Error("[danmaku] token is invalid.")
-		disconnected = true
-		return
-	}
-	reqHeader := &http.Header{}
-	reqHeader.Set("User-Agent", iheaders["User-Agent"])
-	conn, _, err := websocket.DefaultDialer.Dial(fmt.Sprintf("wss://%s/sub", host[0]), *reqHeader)
-	if err != nil {
-		log.Error("[danmaku] failed to establish websocket connection: ", err)
-		disconnected = true
-		return
-	}
-	err = SendEnterPacket(conn, uid, roomID, token)
-	if err != nil {
-		log.Error("[danmaku] can not enter room: ", err)
-		disconnected = true
-		return
-	}
-	connection := connection{
-		conn,
-		strconv.Itoa(uid),
-		strconv.Itoa(roomID),
-	}
-	go RecvLoop(connection)
-	go HeartBeatLoop(conn)
-}
-
-func RecvLoop(connection connection) {
-	var pktJson gson.JSON
-	for {
-		if disconnected || configChanged {
-			break
-		}
-		msgType, data, err := connection.conn.ReadMessage()
-		if err == io.EOF {
-			log.Error("[danmaku] disconnected: ", err)
-			disconnected = true
-			break
-		}
-		if err != nil {
-			log.Error("[danmaku] get error message: ", err)
-			disconnected = true
-			break
-		}
-		if msgType != websocket.BinaryMessage {
-			log.Error("[danmaku] packet not binary.")
-			time.Sleep(time.Second * 10)
-			continue
-		}
-		for _, pkt := range NewPacketFromBytes(data).Parse() {
-			pktJson = gson.NewFrom(string(pkt.Body))
-			log.Trace("[danmaku] 接收数据包: ", string(pkt.Body))
-			switch {
-			case !pktJson.Get("cmd").Nil():
-				cmd := pktJson.Get("cmd").Str()
-				switch cmd {
-				case "AREA_RANK_CHANGED":
-				case "COMBO_SEND":
-				case "COMBO_END":
-				case "COMMON_NOTICE_DANMAKU":
-				case "DANMU_AGGREGATION":
-				case "DANMU_MSG":
-				case "ENTRY_EFFECT":
-				case "ENTRY_EFFECT_MUST_RECEIVE":
-				case "GUARD_HONOR_THOUSAND":
-				case "INTERACT_WORD":
-				case "LIKE_INFO_V3_CLICK":
-				case "LIKE_INFO_V3_UPDATE":
-				//case "LIVE":
-				case "NOTICE_MSG":
-				case "ONLINE_RANK_COUNT":
-				case "ONLINE_RANK_V2":
-				case "ONLINE_RANK_TOP3":
-				case "PK_BATTLE_END":
-				case "PK_BATTLE_FINAL_PROCESS":
-				case "PK_BATTLE_PRE":
-				case "PK_BATTLE_PRE_NEW":
-				case "PK_BATTLE_START":
-				case "PK_BATTLE_START_NEW":
-				case "PK_BATTLE_PROCESS":
-				case "PK_BATTLE_PROCESS_NEW":
-				case "PK_BATTLE_SETTLE":
-				case "PK_BATTLE_SETTLE_USER":
-				case "PK_BATTLE_SETTLE_V2":
-				case "POPULAR_RANK_CHANGED":
-				case "POPULARITY_RED_POCKET_WINNER_LIST":
-				//case "PREPARING":
-				//case "ROOM_CHANGE":
-				case "ROOM_REAL_TIME_MESSAGE_UPDATE":
-				case "SEND_GIFT":
-				case "SPREAD_SHOW_FEET_V2":
-				case "STOP_LIVE_ROOM_LIST":
-				case "SUPER_CHAT_MESSAGE":
-				case "WATCHED_CHANGE":
-				case "WIDGET_BANNER":
-				case "WIDGET_GIFT_STAR_PROCESS":
-				default:
-					cmd := pktJson.Get("cmd").Str()
-					log.Debug("[danmaku] 直播间 ", connection.roomID, " 接收数据: {\"cmd\": ", cmd, "}")
-				}
-			case !pktJson.Get("code").Nil():
-				code := pktJson.Get("code").Str()
-				log.Info("[danmaku] 直播间 ", connection.roomID, " 接收数据: {\"code\": ", code, "}")
-			default:
-				if len(string(pkt.Body)) > 4 { //过滤奇怪的数据包导致控制台发声
-					log.Debug("[danmaku] 直播间 ", connection.roomID, " 原始数据: ", string(pkt.Body))
-				}
-			}
-			go liveChecker(pktJson, connection.uid, connection.roomID)
-		}
-	}
-}
-
-func HeartBeatLoop(conn *websocket.Conn) {
-	boolChange := make(chan struct{})
-	go func() {
-		for {
-			time.Sleep(time.Second)
-			if anyChanged := disconnected || configChanged; anyChanged {
-				boolChange <- struct{}{}
-			}
-		}
-	}()
-	pkt := NewPacket(Plain, HeartBeat, nil).Build()
-	for {
-		select {
-		case <-time.After(time.Second * 30):
-			if err := conn.WriteMessage(websocket.BinaryMessage, pkt); err != nil {
-				log.Error("[danmaku] heartbeat error: ", err)
-				disconnected = true
-				break
-			}
-		case <-boolChange:
-			log.Info("[danmaku] heartbeat stop, disconnected || configChanged: ", disconnected || configChanged)
-			time.Sleep(time.Second)
-			break
-		}
-	}
-}
-
-func HeartBeatLoopp(conn *websocket.Conn) {
-	pkt := NewPacket(Plain, HeartBeat, nil).Build()
-	for {
-		if disconnected || configChanged {
-			break
-		}
-		<-time.After(time.Second * 30)
-		if err := conn.WriteMessage(websocket.BinaryMessage, pkt); err != nil {
-			log.Error("[danmaku] heartbeat error: ", err)
-			disconnected = true
-			break
-		}
-	}
 }

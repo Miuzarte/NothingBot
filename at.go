@@ -85,14 +85,14 @@ func formatAt(atID int, group int) (forwardNode []map[string]any) {
 
 // 谁at我
 func checkAt(ctx gocqMessage) {
-	match := ctx.regexpMustCompile(`^谁@?[aA艾]?[tT特]?(我|(\s*\[CQ:at,qq=)?([0-9]{1,11})?(]\s*))$`)
+	match := ctx.regexpMustCompile(`^谁(@|[aA艾][tT特])(我|(\s*\[CQ:at,qq=)?([0-9]{1,11})?(]\s*))$`)
 	if len(match) > 0 {
 		var atID int
-		if match[0][1] == "我" {
+		if match[0][2] == "我" {
 			atID = ctx.user_id
 		} else {
 			var err error
-			atID, err = strconv.Atoi(match[0][3])
+			atID, err = strconv.Atoi(match[0][4])
 			if err != nil {
 				return
 			}

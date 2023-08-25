@@ -41,23 +41,23 @@ var numberMap = map[string]int{"两": 2,
 }
 
 func checkSetu(ctx gocqMessage) {
-	match := ctx.unescape().regexpMustCompile(`来(?P<num>点|一点|几张|几份|.*张|.*份)?(?P<r18>[Rr]18)?的?(?P<tag>.*)?的?[色瑟涩铯][图圖]|(?P<r18>[Rr]18)?的?(?P<tag>.*)?的?[色瑟涩铯][图圖]来(?P<num>点|一点|几张|几份|.*张|.*份)?`)
+	match := ctx.unescape().regexpMustCompile(`(来(?P<num>点|一点|几张|几份|.*张|.*份)?(?P<r18>[Rr]18)?的?(?P<tag>.*)?的?[色瑟涩铯][图圖])|((?P<r18>[Rr]18)?的?(?P<tag>.*)?的?[色瑟涩铯][图圖]来(?P<num>点|一点|几张|几份|.*张|.*份)?)`)
 	// 一条正则多个同名捕获组只会索引到第一个, 所以下面直接把对应的捕获组全加起来
 	if len(match) > 0 && ctx.isToMe() {
 		var numOK bool
 		reqR18 := 0
 		reqNum := 1
 		reqTag := []string{}
-		r18 := match[0][2] + match[0][4]
+		r18 := match[0][3] + match[0][6]
 		if r18 != "" {
 			reqR18 = 1
 		}
 		log.Debug("[setu] r18: ", r18)
 		log.Debug("[setu] reqR18: ", reqR18)
 
-		num := match[0][1] + match[0][6]
+		num := match[0][2] + match[0][8]
 		switch num {
-		case "":
+		case "张", "份":
 			reqNum = 1
 			numOK = true
 		case "点", "一点", "几张", "几份":
@@ -82,10 +82,10 @@ func checkSetu(ctx gocqMessage) {
 				}
 			}
 		}
-		log.Debug("[setu] num: ", match[0][1]+match[0][6])
+		log.Debug("[setu] num: ", num)
 		log.Debug("[setu] reqNum: ", reqNum)
 
-		tag := match[0][3] + match[0][5]
+		tag := match[0][4] + match[0][7]
 		reqTag = regexp.MustCompile(`&`).Split(tag, -1)
 		log.Debug("[setu] tag: ", tag)
 		log.Debug("[setu] reqTag: ", reqTag)
