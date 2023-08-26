@@ -137,7 +137,7 @@ var iheaders = map[string]string{
 	"Sec-Fetch-Mode":     "navigate",
 	"Sec-Fetch-Site":     "none",
 	"Sec-Fetch-User":     "?1",
-	"User-Agent":         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36 Edg/115.0.1901.203",
+	"User-Agent":         "Bilibili Freedoooooom/MarkII",
 }
 
 type gocqHeartbeat struct {
@@ -253,7 +253,7 @@ func heartbeatCheck(interval int) {
 	retry := func() {
 		reconnectCount++
 		heartbeatOK = false
-		time.Sleep(3)
+		time.Sleep(time.Second * 3)
 		go connect(gocqUrl)
 	}
 	defer func() { heartbeatChecking = false }()
@@ -794,7 +794,22 @@ func initFlag() {
 
 // 初始化配置
 func initConfig() {
-	updateConfig := func() {
+	before := func() { //只执行一次
+		if configPath == "" {
+			log.Info("[init] 读取默认配置文件: ./config.yaml")
+			v.AddConfigPath(".")
+			v.SetConfigName("config")
+			v.SetConfigType("yaml")
+		} else {
+			log.Info("[init] 读取自定义配置文件: ", configPath)
+			v.SetConfigFile(configPath)
+		}
+		if err := v.ReadInConfig(); err != nil {
+			os.WriteFile("./config.yaml", []byte(defaultConfig), 0644)
+			log.Fatal("[init] 缺失配置文件, 已生成默认配置, 请修改保存后重启程序, 参考: github.com/Miuzarte/NothingBot/blob/main/config.yaml")
+		}
+	}
+	after := func() { //热更新也执行
 		suID = []int{}
 		log.SetLevel(log.Level(v.GetInt("main.logLevel")))
 		gocqUrl = v.GetString("main.websocket")
@@ -811,31 +826,17 @@ func initConfig() {
 			log.Fatal("[init] 请指定至少一个超级用户")
 		}
 		log.Info("[init] superUsers: ", suID)
-		go initCorpus()
-		go initPush()
+		v.WatchConfig()
 	}
-	if configPath == "" {
-		log.Info("[init] 读取默认配置文件: ./config.yaml")
-		v.AddConfigPath(".")
-		v.SetConfigName("config")
-		v.SetConfigType("yaml")
-	} else {
-		log.Info("[init] 读取自定义配置文件: ", configPath)
-		v.SetConfigFile(configPath)
+	if initCount == 0 {
+		before()
 	}
-	err := v.ReadInConfig()
-	if err != nil {
-		os.WriteFile("./config.yaml", []byte(defaultConfig), 0644)
-		log.Fatal("[init] 缺失配置文件, 已生成默认配置, 请修改保存后重启程序, 参考: github.com/Miuzarte/NothingBot/blob/main/config.yaml")
-	}
-	v.WatchConfig()
-	updateConfig()
-	v.OnConfigChange(func(in fsnotify.Event) {
-		log.Info("[main] 更新了配置文件")
-		initCount++
-		updateConfig()
-		tempBlock <- struct{}{} //解除临时阻塞
-	})
+	after()
+}
+
+func initModules() {
+	initCorpus()
+	initPush()
 }
 
 func main() {
@@ -855,6 +856,14 @@ func main() {
 			}
 		}
 	}()
+	initModules()
+	v.OnConfigChange(func(in fsnotify.Event) {
+		log.Info("[main] 更新了配置文件")
+		initCount++
+		initConfig()
+		initModules()
+		tempBlock <- struct{}{} //解除临时阻塞
+	})
 	exitJobs()
 }
 

@@ -30,16 +30,16 @@ func initCorpus() {
 			break
 		}
 	}
-	corpuses = []corpus{}
+	clear(corpuses)
 	corpusFound := len(v.GetStringSlice("corpus")) //[]Int没长度
 	log.Info("[corpus] 语料库找到 ", corpusFound, " 条")
 	var errorLog string
 	for i := 0; i < corpusFound; i++ { //读取语料库并验证合法性
 		c := corpus{}
-		regexpOK := true
-		replyOK := true
-		sceneOK := true
-		delayOK := true
+		var regexpOK bool
+		var replyOK bool
+		var sceneOK bool
+		var delayOK bool
 
 		regRaw := v.Get(fmt.Sprint("corpus.", i, ".regexp"))
 		regStr, ok := regRaw.(string)

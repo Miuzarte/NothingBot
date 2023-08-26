@@ -130,6 +130,8 @@ func (d *danmaku) recvLoop() {
 				case "DANMU_MSG":
 				case "ENTRY_EFFECT":
 				case "ENTRY_EFFECT_MUST_RECEIVE":
+				case "FULL_SCREEN_SPECIAL_EFFECT":
+				case "GUARD_BUY":
 				case "GUARD_HONOR_THOUSAND":
 				case "INTERACT_WORD":
 				case "LIKE_INFO_V3_CLICK":
@@ -157,10 +159,13 @@ func (d *danmaku) recvLoop() {
 				//case "PREPARING":
 				//case "ROOM_CHANGE":
 				case "ROOM_REAL_TIME_MESSAGE_UPDATE":
+				case "ROOM_SKIN_MSG":
 				case "SEND_GIFT":
 				case "SPREAD_SHOW_FEET_V2":
 				case "STOP_LIVE_ROOM_LIST":
 				case "SUPER_CHAT_MESSAGE":
+				case "TRADING_SCORE":
+				case "USER_TOAST_MSG":
 				case "WATCHED_CHANGE":
 				case "WIDGET_BANNER":
 				case "WIDGET_GIFT_STAR_PROCESS":

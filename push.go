@@ -89,48 +89,46 @@ func genPush(i int) (p push) {
 
 // 初始化推送
 func initPush() {
-	cookie = v.GetString("push.settings.cookie")
 	dynamicCheckDuration = time.Millisecond * time.Duration(v.GetFloat64("push.settings.dynamicUpdateInterval")*1000)
-	if initCount != 0 {
-		time.Sleep(time.Second * 2 * time.Duration(v.GetInt("push.settings.dynamicUpdateInterval")))
-	}
+	cookie = v.GetString("push.settings.cookie")
 	log.Trace("[push] cookie:\n", cookie)
 	if cookie == "" || cookie == "<nil>" {
 		log.Warn("[push] 未配置cookie!")
 	} else {
-		go dynamicMonitor()
+		if initCount == 0 {
+			go dynamicMonitor()
+		}
 	}
-	go initLive()
+	initLive()
 }
 
 // 初始化直播监听并建立连接
 func initLive() {
-	var newLiveList map[int]liveInfo
+	newLiveList := make(map[int]liveInfo)
 	j := 0
 	k := 0
+	nowTime := time.Now().Unix()
 	for i := 0; i < len(v.GetStringSlice("push.list")); i++ {
 		j++
 		if v.GetInt(fmt.Sprint("push.list.", i, ".live")) != 0 {
 			k++
 			uid := v.GetInt(fmt.Sprint("push.list.", i, ".uid"))
 			roomid := v.GetInt(fmt.Sprint("push.list.", i, ".live"))
-			d := NewDanmaku(uid, roomid).OnDanmakuRecv(func(recv gson.JSON, uid, roomid int) {
+			live := NewDanmaku(uid, roomid).OnDanmakuRecv(func(recv gson.JSON, uid, roomid int) {
 				go checkLive(recv, uid, roomid)
 			})
-			var state int
+			g, _ := getRoomJsonUID(uid).Gets("data", strconv.Itoa(uid))
+			state := g.Get("live_status").Int()
 			var timeS int64
-			g, ok := getRoomJsonUID(strconv.Itoa(uid)).Gets("data", strconv.Itoa(uid))
-			if ok { //开播状态可以获取开播时间
-				state = g.Get("live_status").Int()
+			if g.Get("live_time").Int() != 0 { //开播状态可以获取开播时间
 				timeS = int64(g.Get("live_time").Int())
 				log.Debug("[push] 直播间 ", roomid, "(uid: ", uid, ") 此次开播时间: ", time.Unix(timeS, 0).Format(timeLayout.S24C))
 			} else {
-				state = liveState.UNKNOWN
-				timeS = time.Now().Unix()
+				timeS = nowTime
 				log.Debug("[push] 直播间 ", roomid, "(uid: ", uid, ") 未开播")
 			}
 			newLiveList[roomid] = liveInfo{
-				live:   d,
+				live:   live,
 				uid:    uid,
 				roomid: roomid,
 				state:  state,
@@ -338,6 +336,7 @@ func dynamicChecker(mainJson gson.JSON) {
 			if uidMatch && filterMatch {
 				log.Info("[push] 处于推送列表: ", name, uid)
 				genPush(i).send(formatDynamic(mainJson))
+				return
 			}
 		}
 		log.Info("[push] 不处于推送列表: ", name, " ", uid)
@@ -370,7 +369,7 @@ func checkLive(pktJson gson.JSON, uid int, roomid int) {
 				push := genPush(i)
 				log.Info("[push] 推送 ", uid, " 的直播间 ", roomid, " 开播")
 				log.Info("[push] 记录开播时间: ", time.Unix(liveList[roomid].time, 0).Format(timeLayout.L24))
-				roomJson, ok := getRoomJsonUID(strconv.Itoa(uid)).Gets("data", strconv.Itoa(uid))
+				roomJson, ok := getRoomJsonUID(uid).Gets("data", strconv.Itoa(uid))
 				if ok {
 					name := roomJson.Get("uname").Str()
 					cover := roomJson.Get("cover_from_user").Str()
@@ -410,7 +409,7 @@ live.bilibili.com/%d`,
 				push := genPush(i)
 				log.Info("[push] 推送 ", uid, " 的直播间", roomid, " 下播")
 				log.Info("[push] 缓存的开播时间: ", time.Unix(int64(liveList[roomid].time), 0).Format(timeLayout.L24))
-				roomJson, ok := getRoomJsonUID(strconv.Itoa(uid)).Gets("data", strconv.Itoa(uid))
+				roomJson, ok := getRoomJsonUID(uid).Gets("data", strconv.Itoa(uid))
 				if ok {
 					name := roomJson.Get("uname").Str()
 					cover := roomJson.Get("keyframe").Str()
@@ -446,7 +445,7 @@ live.bilibili.com/%d`,
 			if roomid == v.GetInt(fmt.Sprint("push.list.", i, ".live")) {
 				push := genPush(i)
 				log.Info("[push] 推送 ", uid, " 的直播间 ", roomid, " 房间信息更新")
-				roomJson, ok := getRoomJsonUID(strconv.Itoa(uid)).Gets("data", strconv.Itoa(uid))
+				roomJson, ok := getRoomJsonUID(uid).Gets("data", strconv.Itoa(uid))
 				if ok {
 					area := fmt.Sprintf("%s - %s\n", //分区
 						roomJson.Get("area_v2_parent_name").Str(),

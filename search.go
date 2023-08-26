@@ -2,7 +2,6 @@ package main
 
 import (
 	"fmt"
-	"strconv"
 	"strings"
 	"time"
 
@@ -236,7 +235,6 @@ space.bilibili.com/%d`,
 							roomid,
 							uid))
 					} else { //开播则调用getRoomJson和formatLive
-						uid := strconv.Itoa(uid)
 						roomJson, ok := getRoomJsonUID(uid).Gets("data", uid)
 						if ok {
 							content = append(content, formatLive(roomJson))
@@ -249,7 +247,7 @@ space.bilibili.com/%d`,
 直播开始于：%s
 %d粉丝
 live.bilibili.com/%d
-space.bilibili.com/%s`,
+space.bilibili.com/%d`,
 								uface,
 								uname,
 								cate,
