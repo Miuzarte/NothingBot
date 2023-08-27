@@ -30,7 +30,7 @@ func initCorpus() {
 			break
 		}
 	}
-	clear(corpuses)
+	corpuses = []corpus{}
 	corpusFound := len(v.GetStringSlice("corpus")) //[]Int没长度
 	log.Info("[corpus] 语料库找到 ", corpusFound, " 条")
 	var errorLog string

@@ -3,6 +3,7 @@ module NothingBot
 go 1.21
 
 require (
+	github.com/PuerkitoBio/goquery v1.8.1
 	github.com/andybalholm/brotli v1.0.5
 	github.com/fsnotify/fsnotify v1.6.0
 	github.com/gorilla/websocket v1.5.0
@@ -18,6 +19,7 @@ require (
 
 require (
 	github.com/StackExchange/wmi v1.2.1 // indirect
+	github.com/andybalholm/cascadia v1.3.1 // indirect
 	github.com/ghodss/yaml v1.0.0 // indirect
 	github.com/go-ole/go-ole v1.3.0 // indirect
 	github.com/hashicorp/hcl v1.0.0 // indirect

@@ -3,11 +3,20 @@ package main
 import (
 	"fmt"
 	"math"
+	"strings"
 	"time"
 
+	"github.com/PuerkitoBio/goquery"
 	"github.com/moxcomic/ihttp"
 	log "github.com/sirupsen/logrus"
 	"github.com/ysmood/gson"
+)
+
+var (
+	videoSubtitleCache  = make(map[int]videoSubtitle) //视频字幕缓存  aid:
+	articleTextCache    = make(map[int]articleText)   //文章内容缓存  cid:
+	videoSummaryCache   = make(map[int]string)        //视频总结缓存  aid:
+	articleSummaryCache = make(map[int]string)        //文章总结缓存  cid:
 )
 
 // bv转av
@@ -306,35 +315,34 @@ func getArchiveJsonB(bvid string) (archiveJson gson.JSON, stateJson gson.JSON) {
 }
 
 type videoSubtitle struct {
-	raw gson.JSON
-	seq string
+	aid     int
+	title   string
+	rawJson gson.JSON
+	seq     string
 }
 
 // 获取视频字幕
-func getSubtitle(aid string) (videoSubtitle videoSubtitle) {
-	pagelist, err := ihttp.New().WithUrl("https://api.bilibili.com/x/player/pagelist").
-		WithAddQuery("aid", aid).WithHeaders(iheaders).
-		Get().ToGson()
-	if err != nil || pagelist.Get("code").Int() != 0 {
-		log.Error("[bilibili] cid获取错误  err: ", err, " code: ", pagelist.Get("code").Int())
-		return
-	}
-	cid := pagelist.Get("data.0.cid").Int()
+func getSubtitle(aid int) *videoSubtitle {
+	cid := getCid(aid)
+	log.Trace("[bilibili] cid: ", cid)
 	if cid == 0 {
-		return
+		log.Error("[bilibili] cid == 0")
+		return nil
 	}
 	subtitleUrl := getSubtitleUrl(aid, cid)
-	if subtitleUrl == "NULL" {
-		return
+	log.Trace("[bilibili] subtitleUrl: ", subtitleUrl)
+	if subtitleUrl == "" {
+		log.Error("[bilibili] subtitleUrl == \"\"")
+		return nil
 	}
-	rawJson, err := ihttp.New().WithUrl(subtitleUrl).
+	rawJson, err := ihttp.New().WithUrl("https:" + subtitleUrl).
 		WithHeaders(iheaders).
 		Get().ToGson()
 	if err != nil {
-		return
+		log.Error("[bilibili] err != nil: ", err)
+		return nil
 	}
-	videoSubtitle.raw = rawJson
-	videoSubtitle.seq = func() (seq string) {
+	seq := func() (seq string) {
 		for _, body := range rawJson.Get("body").Arr() {
 			if seq != "" {
 				seq += "\n"
@@ -343,13 +351,16 @@ func getSubtitle(aid string) (videoSubtitle videoSubtitle) {
 		}
 		return
 	}()
-	return
+	return &videoSubtitle{
+		rawJson: rawJson,
+		seq:     seq,
+	}
 }
 
 // 获取p1的cid
-func getCid(aid string) (cid int) {
+func getCid(aid int) (cid int) {
 	pagelist, err := ihttp.New().WithUrl("https://api.bilibili.com/x/player/pagelist").
-		WithAddQuery("aid", aid).WithHeaders(iheaders).
+		WithAddQuerys(map[string]any{"aid": aid}).WithHeaders(iheaders).
 		Get().ToGson()
 	if err == nil && pagelist.Get("code").Int() == 0 {
 		cid = pagelist.Get("data.0.cid").Int()
@@ -360,14 +371,16 @@ func getCid(aid string) (cid int) {
 }
 
 // 获取视频字幕链接
-func getSubtitleUrl(aid string, cid int) (url string) {
+func getSubtitleUrl(aid int, cid int) (url string) {
 	player, err := ihttp.New().WithUrl("https://api.bilibili.com/x/player/v2").
-		WithAddQuerys(map[string]any{"aid": aid, "cid": cid}).WithHeaders(iheaders).
+		WithAddQuerys(map[string]any{"aid": aid, "cid": cid}).WithHeaders(iheaders).WithCookie(cookie).
 		Get().ToGson()
 	if err == nil || player.Get("code").Int() == 0 {
 		subtitles := player.Get("data.subtitle.subtitles").Arr()
 		if len(subtitles) == 0 { //没有字幕
-			return "NULL"
+			log.Trace("[bilibili] len(subtitles) == 0")
+			log.Trace("[bilibili] player: ", player.JSON("", ""))
+			return
 		}
 		subtitlesMap := make(map[string]string) // "lan":"subtitle_url"
 		for _, subtitle := range subtitles {
@@ -459,6 +472,49 @@ func getArticleJson(cvid int) gson.JSON {
 		log.Error("[parse] 文章 ", cvid, " 信息获取错误: ", articleJson.JSON("", ""))
 	}
 	return articleJson
+}
+
+type articleText struct {
+	cvid  int
+	title string
+	text  []string
+	seq   string
+}
+
+func getArticleText(cvid int) *articleText {
+	body, err := ihttp.New().WithUrl(fmt.Sprint("https://www.bilibili.com/read/cv", cvid)).
+		WithHeaders(iheaders).Get().ToString()
+	if err != nil {
+		log.Error("[bilibili] 专栏获取失败 ", err)
+		return nil
+	}
+	doc, err := goquery.NewDocumentFromReader(strings.NewReader(body))
+	if err != nil {
+		log.Error("[bilibili] 专栏解析失败 ", err)
+		return nil
+	}
+	title := doc.Find("h1.title").First().Text()
+	main := doc.Find("#read-article-holder")
+	text := []string{}
+	seq := ""
+	main.Find("p, h1, h2, h3, h4, h5, h6").Each(func(_ int, el *goquery.Selection) {
+		str := strings.TrimSpace(el.Text())
+		if str != "" {
+			text = append(text, str)
+		}
+	})
+	for _, str := range text {
+		if seq != "" {
+			seq += "\n"
+		}
+		seq += str
+	}
+	return &articleText{
+		cvid:  cvid,
+		title: title,
+		text:  text,
+		seq:   seq,
+	}
 }
 
 // 格式化文章.Get("data")（文章信息拿不到自己的cv号）

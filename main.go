@@ -130,14 +130,14 @@ var iheaders = map[string]string{
 	"Dnt":                "1",
 	"Origin":             "https://t.bilibili.com",
 	"Referer":            "https://t.bilibili.com/",
-	"Sec-Ch-Ua":          "\"Not/A)Brand\";v=\"99\", \"Microsoft Edge\";v=\"115\", \"Chromium\";v=\"115\"",
+	"Sec-Ch-Ua":          "\"Not/A)Brand\";v=\"24\", \"Microsoft Edge\";v=\"116\", \"Chromium\";v=\"116\"",
 	"Sec-Ch-Ua-Mobile":   "?0",
 	"Sec-Ch-Ua-Platform": "\"Windows\"",
 	"Sec-Fetch-Dest":     "document",
 	"Sec-Fetch-Mode":     "navigate",
 	"Sec-Fetch-Site":     "none",
 	"Sec-Fetch-User":     "?1",
-	"User-Agent":         "Bilibili Freedoooooom/MarkII",
+	"User-Agent":         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/116.0.0.0 Safari/537.36 Edg/116.0.1938.62",
 }
 
 type gocqHeartbeat struct {
@@ -862,7 +862,10 @@ func main() {
 		initCount++
 		initConfig()
 		initModules()
-		tempBlock <- struct{}{} //解除临时阻塞
+		if dynamicBlock {
+			tempBlock <- struct{}{} //解除临时阻塞
+			dynamicBlock = false
+		}
 	})
 	exitJobs()
 }

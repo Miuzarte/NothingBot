@@ -229,6 +229,8 @@ func cookieChecker() bool {
 	}
 }
 
+var dynamicBlock bool
+
 // 监听动态流
 func dynamicMonitor() {
 	var (
@@ -247,15 +249,17 @@ func dynamicMonitor() {
 		case "-1":
 			log.Error("[push] 获取update_num时出现错误    update_num = ", update_num, "  update_baseline = ", update_baseline)
 			if !cookieChecker() {
-				<-tempBlock
+				dynamicBlock = true
 				failureCount = 0
+				<-tempBlock
 			}
 			failureCount++
 			if failureCount >= 10 {
 				log.Error("[push] 尝试更新失败 ", failureCount, " 次, 暂停拉取动态更新")
 				log2SU.Error(fmt.Sprint("[push] 连续更新失败 ", failureCount, " 次，暂停拉取动态更新"))
-				<-tempBlock
+				dynamicBlock = true
 				failureCount = 0
+				<-tempBlock
 			}
 			duration := time.Duration(time.Second * time.Duration(failureCount) * 30)
 			log.Error("[push] 获取更新失败 ", failureCount, " 次, 将在 ", duration, " 后重试")
