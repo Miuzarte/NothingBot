@@ -48,13 +48,6 @@ type parseHistory struct {
 	time  int64
 }
 
-var (
-	videoSubtitleCache  = make(map[int]*videoSubtitle) //视频字幕缓存  aid:
-	articleTextCache    = make(map[int]*articleText)   //文章内容缓存  cid:
-	videoSummaryCache   = make(map[int]string)         //视频总结缓存  aid:
-	articleSummaryCache = make(map[int]string)         //文章总结缓存  cid:
-)
-
 // 链接提取
 func extractBiliLink(str string) (id string, kind string, summary bool) {
 	short := regexp.MustCompile(biliLinkRegexp.SHORT).FindAllStringSubmatch(str, -1)
@@ -131,7 +124,10 @@ func parseAndFormatBiliLink(ctx gocqMessage, id string, kind string, summary boo
 		} else {
 			content = formatDynamic(g.Get("data.item"))
 			if summary {
-				ctx.sendMsg("动态暂时不支持总结捏")
+				go func() {
+					time.Sleep(time.Second * 2)
+					ctx.sendMsg("动态暂时不支持总结捏")
+				}()
 			}
 		}
 	case "ARCHIVE":
@@ -147,7 +143,6 @@ func parseAndFormatBiliLink(ctx gocqMessage, id string, kind string, summary boo
 					ctx.sendMsg("[NothingBot] 这个视频似乎没有字幕呢～")
 				} else {
 					vs.title = g.Get("data.title").Str() //视频标题
-					videoSubtitleCache[aid] = vs
 					ctx.sendMsg(vs.glmSummary())
 				}
 			}
@@ -164,7 +159,6 @@ func parseAndFormatBiliLink(ctx gocqMessage, id string, kind string, summary boo
 				if at == nil {
 					ctx.sendMsg("[NothingBot] 文章正文获取失败力")
 				} else {
-					articleTextCache[at.cvid] = at
 					ctx.sendMsg(at.glmSummary())
 				}
 			}
@@ -176,7 +170,10 @@ func parseAndFormatBiliLink(ctx gocqMessage, id string, kind string, summary boo
 		} else {
 			content = formatSpace(g.Get("data.card"))
 			if summary {
-				ctx.sendMsg("？")
+				go func() {
+					time.Sleep(time.Second * 2)
+					ctx.sendMsg("？")
+				}()
 			}
 		}
 	case "LIVE":
@@ -187,7 +184,10 @@ func parseAndFormatBiliLink(ctx gocqMessage, id string, kind string, summary boo
 			if ok {
 				content = formatLive(roomJson)
 				if summary {
-					ctx.sendMsg("？？？")
+					go func() {
+						time.Sleep(time.Second * 2)
+						ctx.sendMsg("？？？")
+					}()
 				}
 			} else {
 				content = fmt.Sprintf("[NothingBot] [ERROR] [parse] 直播间%d信息获取错误, !ok", id)
@@ -228,7 +228,6 @@ func deShortLink(slug string) (location string) {
 	}
 	if len(header["Location"]) > 0 {
 		location = header["Location"][0]
-		log.Debug("[parse] 短链解析结果: ", location[0:32])
 	}
 	var statusCode string
 	if len(header["Bili-Status-Code"]) > 0 {
@@ -273,7 +272,7 @@ func checkParse(ctx gocqMessage) {
 			match = reg.FindAllStringSubmatch(loc, -1)
 			if len(match) > 0 {
 				log.Debug("[parse] 短链解析结果: ", match[0][0])
-				id, kind, summary = extractBiliLink(match[0][0])
+				id, kind, _ = extractBiliLink(match[0][0])
 			} else {
 				log.Debug("[parse] 短链解析失败: ", loc)
 				return
