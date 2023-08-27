@@ -40,7 +40,7 @@ func (p chatglmPost) post() chatglmResp {
 	if err != nil {
 		log.Error("[ChatGLM2] err: ", err)
 		return chatglmResp{
-			Response: "[NothingBot] [ChatGLM2] [Error] ChatGLM2后端未运行",
+			Response: "[NothingBot] [ChatGLM2] [Error] ChatGLM2后端连接失败",
 			OK:       false,
 		}
 	}

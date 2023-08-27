@@ -183,7 +183,7 @@ func parseAndFormatBiliLink(ctx gocqMessage, id string, kind string, summary boo
 		id, _ := strconv.Atoi(id)
 		uid := getRoomJsonRoomid(id).Get("data.uid").Int()
 		if uid != 0 {
-			roomJson, ok := getRoomJsonUID(uid).Gets("data", uid)
+			roomJson, ok := getRoomJsonUID(uid).Gets("data", strconv.Itoa(uid))
 			if ok {
 				content = formatLive(roomJson)
 				if summary {
