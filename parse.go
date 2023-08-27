@@ -48,6 +48,13 @@ type parseHistory struct {
 	time  int64
 }
 
+var (
+	videoSubtitleCache  = make(map[int]*videoSubtitle) //视频字幕缓存  aid:
+	articleTextCache    = make(map[int]*articleText)   //文章内容缓存  cid:
+	videoSummaryCache   = make(map[int]string)         //视频总结缓存  aid:
+	articleSummaryCache = make(map[int]string)         //文章总结缓存  cid:
+)
+
 // 链接提取
 func extractBiliLink(str string) (id string, kind string, summary bool) {
 	short := regexp.MustCompile(biliLinkRegexp.SHORT).FindAllStringSubmatch(str, -1)
@@ -111,11 +118,12 @@ func extractBiliLink(str string) (id string, kind string, summary bool) {
 }
 
 // 内容解析并格式化
-func parseAndFormatBiliLink(id string, kind string, summary bool) (content string) {
+func parseAndFormatBiliLink(ctx gocqMessage, id string, kind string, summary bool) (content string) {
 	switch kind {
 	case "":
 	case "SHORT":
-		content = parseAndFormatBiliLink(extractBiliLink(deShortLink(id)))
+		id, kind, summary := extractBiliLink(deShortLink(id))
+		content = parseAndFormatBiliLink(ctx, id, kind, summary)
 	case "DYNAMIC":
 		g := getDynamicJson(id)
 		if g.Get("code").Int() != 0 {
@@ -123,17 +131,25 @@ func parseAndFormatBiliLink(id string, kind string, summary bool) (content strin
 		} else {
 			content = formatDynamic(g.Get("data.item"))
 			if summary {
-				content += "\n动态暂时不支持总结捏"
+				ctx.sendMsg("动态暂时不支持总结捏")
 			}
 		}
 	case "ARCHIVE":
-		g, h := getArchiveJson(id)
+		aid, _ := strconv.Atoi(id)
+		g, h := getArchiveJson(aid)
 		if g.Get("code").Int() != 0 {
 			content = fmt.Sprintf("[NothingBot] [ERROR] [parse] 视频av%s信息获取错误: code%d", id, g.Get("code").Int())
 		} else {
 			content = formatArchive(g.Get("data"), h.Get("data"))
 			if summary {
-				content += "\n由newbing总结的视频内容：" + newbingSummary("")
+				vs := getSubtitle(aid)
+				if vs == nil {
+					ctx.sendMsg("[NothingBot] 这个视频似乎没有字幕呢～")
+				} else {
+					vs.title = g.Get("data.title").Str() //视频标题
+					videoSubtitleCache[aid] = vs
+					ctx.sendMsg(vs.glmSummary())
+				}
 			}
 		}
 	case "ARTICLE":
@@ -143,6 +159,15 @@ func parseAndFormatBiliLink(id string, kind string, summary bool) (content strin
 			content = fmt.Sprintf("[NothingBot] [ERROR] [parse] 专栏cv%d信息获取错误: code%d", id, g.Get("code").Int())
 		} else {
 			content = formatArticle(g.Get("data"), id) //专栏信息拿不到自身cv号
+			if summary {
+				at := getArticleText(id)
+				if at == nil {
+					ctx.sendMsg("[NothingBot] 文章正文获取失败力")
+				} else {
+					articleTextCache[at.cvid] = at
+					ctx.sendMsg(at.glmSummary())
+				}
+			}
 		}
 	case "SPACE":
 		g := getSpaceJson(id)
@@ -150,6 +175,9 @@ func parseAndFormatBiliLink(id string, kind string, summary bool) (content strin
 			content = fmt.Sprintf("[NothingBot] [ERROR] [parse] 用户%s信息获取错误: code%d", id, g.Get("code").Int())
 		} else {
 			content = formatSpace(g.Get("data.card"))
+			if summary {
+				ctx.sendMsg("？")
+			}
 		}
 	case "LIVE":
 		id, _ := strconv.Atoi(id)
@@ -158,6 +186,9 @@ func parseAndFormatBiliLink(id string, kind string, summary bool) (content strin
 			roomJson, ok := getRoomJsonUID(uid).Gets("data", uid)
 			if ok {
 				content = formatLive(roomJson)
+				if summary {
+					ctx.sendMsg("？？？")
+				}
 			} else {
 				content = fmt.Sprintf("[NothingBot] [ERROR] [parse] 直播间%d信息获取错误, !ok", id)
 			}
@@ -168,10 +199,22 @@ func parseAndFormatBiliLink(id string, kind string, summary bool) (content strin
 	return
 }
 
-// newbing总结
-func newbingSummary(input string) (output string) {
-	if input == "" {
-		return ""
+// ChatGLM2总结视频
+func (vs *videoSubtitle) glmSummary() (output string) {
+	input := "总结一下这个视频《" + vs.title + "》，下面是视频的字幕：\n" + vs.seq
+	output, ok := sendToChatGLM(input)
+	if ok {
+		output = "由ChatGLM2-6B-int4总结的视频内容：\n" + output
+	}
+	return
+}
+
+// ChatGLM2总结文章
+func (at *articleText) glmSummary() (output string) {
+	input := "总结一下这篇文章《" + at.title + "》，下面是文章的正文：\n" + at.seq
+	output, ok := sendToChatGLM(input)
+	if ok {
+		output = "由ChatGLM2-6B-int4总结的视频内容：\n" + output
 	}
 	return
 }
@@ -239,6 +282,6 @@ func checkParse(ctx gocqMessage) {
 		if ctx.isBiliLinkOverParse(id, kind) {
 			return
 		}
-		ctx.sendMsg(parseAndFormatBiliLink(id, kind, summary))
+		ctx.sendMsg(parseAndFormatBiliLink(ctx, id, kind, summary))
 	}
 }

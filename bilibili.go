@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"math"
+	"strconv"
 	"strings"
 	"time"
 
@@ -10,13 +11,6 @@ import (
 	"github.com/moxcomic/ihttp"
 	log "github.com/sirupsen/logrus"
 	"github.com/ysmood/gson"
-)
-
-var (
-	videoSubtitleCache  = make(map[int]videoSubtitle) //视频字幕缓存  aid:
-	articleTextCache    = make(map[int]articleText)   //文章内容缓存  cid:
-	videoSummaryCache   = make(map[int]string)        //视频总结缓存  aid:
-	articleSummaryCache = make(map[int]string)        //文章总结缓存  cid:
 )
 
 // bv转av
@@ -133,7 +127,8 @@ func formatDynamic(g gson.JSON) string {
 				c_cnt, cnt, option)
 		case "ADDITIONAL_TYPE_UGC": //评论同时转发
 			url := dynamic.Get("additional.ugc.jump_url").Str()
-			addtion = "\n\n转发的视频：\n" + parseAndFormatBiliLink(extractBiliLink(url))
+			id, kind, _ := extractBiliLink(url)
+			addtion = "\n\n转发的视频：\n" + parseAndFormatBiliLink(gocqMessage{}, id, kind, false)
 		}
 		return
 	}(dynamic.Get("additional.type").Str())
@@ -193,7 +188,7 @@ func formatDynamic(g gson.JSON) string {
 			}
 			return ""
 		}(!dynamic.Get("desc.text").Nil(), dynamic.Get("desc.text").Str())
-		aid := archive.Get("aid").Str() //av号数字
+		aid, _ := strconv.Atoi(archive.Get("aid").Str()) //av号数字
 		content := func() (content string) {
 			g, h := getArchiveJson(aid)
 			if g.Get("code").Int() != 0 {
@@ -263,9 +258,9 @@ func formatDynamic(g gson.JSON) string {
 }
 
 // av号获取视频数据.Get("data"))
-func getArchiveJson(aid string) (archiveJson gson.JSON, stateJson gson.JSON) {
+func getArchiveJson(aid int) (archiveJson gson.JSON, stateJson gson.JSON) {
 	archiveJson, err := ihttp.New().WithUrl("https://api.bilibili.com/x/web-interface/view").
-		WithAddQuery("aid", aid).WithHeaders(iheaders).
+		WithAddQuerys(map[string]any{"aid": aid}).WithHeaders(iheaders).
 		Get().ToGson()
 	if err != nil {
 		log.Error("[bilibili] getArchiveJsonA().ihttp请求错误: ", err)
@@ -352,6 +347,8 @@ func getSubtitle(aid int) *videoSubtitle {
 		return
 	}()
 	return &videoSubtitle{
+		aid:     aid,
+		title:   "",
 		rawJson: rawJson,
 		seq:     seq,
 	}
