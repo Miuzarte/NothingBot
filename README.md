@@ -94,7 +94,7 @@ x张、x份： 1~20内的阿拉伯数字、汉字大小写数字
 
 在视频、文章链接前面加上`总结一下`
 
-无字幕内容会上传音频至必剪的文本转录接口识别字幕，使用的库：[BcutASR from @moxcomic](https://github.com/moxcomic/BcutAsr)
+无字幕内容会上传音频至必剪的文本转录接口识别字幕，使用的库：[BcutASR by @moxcomic](https://github.com/moxcomic/BcutAsr)
 
 目前使用 [ChatGLM2](https://github.com/THUDM/ChatGLM2-6B) 后端，int4量化也足以用于总结内容
 
