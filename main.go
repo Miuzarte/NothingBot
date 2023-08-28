@@ -128,8 +128,8 @@ var iheaders = map[string]string{
 	"Accept":             "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7",
 	"Accept-Language":    "zh-CN,zh;q=0.9,en;q=0.8,en-GB;q=0.7,en-US;q=0.6",
 	"Dnt":                "1",
-	"Origin":             "https://t.bilibili.com",
-	"Referer":            "https://t.bilibili.com/",
+	"Origin":             "https://www.bilibili.com",
+	"Referer":            "https://www.bilibili.com/",
 	"Sec-Ch-Ua":          "\"Not/A)Brand\";v=\"24\", \"Microsoft Edge\";v=\"116\", \"Chromium\";v=\"116\"",
 	"Sec-Ch-Ua-Mobile":   "?0",
 	"Sec-Ch-Ua-Platform": "\"Windows\"",
@@ -780,6 +780,19 @@ func timeFormat(timeS int64) string {
 		return strconv.Itoa(minutes) + "分钟" + strconv.Itoa(seconds) + "秒"
 	default:
 		return strconv.Itoa(time) + "秒"
+	}
+}
+
+func checkDir(path string) {
+	if _, err := os.Stat(path); os.IsNotExist(err) {
+		err := os.Mkdir(path, 0755)
+		if err != nil {
+			log.Error("无法创建文件夹:", err)
+		} else {
+			log.Info("文件夹创建成功")
+		}
+	} else {
+		log.Debug("文件夹已存在")
 	}
 }
 

@@ -167,6 +167,8 @@ github.com/mitchellh/go-homedir v1.1.0 h1:lukF9ziXFxDFPkA1vsr5zpc1XuPDn/wFntq5mG
 github.com/mitchellh/go-homedir v1.1.0/go.mod h1:SfyaCUpYCn1Vlf4IUYiD9fPX4A5wJrkLzIz1N1q0pr0=
 github.com/mitchellh/mapstructure v1.5.0 h1:jeMsZIYE/09sWLaz43PL7Gy6RuMjD2eJVyuac5Z2hdY=
 github.com/mitchellh/mapstructure v1.5.0/go.mod h1:bFUtVrKA4DC2yAKiSyO/QUcy7e+RRV2QTWOzhPopBRo=
+github.com/moxcomic/bcutasr v0.0.1 h1:EQaMNlj+bMAE9nSi2/B1nKL7sYPFLdChkxOdOW2qvP4=
+github.com/moxcomic/bcutasr v0.0.1/go.mod h1:YsvPc6lqfpFqpLBE/p+NoBaA8msnnWoqJ6rwkYICuv0=
 github.com/moxcomic/ihttp v0.0.13 h1:fLh4JqulMQZj4TRrTT3ep5h58NweWPtvGKSsSLM7AVw=
 github.com/moxcomic/ihttp v0.0.13/go.mod h1:7smMCdgVHQMvPwDj7d6W4XBz5BETo6/EsAXP5G3MmGg=
 github.com/pelletier/go-toml/v2 v2.0.9 h1:uH2qQXheeefCCkuBBSLi7jCiSmj3VRh2+Goq2N7Xxu0=

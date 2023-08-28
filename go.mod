@@ -1,6 +1,6 @@
 module NothingBot
 
-go 1.21
+go 1.21.0
 
 require (
 	github.com/PuerkitoBio/goquery v1.8.1
@@ -8,6 +8,7 @@ require (
 	github.com/fsnotify/fsnotify v1.6.0
 	github.com/gorilla/websocket v1.5.0
 	github.com/jaypipes/ghw v0.12.0
+	github.com/moxcomic/bcutasr v0.0.1
 	github.com/moxcomic/ihttp v0.0.13
 	github.com/shirou/gopsutil/v3 v3.23.7
 	github.com/sirupsen/logrus v1.9.3

@@ -3,14 +3,20 @@ package main
 import (
 	"fmt"
 	"math"
+	"os"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/PuerkitoBio/goquery"
+	"github.com/moxcomic/bcutasr"
 	"github.com/moxcomic/ihttp"
 	log "github.com/sirupsen/logrus"
 	"github.com/ysmood/gson"
+)
+
+var (
+	transcriptSaveDir = "./bilibili_transcript/"
 )
 
 // bv转av
@@ -309,17 +315,113 @@ func getArchiveJsonB(bvid string) (archiveJson gson.JSON, stateJson gson.JSON) {
 	return
 }
 
-type videoSubtitle struct {
-	aid     int
-	title   string
-	rawJson gson.JSON
-	seq     string
+var audioQual = struct {
+	low   int //64k
+	mid   int //132k
+	high  int //192k
+	dolby int
+	HiRes int
+}{
+	low:   30216,
+	mid:   30232,
+	high:  30280,
+	dolby: 30250,
+	HiRes: 30251,
 }
 
-// 获取视频字幕
-func getSubtitle(aid int) *videoSubtitle {
+type archiveAudio struct {
+	aid       int
+	cid       int
+	localPath string
+}
+
+// 获取视频音频流
+func getAudio(aid int, cid int) *archiveAudio {
+	checkDir(transcriptSaveDir)
+	url := getAudioUrl(aid, cid).high()
+	fileName := fmt.Sprint("av", aid, "_c", cid, ".aac")
+	localPath := transcriptSaveDir + fileName
+	audioByte, err := ihttp.New().WithUrl(url).
+		WithHeaders(iheaders).
+		Get().ToBytes()
+	if err != nil {
+		log.Error("[bilibili] 音频下载失败 err: ", err)
+		return nil
+	} else {
+		log.Debug("[bilibili] len(audioByte): ", len(audioByte))
+	}
+	os.WriteFile(localPath, audioByte, 0664)
+	return &archiveAudio{
+		aid:       aid,
+		cid:       cid,
+		localPath: localPath,
+	}
+}
+
+type audioUrls map[int]string
+
+// 获取音频流链接
+func getAudioUrl(aid int, cid int) (urls audioUrls) {
+	g, err := ihttp.New().WithUrl(`https://api.bilibili.com/x/player/playurl`).
+		WithHeaders(iheaders).WithCookie(cookie).
+		WithAddQuerys(map[string]any{
+			"avid":  aid,
+			"cid":   cid,
+			"fnval": 16, //dash
+		}).
+		Get().ToGson()
+	if err != nil {
+		log.Error("[bilibili] 获取音频流链接失败 err: ", err)
+		return
+	}
+	if g.Get("code").Int() != 0 {
+		log.Error("[bilibili] 获取音频流链接失败 g: ", g.JSON("", ""))
+		return
+	}
+	urls = make(audioUrls)
+	for _, h := range g.Get("data.dash.audio").Arr() {
+		id := h.Get("id").Int()
+		baseUrl := h.Get("baseUrl").Str()
+		urls[id] = baseUrl
+	}
+	return
+}
+
+// 尽量获取192k
+func (a audioUrls) high() (bestUrl string) {
+	urlHigh, hasHigh := a[audioQual.high]
+	urlMid, hasMid := a[audioQual.mid]
+	urlLow, hasLow := a[audioQual.low]
+	switch {
+	case hasHigh:
+		bestUrl = urlHigh
+	case hasMid:
+		bestUrl = urlMid
+	case hasLow:
+		bestUrl = urlLow
+	default:
+		for _, j := range a {
+			bestUrl = j
+			break
+		}
+	}
+	log.Trace("[bilibili] bestUrl: ", bestUrl)
+	return
+}
+
+type archiveSubtitle struct {
+	aid       int
+	cid       int
+	title     string
+	rawJson   gson.JSON
+	seq       string
+	isNative  bool   //真为原生字幕，假为转录字幕
+	localPath string //保存到本地的路径
+}
+
+// 获取视频原生字幕
+func getSubtitle(aid int) *archiveSubtitle {
 	cid := getCid(aid)
-	log.Trace("[bilibili] cid: ", cid)
 	if cid == 0 {
 		log.Error("[bilibili] cid == 0")
 		return nil
@@ -346,11 +448,55 @@ func getSubtitle(aid int) *videoSubtitle {
 		}
 		return
 	}()
-	return &videoSubtitle{
-		aid:     aid,
-		title:   "",
-		rawJson: rawJson,
-		seq:     seq,
+	checkDir(transcriptSaveDir)
+	localPath := fmt.Sprint(transcriptSaveDir, "av", aid, "_c", cid, "_Native.json")
+	os.WriteFile(localPath, []byte(rawJson.JSON("", "")), 0644)
+	return &archiveSubtitle{
+		aid:       aid,
+		cid:       cid,
+		title:     "", //后边再加上
+		rawJson:   rawJson,
+		seq:       seq,
+		isNative:  true,
+		localPath: localPath,
+	}
+}
+
+// 调用必剪转录视频字幕
+func bcutSubtitle(aid int) *archiveSubtitle {
+	checkDir(transcriptSaveDir)
+	cid := getCid(aid)
+	if cid == 0 {
+		log.Error("[bilibili] cid == 0")
+		return nil
+	}
+	audio := getAudio(aid, cid)
+	resp, err := bcutasr.New().Parse(audio.localPath)
+	if err != nil {
+		panic(err)
+	}
+	log.Debug("[bilibili] bcutASR code: ", resp.GetInt("code"))
+	resultJson := gson.NewFrom(resp.GetString("data.result"))
+	seq := func() (seq string) {
+		for _, sent := range resultJson.Get("utterances").Arr() {
+			if seq != "" {
+				seq += "\n"
+			}
+			seq += sent.Get("transcript").Str()
+		}
+		return
+	}()
+	checkDir(transcriptSaveDir)
+	localPath := fmt.Sprint(transcriptSaveDir, "av", aid, "_c", cid, "_BcutASR.json")
+	os.WriteFile(localPath, []byte(resultJson.JSON("", "")), 0644)
+	return &archiveSubtitle{
+		aid:       aid,
+		cid:       cid,
+		title:     "",
+		rawJson:   resultJson,
+		seq:       seq,
+		isNative:  false,
+		localPath: localPath,
 	}
 }
 
@@ -472,10 +618,11 @@ func getArticleJson(cvid int) gson.JSON {
 }
 
 type articleText struct {
-	cvid  int
-	title string
-	text  []string
-	seq   string
+	cvid      int
+	title     string
+	text      []string
+	seq       string
+	localPath string
 }
 
 func getArticleText(cvid int) *articleText {
@@ -506,11 +653,15 @@ func getArticleText(cvid int) *articleText {
 		}
 		seq += str
 	}
+	checkDir(transcriptSaveDir)
+	localPath := fmt.Sprint(transcriptSaveDir, "cv", cvid, ".txt")
+	os.WriteFile(localPath, []byte(seq), 0644)
 	return &articleText{
-		cvid:  cvid,
-		title: title,
-		text:  text,
-		seq:   seq,
+		cvid:      cvid,
+		title:     title,
+		text:      text,
+		seq:       seq,
+		localPath: localPath,
 	}
 }
 

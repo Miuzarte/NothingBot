@@ -48,6 +48,9 @@ type parseHistory struct {
 	time  int64
 }
 
+var archiveSubtitleTable = make(map[int]archiveSubtitle) //av：
+var articleTextTable = make(map[int]articleText)         //cv:
+
 // 链接提取
 func extractBiliLink(str string) (id string, kind string, summary bool) {
 	short := regexp.MustCompile(biliLinkRegexp.SHORT).FindAllStringSubmatch(str, -1)
@@ -138,13 +141,25 @@ func parseAndFormatBiliLink(ctx gocqMessage, id string, kind string, summary boo
 		} else {
 			content = formatArchive(g.Get("data"), h.Get("data"))
 			if summary {
-				vs := getSubtitle(aid)
-				if vs == nil {
-					ctx.sendMsg("[NothingBot] 这个视频似乎没有字幕呢～")
-				} else {
-					vs.title = g.Get("data.title").Str() //视频标题
-					ctx.sendMsg(vs.glmSummary())
-				}
+				go func(ctx gocqMessage) {
+					var as *archiveSubtitle
+					if cache, hasCache := archiveSubtitleTable[aid]; hasCache {
+						as = &cache
+					} else {
+						as = getSubtitle(aid)
+						if as == nil {
+							ctx.sendMsg("[NothingBot] [Info] 无法获取视频字幕，尝试调用BcutASR")
+							as = bcutSubtitle(aid)
+						}
+					}
+					if as != nil {
+						as.title = g.Get("data.title").Str() //视频标题
+						archiveSubtitleTable[aid] = *as      //缓存字幕
+						ctx.sendMsg(as.glmSummary())
+					} else {
+						ctx.sendMsg("[NothingBot] [Error] 字幕转录失败力")
+					}
+				}(ctx)
 			}
 		}
 	case "ARTICLE":
@@ -155,12 +170,20 @@ func parseAndFormatBiliLink(ctx gocqMessage, id string, kind string, summary boo
 		} else {
 			content = formatArticle(g.Get("data"), id) //专栏信息拿不到自身cv号
 			if summary {
-				at := getArticleText(id)
-				if at == nil {
-					ctx.sendMsg("[NothingBot] 文章正文获取失败力")
-				} else {
-					ctx.sendMsg(at.glmSummary())
-				}
+				go func(ctx gocqMessage) {
+					var at *articleText
+					if cache, hasCache := articleTextTable[id]; hasCache {
+						at = &cache
+					} else {
+						at = getArticleText(id)
+					}
+					if at != nil {
+						articleTextTable[id] = *at //缓存专栏
+						ctx.sendMsg(at.glmSummary())
+					} else {
+						ctx.sendMsg("[NothingBot] 文章正文获取失败力")
+					}
+				}(ctx)
 			}
 		}
 	case "SPACE":
@@ -200,8 +223,8 @@ func parseAndFormatBiliLink(ctx gocqMessage, id string, kind string, summary boo
 }
 
 // ChatGLM2总结视频
-func (vs *videoSubtitle) glmSummary() (output string) {
-	input := "总结一下这个视频《" + vs.title + "》，下面是视频的字幕：\n" + vs.seq
+func (as *archiveSubtitle) glmSummary() (output string) {
+	input := "总结一下这个视频《" + as.title + "》，下面是视频的字幕：\n" + as.seq
 	output, ok := sendToChatGLM(input)
 	if ok {
 		output = "由ChatGLM2-6B-int4总结的视频内容：\n" + output
