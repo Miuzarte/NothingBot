@@ -96,7 +96,16 @@ x张、x份： 1~20内的阿拉伯数字、汉字大小写数字
 
 无字幕内容会上传音频至必剪的文本转录接口识别字幕，使用的库：[BcutASR by @moxcomic](https://github.com/moxcomic/BcutAsr)
 
-目前使用 [ChatGLM2](https://github.com/THUDM/ChatGLM2-6B) 后端，int4量化也足以用于总结内容
+目前支持的后端：
+
+- [ChatGLM2](https://github.com/THUDM/ChatGLM2-6B)：[api.py](https://github.com/THUDM/ChatGLM2-6B/blob/main/api.py)
+
+- [百度千帆](https://console.bce.baidu.com/qianfan)："ERNIE_Bot", "ERNIE_Bot_turbo", "BLOOMZ_7B", Llama_2_7b", "Llama_2_13b", "Llama_2_70b"
+
+```
+GLM2在int4量化的情况下也足以用于总结内容
+百度千帆申请会给20RMB免费额度
+```
 
 **快捷搜索：**
 

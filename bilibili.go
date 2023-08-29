@@ -341,6 +341,17 @@ func initCache() {
 			}
 			as.marshal()
 			archiveSubtitleTable[as.Aid] = as
+			if !as.IsNative {
+				aacPath := fmt.Sprint("av", as.Aid, "_c", as.Cid, ".aac")
+				_, err := os.Stat(aacPath)
+				if err == nil { //存在已下载的音频文件
+					archiveAudioTable[as.Aid] = &archiveAudio{
+						aid:       as.Aid,
+						cid:       as.Cid,
+						localPath: aacPath,
+					}
+				}
+			}
 		case "cv":
 			at := &articleText{}
 			err = json.Unmarshal(fileData, at)
@@ -380,6 +391,9 @@ type archiveAudio struct {
 
 // 获取视频音频流
 func getAudio(aid int, cid int) *archiveAudio {
+	if cacheAu, has := archiveAudioTable[aid]; has {
+		return cacheAu
+	}
 	checkDir(transcriptSaveDir)
 	url := getAudioUrl(aid, cid).high()
 	fileName := fmt.Sprint("av", aid, "_c", cid, ".aac")

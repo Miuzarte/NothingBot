@@ -48,6 +48,7 @@ type parseHistory struct {
 	time  int64
 }
 
+var archiveAudioTable = make(map[int]*archiveAudio)
 var archiveSubtitleTable = make(map[int]*archiveSubtitle) //av:
 var articleTextTable = make(map[int]*articleText)         //cv:
 
