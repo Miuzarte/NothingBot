@@ -1,9 +1,11 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"math"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -315,6 +317,47 @@ func getArchiveJsonB(bvid string) (archiveJson gson.JSON, stateJson gson.JSON) {
 	return
 }
 
+// 读取缓存
+func initCache() {
+	err := filepath.Walk(transcriptSaveDir, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			log.Error("访问路径 ", path, " 时发生错误: ", err.Error())
+			return err
+		}
+		if info.IsDir() {
+			return nil
+		}
+		fileData, err := os.ReadFile(path)
+		if err != nil {
+			log.Error("[bilibili] read cache err: ", err.Error())
+		}
+		switch info.Name()[:2] { //文件名前两个字母
+		case "av":
+			as := &archiveSubtitle{}
+			err = json.Unmarshal(fileData, as)
+			if err != nil {
+				log.Error("[bilibili] as unmarshal cache err: ", err)
+				break
+			}
+			as.marshal()
+			archiveSubtitleTable[as.Aid] = as
+		case "cv":
+			at := &articleText{}
+			err = json.Unmarshal(fileData, at)
+			if err != nil {
+				log.Error("[bilibili] at unmarshal cache err: ", err)
+				break
+			}
+			at.marshal()
+			articleTextTable[at.Cvid] = at
+		}
+		return nil
+	})
+	if err != nil {
+		log.Error("遍历缓存时发生错误: ", err.Error())
+	}
+}
+
 var audioQual = struct {
 	low   int //64k
 	mid   int //132k
@@ -410,17 +453,20 @@ func (a audioUrls) high() (bestUrl string) {
 }
 
 type archiveSubtitle struct {
-	aid       int
-	cid       int
-	title     string
-	rawJson   gson.JSON
-	seq       string
-	isNative  bool   //真为原生字幕，假为转录字幕
-	localPath string //保存到本地的路径
+	Aid      int    `json:"aid"`
+	Cid      int    `json:"cid"`
+	Title    string `json:"title"`
+	Result   string `json:"result"` //gson.JSON.JSON("","")
+	seq      string //不存本地
+	IsNative bool   `json:"is_native"` //真为原生字幕，假为转录字幕
 }
 
-// 获取视频原生字幕
-func getSubtitle(aid int) *archiveSubtitle {
+// 获取视频原生字幕/缓存字幕, 传标题简介进来省得再请求一遍
+func getSubtitle(aid int, title string) *archiveSubtitle {
+	if cacheAS, has := archiveSubtitleTable[aid]; has && cacheAS != nil {
+		log.Info("[bilibili] 调用缓存: av", aid)
+		return cacheAS
+	}
 	cid := getCid(aid)
 	if cid == 0 {
 		log.Error("[bilibili] cid == 0")
@@ -432,38 +478,33 @@ func getSubtitle(aid int) *archiveSubtitle {
 		log.Error("[bilibili] subtitleUrl == \"\"")
 		return nil
 	}
-	rawJson, err := ihttp.New().WithUrl("https:" + subtitleUrl).
+	result, err := ihttp.New().WithUrl("https:" + subtitleUrl).
 		WithHeaders(iheaders).
-		Get().ToGson()
+		Get().ToString()
 	if err != nil {
-		log.Error("[bilibili] err != nil: ", err)
+		log.Error("[bilibili] ihttp err: ", err)
 		return nil
 	}
-	seq := func() (seq string) {
-		for _, body := range rawJson.Get("body").Arr() {
-			if seq != "" {
-				seq += "\n"
-			}
-			seq += body.Get("content").Str()
-		}
-		return
-	}()
-	checkDir(transcriptSaveDir)
-	localPath := fmt.Sprint(transcriptSaveDir, "av", aid, "_c", cid, "_Native.json")
-	os.WriteFile(localPath, []byte(rawJson.JSON("", "")), 0644)
-	return &archiveSubtitle{
-		aid:       aid,
-		cid:       cid,
-		title:     "", //后边再加上
-		rawJson:   rawJson,
-		seq:       seq,
-		isNative:  true,
-		localPath: localPath,
+	as := &archiveSubtitle{
+		Aid:      aid,
+		Cid:      cid,
+		Title:    title,
+		Result:   result,
+		IsNative: true,
 	}
+	checkDir(transcriptSaveDir)
+	asByte, err := json.Marshal(as)
+	if err != nil {
+		log.Error("Cache Marshal err: ", err.Error())
+	}
+	localPath := fmt.Sprint(transcriptSaveDir, "av", aid, "_c", cid, ".json")
+	os.WriteFile(localPath, asByte, 0644) //缓存
+	as.nativeMarshal()
+	return as
 }
 
 // 调用必剪转录视频字幕
-func bcutSubtitle(aid int) *archiveSubtitle {
+func bcutSubtitle(aid int, title string) *archiveSubtitle {
 	checkDir(transcriptSaveDir)
 	cid := getCid(aid)
 	if cid == 0 {
@@ -476,8 +517,54 @@ func bcutSubtitle(aid int) *archiveSubtitle {
 		panic(err)
 	}
 	log.Debug("[bilibili] bcutASR code: ", resp.GetInt("code"))
-	resultJson := gson.NewFrom(resp.GetString("data.result"))
-	seq := func() (seq string) {
+	result := resp.GetString("data.result")
+	as := &archiveSubtitle{
+		Aid:      aid,
+		Cid:      cid,
+		Title:    title,
+		Result:   result,
+		IsNative: false,
+	}
+	checkDir(transcriptSaveDir)
+	asByte, err := json.Marshal(as)
+	if err != nil {
+		log.Error("Cache Marshal err: ", err.Error())
+	}
+	localPath := fmt.Sprint(transcriptSaveDir, "av", aid, "_c", cid, ".json")
+	os.WriteFile(localPath, asByte, 0644) //缓存
+	as.bcutMarshal()
+	return as
+}
+
+// 序列化
+func (as *archiveSubtitle) marshal() *archiveSubtitle {
+	if as.IsNative {
+		as.nativeMarshal()
+	} else {
+		as.bcutMarshal()
+	}
+	return as
+}
+
+// 原生字幕序列化
+func (as *archiveSubtitle) nativeMarshal() *archiveSubtitle {
+	as.seq = func() (seq string) {
+		resultJson := gson.NewFrom(as.Result)
+		for _, body := range resultJson.Get("body").Arr() {
+			if seq != "" {
+				seq += "\n"
+			}
+			seq += body.Get("content").Str()
+		}
+		return
+	}()
+	return as
+}
+
+// 必剪转录文本序列化
+func (as *archiveSubtitle) bcutMarshal() *archiveSubtitle {
+	as.seq = func() (seq string) {
+		resultJson := gson.NewFrom(as.Result)
 		for _, sent := range resultJson.Get("utterances").Arr() {
 			if seq != "" {
 				seq += "\n"
@@ -486,18 +573,7 @@ func bcutSubtitle(aid int) *archiveSubtitle {
 		}
 		return
 	}()
-	checkDir(transcriptSaveDir)
-	localPath := fmt.Sprint(transcriptSaveDir, "av", aid, "_c", cid, "_BcutASR.json")
-	os.WriteFile(localPath, []byte(resultJson.JSON("", "")), 0644)
-	return &archiveSubtitle{
-		aid:       aid,
-		cid:       cid,
-		title:     "",
-		rawJson:   resultJson,
-		seq:       seq,
-		isNative:  false,
-		localPath: localPath,
-	}
+	return as
 }
 
 // 获取p1的cid
@@ -618,14 +694,18 @@ func getArticleJson(cvid int) gson.JSON {
 }
 
 type articleText struct {
-	cvid      int
-	title     string
-	text      []string
-	seq       string
-	localPath string
+	Cvid  int      `json:"cvid"`
+	Title string   `json:"title"`
+	Text  []string `json:"text"`
+	seq   string   //不存本地
 }
 
+// 获取专栏标题、正文
 func getArticleText(cvid int) *articleText {
+	if cacheAT, has := articleTextTable[cvid]; has && cacheAT != nil {
+		log.Info("[bilibili] 调用缓存: cv", cvid)
+		return cacheAT
+	}
 	body, err := ihttp.New().WithUrl(fmt.Sprint("https://www.bilibili.com/read/cv", cvid)).
 		WithHeaders(iheaders).Get().ToString()
 	if err != nil {
@@ -640,29 +720,40 @@ func getArticleText(cvid int) *articleText {
 	title := doc.Find("h1.title").First().Text()
 	main := doc.Find("#read-article-holder")
 	text := []string{}
-	seq := ""
 	main.Find("p, h1, h2, h3, h4, h5, h6").Each(func(_ int, el *goquery.Selection) {
 		str := strings.TrimSpace(el.Text())
 		if str != "" {
 			text = append(text, str)
 		}
 	})
-	for _, str := range text {
-		if seq != "" {
-			seq += "\n"
-		}
-		seq += str
+	at := &articleText{
+		Cvid:  cvid,
+		Title: title,
+		Text:  text,
 	}
 	checkDir(transcriptSaveDir)
-	localPath := fmt.Sprint(transcriptSaveDir, "cv", cvid, ".txt")
-	os.WriteFile(localPath, []byte(seq), 0644)
-	return &articleText{
-		cvid:      cvid,
-		title:     title,
-		text:      text,
-		seq:       seq,
-		localPath: localPath,
+	atByte, err := json.Marshal(at)
+	if err != nil {
+		log.Error("Cache Marshal err: ", err.Error())
 	}
+	localPath := fmt.Sprint(transcriptSaveDir, "cv", cvid, ".json")
+	os.WriteFile(localPath, atByte, 0644) //缓存
+	at.marshal()
+	return at
+}
+
+// 正文序列化
+func (at *articleText) marshal() *articleText {
+	at.seq = func() (seq string) {
+		for _, str := range at.Text {
+			if seq != "" {
+				seq += "\n"
+			}
+			seq += str
+		}
+		return
+	}()
+	return at
 }
 
 // 格式化文章.Get("data")（文章信息拿不到自己的cv号）

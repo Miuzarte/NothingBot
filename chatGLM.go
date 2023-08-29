@@ -2,11 +2,11 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"time"
 
 	"github.com/moxcomic/ihttp"
 	log "github.com/sirupsen/logrus"
-	"github.com/ysmood/gson"
 )
 
 var glmUrl = "http://127.0.0.1:8000"
@@ -17,57 +17,47 @@ type chatglmPost struct {
 }
 
 type chatglmResp struct {
-	Response string
-	History  []string
-	OK       bool
+	Response string     `json:"response"`
+	History  [][]string `json:"history"`
 }
 
-func (p *chatglmPost) post() *chatglmResp {
+func (p *chatglmPost) post() (*chatglmResp, error) {
 	postData, _ := json.Marshal(p)
-	log.Debug("[ChatGLM2] 上报至ChatGLM: ", p)
-	post := ihttp.New().WithUrl(glmUrl).
+	log.Debug("[ChatGLM2] post: ", *p)
+	ipost := ihttp.New().WithUrl(glmUrl).
 		WithHeader("Content-Type", "application/json").
 		WithBody(postData)
-	resp, err := post.Post().ToString()
+	resp, err := ipost.Post().ToString()
 	if resp == "Internal Server Error" { //初始化重试
 		log.Info("[ChatGLM2] 初始化")
 		time.Sleep(time.Second)
-		new := ihttp.New().WithUrl(glmUrl).
+		newipost := ihttp.New().WithUrl(glmUrl).
 			WithHeader("Content-Type", "application/json").
 			WithBody(postData)
-		resp, err = new.Post().ToString()
+		resp, err = newipost.Post().ToString()
 	}
 	if err != nil {
-		log.Error("[ChatGLM2] err: ", err)
-		return &chatglmResp{
-			Response: "[NothingBot] [ChatGLM2] [Error] ChatGLM2后端连接失败",
-			OK:       false,
-		}
+		log.Error("[ChatGLM2] post err: ", err)
+		return nil, errors.New("ChatGLM2后端连接失败  " + err.Error())
 	}
-	g := gson.NewFrom(resp)
-	history := []string{}
-	if !g.Get("history").Nil() {
-		for _, h := range g.Get("history").Arr() {
-			for _, i := range h.Arr() {
-				history = append(history, i.Str())
-				// g.Get("history").Arr()[x].Arr()[x].Str()
-			}
-		}
+	log.Debug("[ChatGLM2] resp: ", resp)
+	r := &chatglmResp{}
+	err = json.Unmarshal([]byte(resp), r)
+	if err != nil {
+		log.Error("[ChatGLM2] Unmarshal err: ", err)
 	}
-	return &chatglmResp{
-		Response: g.Get("response").Str(),
-		History:  history,
-		OK:       true,
-	}
+	return r, nil
 }
 
-func sendToChatGLM(input string) (output string, ok bool) {
+func sendToChatGLMSingle(input string) (output string, err error) {
 	post := &chatglmPost{
 		Prompt:  input,
 		History: []string{},
 	}
-	resp := post.post()
+	resp, err := post.post()
+	if err != nil {
+		return "", err
+	}
 	output = resp.Response
-	ok = resp.OK
 	return
 }

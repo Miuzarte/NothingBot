@@ -40,8 +40,19 @@ corpus: #热更新
 #   reply: "" #回复内容  string / []string  多于一条则发送合并转发消息，内容可以为空字符串，但是会被发送函数无视
 #   scene: "" #触发场景 "a"/"all" / "g"/"group" / "p"/"private"
 #   delay:  #延迟回复（秒）  支持小数
+qianfan: #热更新
+  #https://cloud.baidu.com/doc/WENXINWORKSHOP/s/Nlks5zkzu
+  #留空fallback至glm
+  #"ERNIE_Bot", "ERNIE_Bot_turbo", "BLOOMZ_7B"
+  #"Llama_2_7b", "Llama_2_13b", "Llama_2_70b"
+  model: "ERNIE_Bot"
+  keys:
+    api: ""
+    secret: ""
 parse: #热更新
   settings:
+    #"glm", "qianfan"
+    summaryBackend: "glm"
     #同一会话重复解析同一链接的间隔（秒）
     sameParseInterval: 60
     #过长的视频/投票简介保留长度（中英字符）
@@ -792,7 +803,7 @@ func checkDir(path string) {
 			log.Info("文件夹创建成功")
 		}
 	} else {
-		log.Debug("文件夹已存在")
+		log.Debug("文件夹已存在", path)
 	}
 }
 
@@ -849,6 +860,9 @@ func initConfig() {
 
 func initModules() {
 	initCorpus()
+	initParse()
+	initQianfan()
+	initCache()
 	initPush()
 }
 

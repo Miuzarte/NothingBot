@@ -99,7 +99,7 @@ func initPush() {
 			go dynamicMonitor()
 		}
 	}
-	initLive()
+	go initLive()
 }
 
 // 初始化直播监听并建立连接

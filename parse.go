@@ -48,8 +48,8 @@ type parseHistory struct {
 	time  int64
 }
 
-var archiveSubtitleTable = make(map[int]archiveSubtitle) //av：
-var articleTextTable = make(map[int]articleText)         //cv:
+var archiveSubtitleTable = make(map[int]*archiveSubtitle) //av:
+var articleTextTable = make(map[int]*articleText)         //cv:
 
 // 链接提取
 func extractBiliLink(str string) (id string, kind string, summary bool) {
@@ -144,18 +144,17 @@ func parseAndFormatBiliLink(ctx gocqMessage, id string, kind string, summary boo
 				go func(ctx gocqMessage) {
 					var as *archiveSubtitle
 					if cache, hasCache := archiveSubtitleTable[aid]; hasCache {
-						as = &cache
+						as = cache
 					} else {
-						as = getSubtitle(aid)
+						as = getSubtitle(aid, g.Get("data.title").Str())
 						if as == nil {
 							ctx.sendMsg("[NothingBot] [Info] 无法获取视频字幕，尝试调用BcutASR")
-							as = bcutSubtitle(aid)
+							as = bcutSubtitle(aid, g.Get("data.title").Str())
 						}
 					}
 					if as != nil {
-						as.title = g.Get("data.title").Str() //视频标题
-						archiveSubtitleTable[aid] = *as      //缓存字幕
-						ctx.sendMsg(as.glmSummary())
+						archiveSubtitleTable[aid] = as //缓存字幕
+						ctx.sendMsg(as.summary())
 					} else {
 						ctx.sendMsg("[NothingBot] [Error] 字幕转录失败力")
 					}
@@ -166,20 +165,20 @@ func parseAndFormatBiliLink(ctx gocqMessage, id string, kind string, summary boo
 		id, _ := strconv.Atoi(id)
 		g := getArticleJson(id)
 		if g.Get("code").Int() != 0 {
-			content = fmt.Sprintf("[NothingBot] [ERROR] [parse] 专栏cv%d信息获取错误: code%d", id, g.Get("code").Int())
+			content = fmt.Sprintf("[NothingBot] [Error] [parse] 专栏cv%d信息获取错误: code%d", id, g.Get("code").Int())
 		} else {
 			content = formatArticle(g.Get("data"), id) //专栏信息拿不到自身cv号
 			if summary {
 				go func(ctx gocqMessage) {
 					var at *articleText
 					if cache, hasCache := articleTextTable[id]; hasCache {
-						at = &cache
+						at = cache
 					} else {
 						at = getArticleText(id)
 					}
 					if at != nil {
-						articleTextTable[id] = *at //缓存专栏
-						ctx.sendMsg(at.glmSummary())
+						articleTextTable[id] = at //缓存专栏
+						ctx.sendMsg(at.summary())
 					} else {
 						ctx.sendMsg("[NothingBot] 文章正文获取失败力")
 					}
@@ -189,7 +188,7 @@ func parseAndFormatBiliLink(ctx gocqMessage, id string, kind string, summary boo
 	case "SPACE":
 		g := getSpaceJson(id)
 		if g.Get("code").Int() != 0 {
-			content = fmt.Sprintf("[NothingBot] [ERROR] [parse] 用户%s信息获取错误: code%d", id, g.Get("code").Int())
+			content = fmt.Sprintf("[NothingBot] [Error] [parse] 用户%s信息获取错误: code%d", id, g.Get("code").Int())
 		} else {
 			content = formatSpace(g.Get("data.card"))
 			if summary {
@@ -213,31 +212,117 @@ func parseAndFormatBiliLink(ctx gocqMessage, id string, kind string, summary boo
 					}()
 				}
 			} else {
-				content = fmt.Sprintf("[NothingBot] [ERROR] [parse] 直播间%d信息获取错误, !ok", id)
+				content = fmt.Sprintf("[NothingBot] [Error] [parse] 直播间%d信息获取错误, !ok", id)
 			}
 		} else {
-			content = fmt.Sprintf("[NothingBot] [ERROR] [parse] 直播间%d信息获取错误, uid == \"0\"", id)
+			content = fmt.Sprintf("[NothingBot] [Error] [parse] 直播间%d信息获取错误, uid == \"0\"", id)
 		}
 	}
 	return
 }
 
-// ChatGLM2总结视频
-func (as *archiveSubtitle) glmSummary() (output string) {
-	input := "总结一下这个视频《" + as.title + "》，下面是视频的字幕：\n" + as.seq
-	output, ok := sendToChatGLM(input)
-	if ok {
-		output = "由ChatGLM2-6B-int4总结的视频内容：\n" + output
+// glm, baidu
+var summaryBackend string
+
+func initParse() {
+	switch summaryBackend = v.GetString("parse.settings.summaryBackend"); summaryBackend {
+	case "glm":
+		selectedModelStr = "ChatGLM2-6B"
+	case "qianfan":
+		switch selectedModelStr = v.GetString("qianfan.model"); selectedModelStr {
+		case "ERNIE_Bot":
+			selectedModel = qianfanModels.ERNIE_Bot
+		case "ERNIE_Bot_turbo":
+			selectedModel = qianfanModels.ERNIE_Bot_turbo
+		case "BLOOMZ_7B":
+			selectedModel = qianfanModels.BLOOMZ_7B
+		case "Llama_2_7b":
+			selectedModel = qianfanModels.Llama_2_7b
+		case "Llama_2_13b":
+			selectedModel = qianfanModels.Llama_2_13b
+		case "Llama_2_70b":
+			selectedModel = qianfanModels.Llama_2_70b
+		default:
+			log.Warn("[summary] 总结使用的千帆大语言模型配置不正确，使用默认设置: ERNIE_Bot_turbo")
+			selectedModel = qianfanModels.ERNIE_Bot_turbo
+		}
+	default:
+		summaryBackend = "glm"
+		selectedModelStr = "ChatGLM2-6B"
+		log.Warn("[summary] 总结使用的语言大模型后端配置不正确，使用默认设置: ChatGLM")
+	}
+	if summaryBackend == "baidu" && v.GetString("qianfan.keys.api") == v.GetString("qianfan.keys.secret") {
+		log.Warn("[summary] 未配置千帆 api key, 使用默认设置: ChatGLM")
+		summaryBackend = "glm"
+		selectedModelStr = "ChatGLM2-6B"
+	}
+	log.Info("[summary] 内容总结使用后端: ", summaryBackend, "  模型: ", selectedModelStr)
+}
+
+// md模板
+func getPrompt(kind string, title string, seq string) string {
+	kindList := map[string]string{
+		"archive": "视频字幕",
+		"article": "专栏文章",
+	}
+	return "使用以下Markdown模板为我总结" + kindList[kind] + "数据，除非" + kindList[kind][:2] + "中的内容无意义，或者内容较少无法总结，或者未提供" + kindList[kind][:2] + "数据，或者无有效内容，你就不使用模板回复，只回复“无意义”。" +
+		"\n```Markdown" +
+		"\n## 概述" +
+		"\n{内容，尽可能精简总结内容不要太详细}" +
+		"\n## 要点" +
+		"\n- {内容不换行大于15字，可多项，条数与有效内容数量呈正比}" +
+		"\n```" +
+		"\n不要随意翻译任何内容。仅使用中文总结。" +
+		"\n不说与总结无关的其他内容，你的回复仅限固定格式提供的“概述”和“要点”两项。" +
+		"\n视频标题为《" + title + "》，视频数据如下，立刻开始总结：" +
+		"\n" + seq
+}
+
+// 总结视频
+func (as *archiveSubtitle) summary() (output string) {
+	input := getPrompt("archive", as.Title, as.seq)
+	output, err := chatModelSummary(input)
+	if err != nil {
+		output = "[NothingBot] [Error] [summary] " + err.Error()
 	}
 	return
 }
 
-// ChatGLM2总结文章
-func (at *articleText) glmSummary() (output string) {
-	input := "总结一下这篇文章《" + at.title + "》，下面是文章的正文：\n" + at.seq
-	output, ok := sendToChatGLM(input)
-	if ok {
-		output = "由ChatGLM2-6B-int4总结的视频内容：\n" + output
+// 总结文章
+func (at *articleText) summary() (output string) {
+	input := getPrompt("article", at.Title, at.seq)
+	output, err := chatModelSummary(input)
+	if err != nil {
+		output = "[NothingBot] [Error] [summary] " + err.Error()
+	}
+	return
+}
+
+// 根据config选择后端
+func chatModelSummary(input string) (output string, err error) {
+	log.Debug("[summary] backend: ", summaryBackend)
+	switch summaryBackend {
+	case "glm":
+		output, err = sendToChatGLMSingle(input)
+		output = "由" + selectedModelStr + "总结：\n" + output
+		if err != nil {
+			log.Error("[summary] ChatGLM2 err: ", err)
+		}
+	case "qianfan":
+		var overLen bool
+		if len([]rune(input)) > 1500 {
+			input = string([]rune(input)[:1499])
+			overLen = true
+		}
+		output, err = sendToWenxinSingle(input)
+		if !overLen {
+			output = "由" + selectedModelStr + "总结：\n" + output
+		} else {
+			output = "由" + selectedModelStr + "总结（原文长度超过1500字符，输入经过去尾）：\n" + output
+		}
+		if err != nil {
+			log.Error("[summary] qianfan err: ", err)
+		}
 	}
 	return
 }
@@ -269,7 +354,11 @@ func (ctx gocqMessage) isBiliLinkOverParse(id string, kind string) bool {
 		duration := int64(v.GetFloat64("parse.settings.sameParseInterval"))
 		during := time.Now().Unix()-groupParseHistory[ctx.group_id].time < duration
 		same := id == groupParseHistory[ctx.group_id].parse
-		if during && same {
+		block := during && same
+		if ctx.isSU() {
+			block = false
+		}
+		if block {
 			log.Info("[parse] 在群 ", ctx.group_id, " 屏蔽了一次小于 ", duration, " 秒的相同解析 ", kind, id)
 			return true
 		} else {
