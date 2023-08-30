@@ -224,7 +224,7 @@ func parseAndFormatBiliLink(ctx gocqMessage, id string, kind string, summary boo
 			content = fmt.Sprintf("[NothingBot] [Error] [parse] 直播间%d信息获取错误, uid == \"0\"", id)
 		}
 	}
-	if !ctx.isBiliLinkOverParse(id, kind) {
+	if ctx.isBiliLinkOverParse(id, kind) {
 		return ""
 	}
 	return
