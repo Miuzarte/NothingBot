@@ -95,7 +95,6 @@ push: #热更新
   # live: #up的直播间号，存在则监听并推送直播  int ONLY
   # user: #推送到的用户  int / []int
   # group: #推送到的群组  int / []int
-  # at: #推送到群组时消息末尾at的人  int / []int    --------（有点鸡肋，之后想想怎么改又能不用群号当键）
   # filter: #此键存在内容时仅推送包含在内的动态类型（白名单） []string
   #     - "DYNAMIC_TYPE_WORD" #文本动态（包括投票/预约）
   #     - "DYNAMIC_TYPE_DRAW" #图文动态（包括投票/预约）

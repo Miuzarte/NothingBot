@@ -41,12 +41,11 @@ var liveState = struct {
 type push struct {
 	userID  []int
 	groupID []int
-	at      string
 }
 
 // 推送消息
 func (p push) send(msg ...any) {
-	sendMsg(p.userID, p.groupID, p.at, msg...)
+	sendMsg(p.userID, p.groupID, msg...)
 }
 
 // 生成推送对象
@@ -76,14 +75,6 @@ func genPush(i int) (p push) {
 		}
 	}
 	log.Debug("[push] 推送群组: ", p.groupID)
-	atList := v.GetStringSlice(fmt.Sprint("push.list.", i, ".at"))
-	if len(atList) > 0 {
-		p.at += "\n"
-		for _, at := range atList {
-			p.at += "[CQ:at,qq=" + at + "]"
-		}
-	}
-	log.Debug("[push] at: ", atList)
 	return
 }
 

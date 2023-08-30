@@ -327,10 +327,12 @@ func initCache() {
 		if info.IsDir() {
 			return nil
 		}
-		fileData, err := os.ReadFile(path)
+		fileDataRaw, err := os.ReadFile(path)
 		if err != nil {
 			log.Error("[bilibili] read cache err: ", err.Error())
 		}
+		g := gson.New(fileDataRaw)
+		fileData := []byte(g.JSON("", ""))
 		switch info.Name()[:2] { //文件名前两个字母
 		case "av":
 			as := &archiveSubtitle{}

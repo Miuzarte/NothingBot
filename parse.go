@@ -116,6 +116,11 @@ func extractBiliLink(str string) (id string, kind string, summary bool) {
 
 // 内容解析并格式化
 func parseAndFormatBiliLink(ctx gocqMessage, id string, kind string, summary bool) (content string) {
+	if !summary { //需要总结时不检测屏蔽，到最后再清空content
+		if ctx.isBiliLinkOverParse(id, kind) {
+			return
+		}
+	}
 	switch kind {
 	case "":
 	case "SHORT":
@@ -219,6 +224,9 @@ func parseAndFormatBiliLink(ctx gocqMessage, id string, kind string, summary boo
 			content = fmt.Sprintf("[NothingBot] [Error] [parse] 直播间%d信息获取错误, uid == \"0\"", id)
 		}
 	}
+	if !ctx.isBiliLinkOverParse(id, kind) {
+		return ""
+	}
 	return
 }
 
@@ -266,7 +274,7 @@ func getPrompt(kind string, title string, seq string) string {
 		"archive": "视频字幕",
 		"article": "专栏文章",
 	}
-	return "使用以下Markdown模板为我总结" + kindList[kind] + "数据，除非" + kindList[kind][:2] + "中的内容无意义，或者内容较少无法总结，或者未提供" + kindList[kind][:2] + "数据，或者无有效内容，你就不使用模板回复，只回复“无意义”。" +
+	return "使用以下Markdown模板为我总结" + kindList[kind] + "数据，除非" + kindList[kind][:6] + "中的内容无意义，或者内容较少无法总结，或者未提供" + kindList[kind][:6] + "数据，或者无有效内容，你就不使用模板回复，只回复“无意义”。" +
 		"\n```Markdown" +
 		"\n## 概述" +
 		"\n{内容，尽可能精简总结内容不要太详细}" +
@@ -349,7 +357,7 @@ func deShortLink(slug string) (location string) {
 	return
 }
 
-// 短时间重复解析屏蔽
+// 短时间重复解析屏蔽, op:=true
 func (ctx gocqMessage) isBiliLinkOverParse(id string, kind string) bool {
 	if ctx.message_type == "group" { //只有群聊有限制
 		duration := int64(v.GetFloat64("parse.settings.sameParseInterval"))
@@ -390,9 +398,6 @@ func checkParse(ctx gocqMessage) {
 				log.Debug("[parse] 短链解析失败: ", loc)
 				return
 			}
-		}
-		if ctx.isBiliLinkOverParse(id, kind) {
-			return
 		}
 		ctx.sendMsg(parseAndFormatBiliLink(ctx, id, kind, summary))
 	}

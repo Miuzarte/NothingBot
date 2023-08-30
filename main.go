@@ -603,14 +603,14 @@ func (log2SU log2SuperUsers) Trace(msg ...any) {
 
 // 发送日志到超级用户
 var log2SU log2SuperUsers = func(msg ...any) {
-	sendMsg(suID, nil, "", msg...)
+	sendMsg(suID, nil, msg...)
 }
 
 // 批量发送消息
-func sendMsg(userID []int, groupID []int, at string, msg ...any) {
+func sendMsg(userID []int, groupID []int, msg ...any) {
 	if len(groupID) > 0 {
 		for _, group := range groupID {
-			sendGroupMsg(group, fmt.Sprint(msg...), at)
+			sendGroupMsg(group, msg...)
 		}
 	}
 	if len(userID) > 0 {
