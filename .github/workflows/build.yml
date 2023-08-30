@@ -4,7 +4,7 @@ on: [push, pull_request]
 
 env:
   COMMIT_ID: "${{ github.sha }}"
-  BINARY_PREFIX: "NothinBot_"
+  BINARY_PREFIX: "NothingBot_"
   BINARY_SUFFIX: ""
 
 jobs:
