@@ -17,6 +17,7 @@ var biliLinkRegexp = struct {
 	ARCHIVEav string
 	ARCHIVEbv string
 	ARTICLE   string
+	MUSIC     string
 	SPACE     string
 	LIVE      string
 }{
@@ -25,6 +26,7 @@ var biliLinkRegexp = struct {
 	ARCHIVEav: `(总结一下)?.*video\\?/av([0-9]{1,10})`,                                                   //9位 预留10
 	ARCHIVEbv: `(总结一下)?.*video\\?/(BV[1-9A-HJ-NP-Za-km-z]{10})`,                                      //恒定BV + 10位base58
 	ARTICLE:   `(总结一下)?.*(read\\?/cv|read\\?/mobile\\?/)([0-9]{1,9})`,                                //8位 预留9
+	MUSIC:     `(总结一下)?.*audio\\?/au([0-9]{1,10})`,                                                   //
 	SPACE:     `(总结一下)?.*space\.bilibili\.com\\?/([0-9]{1,16})`,                                      //新uid 16位
 	LIVE:      `(总结一下)?.*live\.bilibili\.com\\?/([0-9]{1,9})`,                                        //8位 预留9
 }
@@ -59,6 +61,7 @@ func extractBiliLink(str string) (id string, kind string, summary bool) {
 	av := regexp.MustCompile(biliLinkRegexp.ARCHIVEav).FindAllStringSubmatch(str, -1)
 	bv := regexp.MustCompile(biliLinkRegexp.ARCHIVEbv).FindAllStringSubmatch(str, -1)
 	cv := regexp.MustCompile(biliLinkRegexp.ARTICLE).FindAllStringSubmatch(str, -1)
+	au := regexp.MustCompile(biliLinkRegexp.MUSIC).FindAllStringSubmatch(str, -1)
 	space := regexp.MustCompile(biliLinkRegexp.SPACE).FindAllStringSubmatch(str, -1)
 	live := regexp.MustCompile(biliLinkRegexp.LIVE).FindAllStringSubmatch(str, -1)
 	log.Trace("[parse] short: ", short)
@@ -66,6 +69,7 @@ func extractBiliLink(str string) (id string, kind string, summary bool) {
 	log.Trace("[parse] av: ", av)
 	log.Trace("[parse] bv: ", bv)
 	log.Trace("[parse] cv: ", cv)
+	log.Trace("[parse] au: ", au)
 	log.Trace("[parse] space: ", space)
 	log.Trace("[parse] live: ", live)
 	sumTest := func(sumStr string) (summary bool) {
@@ -100,6 +104,11 @@ func extractBiliLink(str string) (id string, kind string, summary bool) {
 		id = cv[0][3]
 		kind = "ARTICLE"
 		summary = sumTest(cv[0][1])
+	case len(au) > 0:
+		log.Debug("[parse] 识别到一个音频, au[0][2]: ", au[0][2])
+		id = au[0][2]
+		kind = "MUSIC"
+		summary = sumTest(au[0][1])
 	case len(space) > 0:
 		log.Debug("[parse] 识别到一个用户空间, space[0][2]: ", space[0][2])
 		id = space[0][2]
@@ -169,22 +178,22 @@ func parseAndFormatBiliLink(ctx gocqMessage, id string, kind string, summary boo
 			}
 		}
 	case "ARTICLE":
-		id, _ := strconv.Atoi(id)
-		g := getArticleJson(id)
+		cvid, _ := strconv.Atoi(id)
+		g := getArticleJson(cvid)
 		if g.Get("code").Int() != 0 {
-			content = fmt.Sprintf("[NothingBot] [Error] [parse] 专栏cv%d信息获取错误: code%d", id, g.Get("code").Int())
+			content = fmt.Sprintf("[NothingBot] [Error] [parse] 专栏cv%d信息获取错误: code%d", cvid, g.Get("code").Int())
 		} else {
-			content = formatArticle(g.Get("data"), id) //专栏信息拿不到自身cv号
+			content = formatArticle(g.Get("data"), cvid) //专栏信息拿不到自身cv号
 			if summary {
 				go func(ctx gocqMessage) {
 					var at *articleText
-					if cache, hasCache := articleTextTable[id]; hasCache {
+					if cache, hasCache := articleTextTable[cvid]; hasCache {
 						at = cache
 					} else {
-						at = getArticleText(id)
+						at = getArticleText(cvid)
 					}
 					if at != nil {
-						articleTextTable[id] = at //缓存专栏
+						articleTextTable[cvid] = at //缓存专栏
 						ctx.sendMsg(at.summary())
 					} else {
 						ctx.sendMsg("[NothingBot] 文章正文获取失败力")
@@ -192,8 +201,23 @@ func parseAndFormatBiliLink(ctx gocqMessage, id string, kind string, summary boo
 				}(ctx)
 			}
 		}
+	case "MUSIC":
+		sid, _ := strconv.Atoi(id)
+		g, h, i := getMusicJson(sid)
+		if g.Get("code").Int() != 0 || h.Get("code").Int() != 0 || i.Get("code").Int() != 0 {
+			content = fmt.Sprintf("[NothingBot] [Error] [parse] 音频au%d信息获取错误: codes: %d, %d, %d", sid, g.Get("code").Int(), h.Get("code").Int(), i.Get("code").Int())
+		} else {
+			content = formatMusic(g.Get("data"), h.Get("data"), i.Get("data"))
+			if summary {
+				go func() {
+					time.Sleep(time.Second * 2)
+					ctx.sendMsg("没做")
+				}()
+			}
+		}
 	case "SPACE":
-		g := getSpaceJson(id)
+		uid, _ := strconv.Atoi(id)
+		g := getSpaceJson(uid)
 		if g.Get("code").Int() != 0 {
 			content = fmt.Sprintf("[NothingBot] [Error] [parse] 用户%s信息获取错误: code%d", id, g.Get("code").Int())
 		} else {

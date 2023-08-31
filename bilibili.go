@@ -221,8 +221,25 @@ func formatDynamic(g gson.JSON) string {
 			if g.Get("code").Int() != 0 {
 				return fmt.Sprintf("[NothingBot] [ERROR] [parse] 专栏cv%s信息获取错误: code%d", id, g.Get("code").Int())
 			}
-			content = formatArticle(g.Get("data"), cvid)
-			return
+			return formatArticle(g.Get("data"), cvid)
+		}()
+		return fmt.Sprintf(
+			`t.bilibili.com/%s
+%s：%s%s
+
+%s`,
+			id,
+			name, action, topic,
+			content)
+	case "DYNAMIC_TYPE_MUSIC":
+		music := dynamic.Get("major.music")
+		sid := music.Get("id").Int()
+		content := func() (content string) {
+			g, h, i := getMusicJson(sid)
+			if g.Get("code").Int() != 0 || h.Get("code").Int() != 0 || i.Get("code").Int() != 0 {
+				return fmt.Sprintf("[NothingBot] [ERROR] [parse] 专栏cv%s信息获取错误: code%d", id, g.Get("code").Int())
+			}
+			return formatMusic(g.Get("data"), h.Get("data"), i.Get("data"))
 		}()
 		return fmt.Sprintf(
 			`t.bilibili.com/%s
@@ -806,10 +823,105 @@ www.bilibili.com/read/cv%d`,
 		cvid)
 }
 
+// 获取音频数据.Get("data"), .Get("data"), .Get("data")
+func getMusicJson(sid int) (gson.JSON, gson.JSON, gson.JSON) {
+	musicJson, err := ihttp.New().WithUrl("https://www.bilibili.com/audio/music-service-c/web/song/info").
+		WithAddQuerys(map[string]any{"sid": sid}).WithHeaders(iheaders).
+		Get().ToGson()
+	if err != nil {
+		log.Error("[bilibili] getMusicJson().ihttp请求错误: ", err)
+	}
+	log.Trace("[bilibili] rawMusicJson: ", musicJson.JSON("", ""))
+	if musicJson.Get("code").Int() != 0 {
+		log.Error("[bilibili] 音频 ", sid, " 信息获取错误: ", musicJson.JSON("", ""))
+	}
+	tagJson, err := ihttp.New().WithUrl("https://www.bilibili.com/audio/music-service-c/web/tag/song").
+		WithAddQuerys(map[string]any{"sid": sid}).WithHeaders(iheaders).
+		Get().ToGson()
+	log.Trace("[bilibili] rawMusicTagJson: ", tagJson.JSON("", ""))
+	if tagJson.Get("code").Int() != 0 {
+		log.Error("[bilibili] 音频tag ", sid, " 信息获取错误: ", tagJson.JSON("", ""))
+	}
+	stuffJson, err := ihttp.New().WithUrl("https://www.bilibili.com/audio/music-service-c/web/member/song").
+		WithAddQuerys(map[string]any{"sid": sid}).WithHeaders(iheaders).
+		Get().ToGson()
+	log.Trace("[bilibili] rawMusicstuffJson: ", stuffJson.JSON("", ""))
+	if stuffJson.Get("code").Int() != 0 {
+		log.Error("[bilibili] 音频tag ", sid, " 信息获取错误: ", stuffJson.JSON("", ""))
+	}
+	return musicJson, tagJson, stuffJson
+}
+
+var stuffMap = map[int]string{
+	1:   "歌手",
+	2:   "作词",
+	3:   "作曲",
+	4:   "编曲",
+	5:   "后期/混音",
+	7:   "封面制作",
+	8:   "音源",
+	9:   "调音",
+	10:  "演奏",
+	11:  "乐器",
+	127: "UP主",
+}
+
+// 格式化音频.Get("data"), .Get("data"), .Get("data")
+func formatMusic(g gson.JSON, h gson.JSON, i gson.JSON) string {
+	cover := g.Get("cover").Str()       //封面
+	sid := g.Get("id").Int()            //auid
+	title := g.Get("title").Str()       //标题
+	duration := g.Get("duration").Int() //时长(s)
+	stuffs := func() (stuffs string) {  //成员列表, 职责：昵称
+		for _, a := range i.Arr() {
+			if stuffs != "" {
+				stuffs += "\n"
+			}
+			stuffs += fmt.Sprintf("%s：%s",
+				stuffMap[a.Get("type").Int()],
+				a.Get("list.0.name").Str())
+		}
+		return
+	}()
+	tags := func() (tags string) { //标签列表
+		for _, a := range h.Arr() {
+			if tags != "" {
+				tags += "、"
+			}
+			tags += a.Get("info").Str()
+		}
+		return
+	}()
+	intro := g.Get("intro").Str()             //简介
+	play := g.Get("statistic.play").Int()     //播放
+	coin := g.Get("coin_num").Int()           //投币
+	reply := g.Get("statistic.comment").Int() //评论
+	favor := g.Get("statistic.collect").Int() //收藏
+	return fmt.Sprintf(
+		`[CQ:image,file=%s]
+au%d
+%s
+时长：%s
+%s
+标签：%s
+简介：%s
+%d播放  %d投币
+%d评论  %d收藏`,
+		cover,
+		sid,
+		title,
+		timeFormat(int64(duration)),
+		stuffs,
+		tags,
+		intro,
+		play, coin,
+		reply, favor)
+}
+
 // 获取用户空间数据.Get("data.card")
-func getSpaceJson(uid string) gson.JSON {
+func getSpaceJson(uid int) gson.JSON {
 	spaceJson, err := ihttp.New().WithUrl("https://api.bilibili.com/x/web-interface/card").
-		WithAddQuery("mid", uid).WithHeaders(iheaders).
+		WithAddQuerys(map[string]any{"mid": uid}).WithHeaders(iheaders).
 		Get().ToGson()
 	if err != nil {
 		log.Error("[bilibili] getSpaceJson().ihttp请求错误: ", err)
