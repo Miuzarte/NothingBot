@@ -116,8 +116,9 @@ func extractBiliLink(str string) (id string, kind string, summary bool) {
 
 // 内容解析并格式化
 func parseAndFormatBiliLink(ctx gocqMessage, id string, kind string, summary bool) (content string) {
+	op := ctx.isBiliLinkOverParse(id, kind)
 	if !summary { //需要总结时不检测屏蔽，到最后再清空content
-		if ctx.isBiliLinkOverParse(id, kind) {
+		if op {
 			return
 		}
 	}
@@ -224,7 +225,7 @@ func parseAndFormatBiliLink(ctx gocqMessage, id string, kind string, summary boo
 			content = fmt.Sprintf("[NothingBot] [Error] [parse] 直播间%d信息获取错误, uid == \"0\"", id)
 		}
 	}
-	if ctx.isBiliLinkOverParse(id, kind) {
+	if op {
 		return ""
 	}
 	return
@@ -368,10 +369,10 @@ func (ctx gocqMessage) isBiliLinkOverParse(id string, kind string) bool {
 			block = false
 		}
 		if block {
-			log.Info("[parse] 在群 ", ctx.group_id, " 屏蔽了一次小于 ", duration, " 秒的相同解析 ", kind, id)
+			log.Info("[parse] 在群 ", ctx.group_id, " 屏蔽了一次小于 ", duration, " 秒的相同解析 ", kind, " ", id)
 			return true
 		} else {
-			log.Trace("[parse] 记录了一次在 ", ctx.group_id, " 的解析 ", id)
+			log.Debug("[parse] 记录了一次在 ", ctx.group_id, " 的解析 ", id)
 			groupParseHistory[ctx.group_id] = parseHistory{ //记录解析历史
 				parse: id,
 				time:  time.Now().Unix(),
