@@ -123,6 +123,11 @@ func extractBiliLink(str string) (id string, kind string, summary bool) {
 	return
 }
 
+type dynamicContent struct {
+	up   string
+	text string
+}
+
 // 内容解析并格式化
 func parseAndFormatBiliLink(ctx gocqMessage, id string, kind string, summary bool) (content string) {
 	op := ctx.isBiliLinkOverParse(id, kind)
@@ -143,10 +148,13 @@ func parseAndFormatBiliLink(ctx gocqMessage, id string, kind string, summary boo
 		} else {
 			content = formatDynamic(g.Get("data.item"))
 			if summary {
-				go func() {
-					time.Sleep(time.Second * 2)
-					ctx.sendMsg("动态暂时不支持总结捏")
-				}()
+				go func(ctx gocqMessage) {
+					dc := &dynamicContent{
+						up:   g.Get("data.item.modules.module_author.name").Str(),
+						text: g.Get("data.item.modules.module_dynamic.desc.text").Str(),
+					}
+					ctx.sendMsg(dc.summary())
+				}(ctx)
 			}
 		}
 	case "ARCHIVE":
@@ -162,10 +170,10 @@ func parseAndFormatBiliLink(ctx gocqMessage, id string, kind string, summary boo
 					if cache, hasCache := archiveSubtitleTable[aid]; hasCache {
 						as = cache
 					} else {
-						as = getSubtitle(aid, g.Get("data.title").Str())
+						as = getSubtitle(aid, g.Get("data.owner.name").Str(), g.Get("data.title").Str())
 						if as == nil {
 							ctx.sendMsg("[NothingBot] [Info] 无法获取视频字幕，尝试调用BcutASR")
-							as = bcutSubtitle(aid, g.Get("data.title").Str())
+							as = bcutSubtitle(aid, g.Get("data.owner.name").Str(), g.Get("data.title").Str())
 						}
 					}
 					if as != nil {
@@ -293,13 +301,14 @@ func initParse() {
 	log.Info("[summary] 内容总结使用后端: ", summaryBackend, "  模型: ", selectedModelStr)
 }
 
-// md模板
-func getPrompt(kind string, title string, seq string) string {
+// 总结模板
+func getPrompt(kind string, title string, up string, seq string) string {
 	kindList := map[string]string{
 		"archive": "视频字幕",
 		"article": "专栏文章",
+		"dynamic": "空间动态",
 	}
-	return "使用以下Markdown模板为我总结" + kindList[kind] + "数据，除非" + kindList[kind][:6] + "中的内容无意义，或者内容较少无法总结，或者未提供" + kindList[kind][:6] + "数据，或者无有效内容，你就不使用模板回复，只回复“无意义”。" +
+	return "使用以下Markdown模板为我总结" + kindList[kind] + "，除非" + kindList[kind][6:] + "中的内容无意义，或者未提供" + kindList[kind][6:] + "内容，或者内容较少无法总结，或者无有效内容，你就不使用模板回复，只回复“无意义”。" +
 		"\n```Markdown" +
 		"\n## 概述" +
 		"\n{内容，尽可能精简总结内容不要太详细}" +
@@ -308,13 +317,25 @@ func getPrompt(kind string, title string, seq string) string {
 		"\n```" +
 		"\n不要随意翻译任何内容。仅使用中文总结。" +
 		"\n不说与总结无关的其他内容，你的回复仅限固定格式提供的“概述”和“要点”两项。" +
-		"\n视频标题为《" + title + "》，视频数据如下，立刻开始总结：" +
+		func() (s string) {
+			s += "\n" + kindList[kind][:6]
+			switch kind {
+			case "archive":
+				s += "标题为《" + title + "》，"
+			case "article":
+				s += "标题为《" + title + "》，发布者为" + up + "，"
+			case "dynamic":
+				s += "发布者为" + up + "，"
+			}
+			s += kindList[kind][6:] + "数据如下，立刻开始总结："
+			return
+		}() +
 		"\n" + seq
 }
 
 // 总结视频
 func (as *archiveSubtitle) summary() (output string) {
-	input := getPrompt("archive", as.Title, as.seq)
+	input := getPrompt("archive", as.Title, as.Up, as.seq)
 	output, err := chatModelSummary(input)
 	if err != nil {
 		output = "[NothingBot] [Error] [summary] " + err.Error()
@@ -324,7 +345,17 @@ func (as *archiveSubtitle) summary() (output string) {
 
 // 总结文章
 func (at *articleText) summary() (output string) {
-	input := getPrompt("article", at.Title, at.seq)
+	input := getPrompt("article", at.Title, at.Up, at.seq)
+	output, err := chatModelSummary(input)
+	if err != nil {
+		output = "[NothingBot] [Error] [summary] " + err.Error()
+	}
+	return
+}
+
+// 总结动态
+func (dc *dynamicContent) summary() (output string) {
+	input := getPrompt("dynamic", "", dc.up, dc.text)
 	output, err := chatModelSummary(input)
 	if err != nil {
 		output = "[NothingBot] [Error] [summary] " + err.Error()

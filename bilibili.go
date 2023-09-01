@@ -488,14 +488,15 @@ func (a audioUrls) high() (bestUrl string) {
 type archiveSubtitle struct {
 	Aid      int    `json:"aid"`
 	Cid      int    `json:"cid"`
+	Up       string `json:"up"`
 	Title    string `json:"title"`
 	Result   string `json:"result"` //gson.JSON.JSON("","")
 	seq      string //不存本地
 	IsNative bool   `json:"is_native"` //真为原生字幕，假为转录字幕
 }
 
-// 获取视频原生字幕/缓存字幕, 传标题简介进来省得再请求一遍
-func getSubtitle(aid int, title string) *archiveSubtitle {
+// 获取视频原生字幕/缓存字幕, 传标题进来省得再请求一遍
+func getSubtitle(aid int, up string, title string) *archiveSubtitle {
 	if cacheAS, has := archiveSubtitleTable[aid]; has && cacheAS != nil {
 		log.Info("[bilibili] 调用缓存: av", aid)
 		return cacheAS
@@ -521,6 +522,7 @@ func getSubtitle(aid int, title string) *archiveSubtitle {
 	as := &archiveSubtitle{
 		Aid:      aid,
 		Cid:      cid,
+		Up:       up,
 		Title:    title,
 		Result:   result,
 		IsNative: true,
@@ -528,7 +530,7 @@ func getSubtitle(aid int, title string) *archiveSubtitle {
 	checkDir(transcriptSaveDir)
 	asByte, err := json.Marshal(as)
 	if err != nil {
-		log.Error("Cache Marshal err: ", err.Error())
+		log.Error("[bilibili] Cache Marshal err: ", err.Error())
 	}
 	localPath := fmt.Sprint(transcriptSaveDir, "av", aid, "_c", cid, ".json")
 	os.WriteFile(localPath, asByte, 0644) //缓存
@@ -537,7 +539,7 @@ func getSubtitle(aid int, title string) *archiveSubtitle {
 }
 
 // 调用必剪转录视频字幕
-func bcutSubtitle(aid int, title string) *archiveSubtitle {
+func bcutSubtitle(aid int, up string, title string) *archiveSubtitle {
 	checkDir(transcriptSaveDir)
 	cid := getCid(aid)
 	if cid == 0 {
@@ -554,6 +556,7 @@ func bcutSubtitle(aid int, title string) *archiveSubtitle {
 	as := &archiveSubtitle{
 		Aid:      aid,
 		Cid:      cid,
+		Up:       up,
 		Title:    title,
 		Result:   result,
 		IsNative: false,
@@ -561,7 +564,7 @@ func bcutSubtitle(aid int, title string) *archiveSubtitle {
 	checkDir(transcriptSaveDir)
 	asByte, err := json.Marshal(as)
 	if err != nil {
-		log.Error("Cache Marshal err: ", err.Error())
+		log.Error("[bilibili] Cache Marshal err: ", err.Error())
 	}
 	localPath := fmt.Sprint(transcriptSaveDir, "av", aid, "_c", cid, ".json")
 	os.WriteFile(localPath, asByte, 0644) //缓存
@@ -728,12 +731,13 @@ func getArticleJson(cvid int) gson.JSON {
 
 type articleText struct {
 	Cvid  int      `json:"cvid"`
+	Up    string   `json:"up"`
 	Title string   `json:"title"`
 	Text  []string `json:"text"`
 	seq   string   //不存本地
 }
 
-// 获取专栏标题、正文
+// 获取专栏作者、标题、正文
 func getArticleText(cvid int) *articleText {
 	if cacheAT, has := articleTextTable[cvid]; has && cacheAT != nil {
 		log.Info("[bilibili] 调用缓存: cv", cvid)
@@ -750,7 +754,8 @@ func getArticleText(cvid int) *articleText {
 		log.Error("[bilibili] 专栏解析失败 ", err)
 		return nil
 	}
-	title := doc.Find("h1.title").First().Text()
+	title := strings.TrimSpace(doc.Find("h1.title").First().Text())
+	up := strings.TrimSpace(doc.Find("a.up-name").First().Text())
 	main := doc.Find("#read-article-holder")
 	text := []string{}
 	main.Find("p, h1, h2, h3, h4, h5, h6").Each(func(_ int, el *goquery.Selection) {
@@ -761,6 +766,7 @@ func getArticleText(cvid int) *articleText {
 	})
 	at := &articleText{
 		Cvid:  cvid,
+		Up:    up,
 		Title: title,
 		Text:  text,
 	}
