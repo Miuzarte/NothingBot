@@ -360,6 +360,7 @@ func postHandler(rawPost string) {
 			}
 		}
 		go func(msg gocqMessage) {
+			go checkCookie(msg)
 			go checkCorpus(msg)
 			go checkParse(msg)
 			go checkSearch(msg)
@@ -368,6 +369,7 @@ func postHandler(rawPost string) {
 			go checkInfo(msg)
 			go checkBotInternal(msg)
 			go checkSetu(msg)
+			go checkPixiv(msg)
 		}(msg)
 	case "message_sent":
 		log.Info("[gocq] 发出了一条消息")

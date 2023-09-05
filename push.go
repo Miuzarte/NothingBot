@@ -78,6 +78,16 @@ func genPush(i int) (p push) {
 	return
 }
 
+// 管理员私聊更新cookie
+func checkCookie(ctx gocqMessage) {
+	match := ctx.regexpMustCompile(`(设置|set)(饼干|cookie)(.*)`)
+	if len(match) > 0 && ctx.isPrivateSU() {
+		cookie = match[0][3]
+		ctx.sendMsg("[bilibili] 设置cookie成功")
+		ctx.sendMsg(cookie)
+	}
+}
+
 // 初始化推送
 func initPush() {
 	dynamicCheckDuration = time.Millisecond * time.Duration(v.GetFloat64("push.settings.dynamicUpdateInterval")*1000)

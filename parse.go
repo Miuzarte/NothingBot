@@ -309,12 +309,10 @@ func getPrompt(kind string, title string, up string, seq string) string {
 		"dynamic": "空间动态",
 	}
 	return "使用以下Markdown模板为我总结" + kindList[kind] + "，除非" + kindList[kind][6:] + "中的内容无意义，或者未提供" + kindList[kind][6:] + "内容，或者内容较少无法总结，或者无有效内容，你就不使用模板回复，只回复“无意义”。" +
-		"\n```Markdown" +
 		"\n## 概述" +
 		"\n{内容，尽可能精简总结内容不要太详细}" +
 		"\n## 要点" +
 		"\n- {内容不换行大于15字，可多项，条数与有效内容数量呈正比}" +
-		"\n```" +
 		"\n不要随意翻译任何内容。仅使用中文总结。" +
 		"\n不说与总结无关的其他内容，你的回复仅限固定格式提供的“概述”和“要点”两项。" +
 		func() (s string) {

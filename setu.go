@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"math/rand"
 	"regexp"
@@ -101,8 +102,8 @@ func checkSetu(ctx gocqMessage) {
 				Tag:  reqTag,
 				Size: []string{"original", "regular"},
 			}
-			results, errMsg := setu.get()
-			if errMsg == "" {
+			results, err := setu.get()
+			if err == nil {
 				resultsCount := len(results)
 				content := []string{fmt.Sprintf("r18: %t\nnum: %d\ntag: %v", func() bool {
 					if reqR18 == 0 {
@@ -123,26 +124,29 @@ func checkSetu(ctx gocqMessage) {
 				})
 				ctx.sendForwardMsg(forwardNode)
 			} else {
-				ctx.sendMsg(errMsg)
+				ctx.sendMsg(err.Error())
 			}
 		}
 	}
 }
 
-func (param setu) get() (results []string, errMsg string) {
+func (param setu) get() (results []string, err error) {
 	postData, _ := json.Marshal(param)
 	log.Debug("[setu] 请求setu: ", param)
 	setu, err := ihttp.New().WithUrl("https://api.lolicon.app/setu/v2").
 		WithHeader("Content-Type", "application/json").
 		WithBody(postData).Post().ToGson()
 	if err != nil {
-		errMsg += fmt.Sprint("[setu] getSetu().ihttp请求错误: ", err)
-		log.Error(errMsg)
+		err = errors.New("[setu] getSetu().ihttp请求错误: " + err.Error())
+		log.Error(err)
 	} else if setu.Get("error").Str() != "" && setu.Get("error").Str() != "<nil>" {
-		errMsg += fmt.Sprint("[setu] getSetu().ihttp响应错误: ", setu.Get("error").Str())
-		log.Error(errMsg)
+		err = errors.New("[setu] getSetu().ihttp响应错误: " + setu.Get("error").Str())
+		log.Error(err)
 	}
 	data, _ := setu.Gets("data")
+	if len(data.Arr()) == 0 {
+		return []string{}, errors.New("[NothingBot] [setu] 没有符合该条件的色图")
+	}
 	for _, g := range data.Arr() {
 		urlOriginal := g.Get("urls.original").Str()
 		urlRegular := g.Get("urls.regular").Str()
