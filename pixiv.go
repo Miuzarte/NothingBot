@@ -30,21 +30,11 @@ func checkPixiv(ctx gocqMessage) {
 			ctx.sendMsgReply("[pixiv] 获取图片数量失败\n", err.Error())
 			return
 		}
-		images := []string{}
-		if p.num == 1 {
-			images = append(images, fmt.Sprint("[CQ:image,file=", pUrl["re"], p.pid, ".jpg]"))
-		} else {
-			for i := 0; i < p.num; i++ {
-				images = append(images, fmt.Sprint("[CQ:image,file=", pUrl["re"], p.pid, "-", i+1, ".jpg]"))
-			}
-		}
-		forwardNode := appendForwardNode([]map[string]any{}, gocqNodeData{
+		content := []string{fmt.Sprint("在 pixiv.net/i/", p.pid, " 下共有 ", p.num, " 张图片")}
+		content = append(content, p.getPicUrl()...)
+		ctx.sendForwardMsg(appendForwardNode([]map[string]any{}, gocqNodeData{
 			uin:     ctx.user_id,
-			content: []string{fmt.Sprint(p.pid, "下共", p.num, "张图片")},
-		})
-		ctx.sendForwardMsg(appendForwardNode(forwardNode, gocqNodeData{
-			uin:     ctx.user_id,
-			content: images,
+			content: content,
 		}))
 	}
 }
@@ -66,4 +56,16 @@ func (p *pixiv) getPicNum() (*pixiv, error) {
 		}
 	}
 	return p, err
+}
+
+// 生成url
+func (p *pixiv) getPicUrl() (images []string) {
+	if p.num == 1 {
+		images = append(images, fmt.Sprint("[CQ:image,file=", pUrl["re"], p.pid, ".jpg]"))
+	} else {
+		for i := 0; i < p.num; i++ {
+			images = append(images, fmt.Sprint("[CQ:image,file=", pUrl["re"], p.pid, "-", i+1, ".jpg]"))
+		}
+	}
+	return
 }

@@ -92,7 +92,7 @@ func checkSetu(ctx gocqMessage) {
 		log.Debug("[setu] reqTag: ", reqTag)
 
 		if !numOK {
-			ctx.sendMsg("[setu] 请在1-20之间选择数量")
+			ctx.sendMsgReply("[setu] 请在1-20之间选择数量")
 			return
 		} else {
 			var forwardNode []map[string]any

@@ -96,6 +96,7 @@ var (
 	gocqConn           *websocket.Conn        //
 	mainBlock          = make(chan os.Signal) //main阻塞
 	tempBlock          = make(chan struct{})  //其他阻塞 热更新时重置
+	dynamicBlock       = false
 	logLever           = DebugLevel           //日志等级
 	configPath         = ""                   //配置路径
 	v                  = viper.New()          //配置体
@@ -463,20 +464,20 @@ func (g gocqMessage) unescape() gocqMessage {
 
 // 具体化回复，go-cqhttp.extra-reply-data: true时不必要，但是开了那玩意又会导致回复带上原文又触发一遍机器人
 func (ctx gocqMessage) entityReply() (messageWithReply string) {
-	match := ctx.regexpMustCompile(`\[CQ:reply,id=(.*)]`)
+	match := ctx.regexpMustCompile(`\[CQ:reply,id=(-?.*)]`)
 	if len(match) > 0 {
 		replyid_str := match[0][1]
 		replyid_int, _ := strconv.Atoi(replyid_str)
 		replyMsg := gocqMessage{}
-		var reply string
 		switch ctx.message_type {
 		case "group":
 			replyMsg = msgTableGroup[ctx.group_id][replyid_int]
 		case "private":
 			replyMsg = msgTableFriend[ctx.user_id][replyid_int]
 		}
-		reply = fmt.Sprint("[CQ:reply,qq=", replyMsg.user_id, ",time=", replyMsg.time, ",text=", replyMsg.message, "]")
+		reply := fmt.Sprint("[CQ:reply,qq=", replyMsg.user_id, ",time=", replyMsg.time, ",text=", replyMsg.message, "]")
 		messageWithReply = strings.ReplaceAll(ctx.message, match[0][0], reply)
+		log.Debug("[main] 具体化回复了这条消息, reply: ", reply)
 	} else {
 		messageWithReply = ctx.message
 	}
@@ -891,12 +892,21 @@ func main() {
 		initCount++
 		initConfig()
 		initModules()
+		log.Info("[main] dynamicBlock: ", dynamicBlock)
 		if dynamicBlock {
 			tempBlock <- struct{}{} //解除临时阻塞
 			dynamicBlock = false
 		}
 	})
 	exitJobs()
+}
+
+func temporaryBlock(info string) {
+	log.Info("[main] temporaryBlock: ", info)
+	select {
+	case <-tempBlock:
+		log.Info("[main] temporaryBlock released: ", info)
+	}
 }
 
 // 结束运行前报告

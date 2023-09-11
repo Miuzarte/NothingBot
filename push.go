@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"regexp"
 	"strconv"
 
 	"time"
@@ -13,6 +14,8 @@ import (
 
 var (
 	cookie               string
+	cookieBuvid          string
+	cookieUid            int
 	dynamicCheckDuration time.Duration
 	dynamicHistrory      = make(map[string]string)
 	liveList             = make(map[int]liveInfo) // roomid : liveInfo
@@ -78,29 +81,82 @@ func genPush(i int) (p push) {
 	return
 }
 
+func extractUid(c string) (uid int) {
+	//DedeUserID=59442895;
+	match := regexp.MustCompile(`DedeUserID=([0-9]+);`).FindAllStringSubmatch(c, -1)
+	if len(match) > 0 {
+		if uidS := match[0][1]; len(uidS) != 0 {
+			uid, _ = strconv.Atoi(uidS)
+		}
+	}
+	return
+}
+
+// _uuid=91F87C44-8B65-64C4-296C-B102F459941CF05635infoc;
+func extractBuvid(c string) (bvuid string) {
+	match := regexp.MustCompile(`_uuid=(.+);`).FindAllStringSubmatch(c, -1)
+	if len(match) > 0 {
+		if b := match[0][1]; len(b) != 0 {
+			bvuid = b
+		}
+	}
+	return
+}
+
 // 管理员私聊更新cookie
 func checkCookie(ctx gocqMessage) {
-	match := ctx.regexpMustCompile(`(设置|set)(饼干|cookie)(.*)`)
-	if len(match) > 0 && ctx.isPrivateSU() {
-		cookie = match[0][3]
-		ctx.sendMsg("[bilibili] 设置cookie成功")
-		ctx.sendMsg(cookie)
+	if !ctx.isPrivateSU() {
+		return
+	}
+	match := ctx.regexpMustCompile(`(设置|set)\s*(饼干|cookie)\s*(.*)`)
+	if len(match) > 0 {
+		if c := match[0][3]; len(c) != 0 {
+			cookie = c
+			ctx.sendMsg("[bilibili] 设置cookie成功\ncookie: ", cookie)
+		} else {
+			ctx.sendMsg("[bilibili] 设置cookie失败\nmatch: ", match)
+		}
+	}
+	if cookieUid = extractUid(cookie); cookieUid != 0 {
+		ctx.sendMsg("[bilibili] uid获取成功\nuid: ", cookieUid)
+	} else {
+		ctx.sendMsg("[bilibili] uid获取失败")
+	}
+	if cookieBuvid = extractBuvid(cookie); cookieBuvid != "" {
+		ctx.sendMsg("[bilibili] buvid获取成功\nbuvid: ", cookieBuvid)
+	} else {
+		ctx.sendMsg("[bilibili] buvid获取失败")
 	}
 }
 
 // 初始化推送
 func initPush() {
 	dynamicCheckDuration = time.Millisecond * time.Duration(v.GetFloat64("push.settings.dynamicUpdateInterval")*1000)
-	cookie = v.GetString("push.settings.cookie")
-	log.Trace("[push] cookie:\n", cookie)
-	if cookie == "" || cookie == "<nil>" {
-		log.Warn("[push] 未配置cookie!")
-	} else {
-		if initCount == 0 {
-			go dynamicMonitor()
+	if cookie = v.GetString("push.settings.cookie"); len(cookie) != 0 {
+		log.Trace("[bilibili] cookie:\n", cookie)
+		if cookieChecker() {
+			if cookieUid = extractUid(cookie); cookieUid != 0 {
+				log.Info("[bilibili] cookie所属uid: ", cookieUid)
+			} else {
+				log.Warn("[bilibili] uid识别失败! 请确保cookie完整")
+			}
+			if cookieBuvid = extractBuvid(cookie); cookieBuvid != "" {
+				log.Info("[bilibili] cookie buvid: ", cookieBuvid)
+				if initCount == 0 {
+					go initLive() //弹幕监听需要buvid
+				}
+			} else {
+				log.Warn("[bilibili] buvid识别失败! 将不监听直播推送")
+			}
+			if initCount == 0 {
+				go dynamicMonitor()
+			}
+		} else {
+			log.Warn("[bilibili] cookie无效! 不进行推送监听")
 		}
+	} else {
+		log.Warn("[bilibili] 未配置cookie! 不进行推送监听")
 	}
-	go initLive()
 }
 
 // 初始化直播监听并建立连接
@@ -230,8 +286,6 @@ func cookieChecker() bool {
 	}
 }
 
-var dynamicBlock bool
-
 // 监听动态流
 func dynamicMonitor() {
 	var (
@@ -252,7 +306,7 @@ func dynamicMonitor() {
 			if !cookieChecker() {
 				dynamicBlock = true
 				failureCount = 0
-				<-tempBlock
+				temporaryBlock("!cookieChecker()")
 			}
 			failureCount++
 			if failureCount >= 10 {
@@ -260,7 +314,7 @@ func dynamicMonitor() {
 				log2SU.Error(fmt.Sprint("[push] 连续更新失败 ", failureCount, " 次，暂停拉取动态更新"))
 				dynamicBlock = true
 				failureCount = 0
-				<-tempBlock
+				temporaryBlock("failureCount >= 10")
 			}
 			duration := time.Duration(time.Second * time.Duration(failureCount) * 30)
 			log.Error("[push] 获取更新失败 ", failureCount, " 次, 将在 ", duration, " 后重试")

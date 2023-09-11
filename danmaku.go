@@ -264,6 +264,7 @@ func (p *Packet) Build() []byte {
 
 type Enter struct {
 	UID       int    `json:"uid"`
+	Bvuid     string `json:"bvuid"`
 	RoomID    int    `json:"roomid"`
 	ProtoVer  int    `json:"protover"`
 	Platform  string `json:"platform"`
@@ -275,8 +276,9 @@ type Enter struct {
 func NewEnterPacket(uid int, roomID int, key string) []byte {
 	ent := &Enter{
 		UID:       uid,
+		Bvuid:     cookieBuvid,
 		RoomID:    roomID,
-		ProtoVer:  2,
+		ProtoVer:  3,
 		Platform:  "web",
 		ClientVer: "1.14.3",
 		Type:      2,
