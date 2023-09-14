@@ -371,6 +371,7 @@ func postHandler(rawPost string) {
 			go checkBotInternal(msg)
 			go checkSetu(msg)
 			go checkPixiv(msg)
+			go checkBertVITS2(msg)
 		}(msg)
 	case "message_sent":
 		log.Info("[gocq] 发出了一条消息")

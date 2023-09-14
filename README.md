@@ -117,6 +117,14 @@ GLM2在int4量化的情况下也足以用于总结内容
 
 `[看康k]{2}([Pp]|[Pp]站|[Pp][Ii][Dd]|[Pp][Ii][Xx][Ii][Vv])([0-9]+)`
 
+### BertVITS2
+
+简单写了个[Bert-VITS2](https://github.com/Stardust-minus/Bert-VITS2)的接口[api.py](./apiForBertVITS2/api.py)
+
+因为手上的模型几乎是项目初版的，所以这个接口也是在旧版的基础上写的
+
+~~还把触发正则写死成了`让岁己说(.+)`~~
+
 ### 启动参数
 
 **可选：**
