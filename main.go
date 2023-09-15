@@ -114,43 +114,41 @@ var (
 		"&amp;", "&", "&#44;", ",", "&#91;", "[", "&#93;", "]")
 	msgTableGroup  = make(map[int]map[int]gocqMessage) //group_id:msg_id:msg
 	msgTableFriend = make(map[int]map[int]gocqMessage) //user_id:msg_id:msg
+	timeLayout     = struct {
+		L24  string
+		L24C string
+		M24  string
+		M24C string
+		S24  string
+		S24C string
+		T24  string
+		T24C string
+	}{
+		L24:  "2006/01/02 15:04:05",
+		L24C: "2006年01月02日15时04分05秒",
+		M24:  "01/02 15:04:05",
+		M24C: "01月02日15时04分05秒",
+		S24:  "02 15:04:05",
+		S24C: "02日15时04分05秒",
+		T24:  "15:04:05",
+		T24C: "15时04分05秒",
+	}
+	iheaders = map[string]string{
+		"Accept":             "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7",
+		"Accept-Language":    "zh-CN,zh;q=0.9,en;q=0.8,en-GB;q=0.7,en-US;q=0.6",
+		"Dnt":                "1",
+		"Origin":             "https://www.bilibili.com",
+		"Referer":            "https://www.bilibili.com/",
+		"Sec-Ch-Ua":          "\"Not/A)Brand\";v=\"24\", \"Microsoft Edge\";v=\"116\", \"Chromium\";v=\"116\"",
+		"Sec-Ch-Ua-Mobile":   "?0",
+		"Sec-Ch-Ua-Platform": "\"Windows\"",
+		"Sec-Fetch-Dest":     "document",
+		"Sec-Fetch-Mode":     "navigate",
+		"Sec-Fetch-Site":     "none",
+		"Sec-Fetch-User":     "?1",
+		"User-Agent":         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/116.0.0.0 Safari/537.36 Edg/116.0.1938.62",
+	}
 )
-
-var timeLayout = struct {
-	L24  string
-	L24C string
-	M24  string
-	M24C string
-	S24  string
-	S24C string
-	T24  string
-	T24C string
-}{
-	L24:  "2006/01/02 15:04:05",
-	L24C: "2006年01月02日15时04分05秒",
-	M24:  "01/02 15:04:05",
-	M24C: "01月02日15时04分05秒",
-	S24:  "02 15:04:05",
-	S24C: "02日15时04分05秒",
-	T24:  "15:04:05",
-	T24C: "15时04分05秒",
-}
-
-var iheaders = map[string]string{
-	"Accept":             "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7",
-	"Accept-Language":    "zh-CN,zh;q=0.9,en;q=0.8,en-GB;q=0.7,en-US;q=0.6",
-	"Dnt":                "1",
-	"Origin":             "https://www.bilibili.com",
-	"Referer":            "https://www.bilibili.com/",
-	"Sec-Ch-Ua":          "\"Not/A)Brand\";v=\"24\", \"Microsoft Edge\";v=\"116\", \"Chromium\";v=\"116\"",
-	"Sec-Ch-Ua-Mobile":   "?0",
-	"Sec-Ch-Ua-Platform": "\"Windows\"",
-	"Sec-Fetch-Dest":     "document",
-	"Sec-Fetch-Mode":     "navigate",
-	"Sec-Fetch-Site":     "none",
-	"Sec-Fetch-User":     "?1",
-	"User-Agent":         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/116.0.0.0 Safari/537.36 Edg/116.0.1938.62",
-}
 
 type gocqHeartbeat struct {
 	self_id  int
@@ -578,7 +576,7 @@ func sendPrivateForwardMsg(user_id int, forwardNode []map[string]any) {
 type log2SuperUsers func(...any)
 
 func (log2SU log2SuperUsers) Panic(msg ...any) {
-	log2SU("[Panic] ", fmt.Sprint(msg...))
+	log2SU("[NothingBot] [Panic] ", fmt.Sprint(msg...))
 }
 
 func (log2SU log2SuperUsers) Fatal(msg ...any) {
@@ -724,20 +722,14 @@ func (ctx gocqMessage) isPrivateSU() bool {
 func (ctx gocqMessage) isToMe() bool {
 	atMe := func() bool {
 		match := ctx.regexpMustCompile(fmt.Sprintf(`\[CQ:at,qq=%d]`, selfID))
-		if len(match) > 0 {
-			return true
-		}
-		return false
+		return len(match) > 0
 	}()
 	callMe := func() bool {
 		if botName == "" {
 			return false
 		}
 		match := ctx.regexpMustCompile(botName)
-		if len(match) > 0 {
-			return true
-		}
-		return false
+		return len(match) > 0
 	}()
 	return atMe || callMe || ctx.isPrivate() //私聊永远都是
 }
@@ -748,6 +740,20 @@ func (ctx gocqMessage) getCardOrNickname() string {
 		return ctx.sender_card
 	}
 	return ctx.sender_nickname
+}
+
+// 获取消息
+func (ctx gocqMessage) getMsgFromId(msgId int) (msg gocqMessage) {
+	if msgId == 0 {
+		return
+	}
+	switch ctx.message_type {
+	case "private":
+		return msgTableFriend[ctx.user_id][msgId]
+	case "group":
+		return msgTableGroup[ctx.group_id][msgId]
+	}
+	return
 }
 
 // 快捷添加合并转发消息
@@ -916,9 +922,14 @@ func exitJobs() {
 	select {
 	case <-mainBlock:
 		runTime := timeFormat(time.Now().Unix() - startTime)
-		log2SU.Info("[exit] 已下线", "\n此次运行时长：", runTime, "\n心跳包接收计数：", heartbeatCount, "\n心跳包丢失计数：", heartbeatLostCount)
-		log.Info("[exit] 本次运行时长: ", runTime)
+		log2SU.Info("[exit] 已下线",
+			"\n此次运行时长：", runTime,
+			"\n心跳包接收计数：", heartbeatCount,
+			"\n心跳包丢失计数：", heartbeatLostCount,
+			"\ngo-cqhttp重连计数", reconnectCount)
+		log.Info("[exit] 此次运行时长: ", runTime)
 		log.Info("[exit] 心跳包接收计数: ", heartbeatCount)
 		log.Info("[exit] 心跳包丢失计数: ", heartbeatLostCount)
+		log.Info("[exit] go-cqhttp重连计数", reconnectCount)
 	}
 }

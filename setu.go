@@ -48,7 +48,7 @@ func checkSetu(ctx gocqMessage) {
 		var numOK bool
 		reqR18 := 0
 		reqNum := 1
-		reqTag := []string{}
+		var reqTag []string
 		r18 := match[0][3] + match[0][6]
 		if r18 != "" {
 			reqR18 = 1
@@ -106,10 +106,7 @@ func checkSetu(ctx gocqMessage) {
 			if err == nil {
 				resultsCount := len(results)
 				content := []string{fmt.Sprintf("r18: %t\nnum: %d\ntag: %v", func() bool {
-					if reqR18 == 0 {
-						return false
-					}
-					return true
+					return reqR18 != 0
 				}(), reqNum, reqTag)}
 				content = append(content, func() (head string) {
 					head += fmt.Sprint("在 api.lolicon.app/setu/v2 根据以上条件搜索到了", resultsCount, "张setu")

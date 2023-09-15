@@ -64,6 +64,11 @@ corpus: #热更新
       - 彳亍
       - "[CQ:reply,qq=2854196306,text=000]333"
     scene: "all"
+bertVits: #热更新
+  whiteList:
+    private:
+    group:
+      - 658359592
 qianfan: #热更新
   #https://cloud.baidu.com/doc/WENXINWORKSHOP/s/Nlks5zkzu
   #留空fallback至glm

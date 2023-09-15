@@ -116,16 +116,16 @@ func checkCookie(ctx gocqMessage) {
 		} else {
 			ctx.sendMsg("[bilibili] 设置cookie失败\nmatch: ", match)
 		}
-	}
-	if cookieUid = extractUid(cookie); cookieUid != 0 {
-		ctx.sendMsg("[bilibili] uid获取成功\nuid: ", cookieUid)
-	} else {
-		ctx.sendMsg("[bilibili] uid获取失败")
-	}
-	if cookieBuvid = extractBuvid(cookie); cookieBuvid != "" {
-		ctx.sendMsg("[bilibili] buvid获取成功\nbuvid: ", cookieBuvid)
-	} else {
-		ctx.sendMsg("[bilibili] buvid获取失败")
+		if cookieUid = extractUid(cookie); cookieUid != 0 {
+			ctx.sendMsg("[bilibili] uid获取成功\nuid: ", cookieUid)
+		} else {
+			ctx.sendMsg("[bilibili] uid获取失败")
+		}
+		if cookieBuvid = extractBuvid(cookie); cookieBuvid != "" {
+			ctx.sendMsg("[bilibili] buvid获取成功\nbuvid: ", cookieBuvid)
+		} else {
+			ctx.sendMsg("[bilibili] buvid获取失败")
+		}
 	}
 }
 

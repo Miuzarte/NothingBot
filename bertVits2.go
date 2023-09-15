@@ -4,8 +4,10 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
+	"strconv"
 	"strings"
 
 	"github.com/moxcomic/ihttp"
@@ -38,7 +40,7 @@ func (p *bertVitsPost) post() (*bertVitsResp, error) {
 		log.Error("[BertVITS2] ihttp error: ", err)
 		return nil, err
 	}
-	log.Trace("resp: ", resp)
+	log.Debug("[BertVITS2] resp: ", resp)
 	r := &bertVitsResp{}
 	json.Unmarshal([]byte(resp), r)
 	return r, nil
@@ -57,10 +59,10 @@ func bertVits2TTS(intput string) (output string, err error) {
 		return "", errors.New(resp.Error)
 	}
 	if resp.Code != 0 {
-		return "", errors.New("TTS FAILED!")
+		return "", errors.New("TTS FAILED")
 	}
 	if resp.Output == "" {
-		return "", errors.New("OUTPUT IS EMPTY!")
+		return "", errors.New("OUTPUT IS EMPTY")
 	}
 	return resp.Output, nil
 }
@@ -77,13 +79,34 @@ func wav2amr(wav []byte) (amr []byte, err error) {
 }
 
 func checkBertVITS2(ctx gocqMessage) {
-	match := ctx.regexpMustCompile(`让岁己说(.+)`)
+	match := ctx.regexpMustCompile(`(?s)(\[CQ:reply,id=(-?.*)].*)?让岁己(说|复述)(.*)`)
 	if len(match) > 0 {
-		if !ctx.isSU() {
-			ctx.sendMsgReply("需要主人权限捏")
+		isInWhite := func() (is bool) {
+			for i := 0; i < len(v.GetStringSlice("bertVits.whiteList.group")); i++ { //群聊黑名单
+				if ctx.group_id == v.GetInt(fmt.Sprint("bertVits.whiteList.group.", i)) {
+					return true
+				}
+			}
+			for i := 0; i < len(v.GetStringSlice("bertVits.whiteList.private")); i++ { //私聊黑名单
+				if ctx.user_id == v.GetInt(fmt.Sprint("bertVits.whiteList.private.", i)) {
+					return true
+				}
+			}
+			return false
+		}()
+		if !ctx.isSU() && !isInWhite {
+			ctx.sendMsg("[BertVITS2] 岁己TTS需要主人权限捏")
 			return
 		}
-		text := match[0][1]
+		text := match[0][4]
+		reply := match[0][2]
+		replyId, _ := strconv.Atoi(reply)
+		if reply != "" { //复述回复时无视内容
+			text = ctx.getMsgFromId(replyId).message
+		}
+		log.Debug("text: ", text)
+		log.Debug("reply: ", reply)
+		log.Debug("replyId: ", replyId)
 		out, err := bertVits2TTS(text)
 		if err != nil {
 			ctx.sendMsgReply("[BertVITS2] 出现错误：", err.Error())
@@ -99,7 +122,6 @@ func checkBertVITS2(ctx gocqMessage) {
 			ctx.sendMsgReply("[BertVITS2] 出现错误：", err.Error())
 			return
 		}
-		amrB64 := base64.StdEncoding.EncodeToString(amr)
-		ctx.sendMsg("[CQ:record,file=base64://" + amrB64 + "]")
+		ctx.sendMsg("[CQ:record,file=base64://" + base64.StdEncoding.EncodeToString(amr) + "]")
 	}
 }

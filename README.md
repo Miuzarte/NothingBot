@@ -121,9 +121,11 @@ GLM2在int4量化的情况下也足以用于总结内容
 
 简单写了个[Bert-VITS2](https://github.com/Stardust-minus/Bert-VITS2)的接口[api.py](./apiForBertVITS2/api.py)
 
+需要PATH存在ffmpeg，用于wav转amr
+
 因为手上的模型几乎是项目初版的，所以这个接口也是在旧版的基础上写的
 
-~~还把触发正则写死成了`让岁己说(.+)`~~
+~~还把触发正则写死成了 让岁己说xxx~~
 
 ### 启动参数
 
@@ -133,15 +135,7 @@ GLM2在int4量化的情况下也足以用于总结内容
 
 ### TODO:
 
-1. [ ] 卡拉彼丘，启动！
-
-110. [ ] 摸鱼
-
-111. [x] 哔哩视频、文章内容总结（ChatGLM2）
-
-112. [x] 无字幕的视频上传至必剪转录文本
-
-999. [ ] ~~推送at优化、at全体成员~~（没啥用，不如直接私聊推）
+不知道还能写什么
 
 [@moxcomic](https://github.com/moxcomic) :
 

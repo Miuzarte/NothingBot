@@ -21,14 +21,14 @@ var biliLinkRegexp = struct {
 	SPACE     string
 	LIVE      string
 }{
-	SHORT:     `(总结一下)?.*(b23|acg)\.tv\\?/(BV[1-9A-HJ-NP-Za-km-z]{10}|av[0-9]{1,10}|[0-9A-Za-z]{7})`, //暂时应该只有7位  也有可能是av/bv号
-	DYNAMIC:   `(总结一下)?.*(t.bilibili.com|dynamic|opus)\\?/([0-9]{18,19})`,                            //应该不会有17位的，可能要有19位
-	ARCHIVEav: `(总结一下)?.*video\\?/av([0-9]{1,10})`,                                                   //9位 预留10
-	ARCHIVEbv: `(总结一下)?.*video\\?/(BV[1-9A-HJ-NP-Za-km-z]{10})`,                                      //恒定BV + 10位base58
-	ARTICLE:   `(总结一下)?.*(read\\?/cv|read\\?/mobile\\?/)([0-9]{1,9})`,                                //8位 预留9
-	MUSIC:     `(总结一下)?.*audio\\?/au([0-9]{1,10})`,                                                   //
-	SPACE:     `(总结一下)?.*space\.bilibili\.com\\?/([0-9]{1,16})`,                                      //新uid 16位
-	LIVE:      `(总结一下)?.*live\.bilibili\.com\\?/([0-9]{1,9})`,                                        //8位 预留9
+	SHORT:     `(总结一下\s?)?.*(b23|acg)\.tv\\?/(BV[1-9A-HJ-NP-Za-km-z]{10}|av[0-9]{1,10}|[0-9A-Za-z]{7})`, //暂时应该只有7位  也有可能是av/bv号
+	DYNAMIC:   `(总结一下\s?)?.*(t.bilibili.com|dynamic|opus)\\?/([0-9]{18,19})`,                            //应该不会有17位的，可能要有19位
+	ARCHIVEav: `(总结一下\s?)?.*video\\?/av([0-9]{1,10})`,                                                   //9位 预留10
+	ARCHIVEbv: `(总结一下\s?)?.*video\\?/(BV[1-9A-HJ-NP-Za-km-z]{10})`,                                      //恒定BV + 10位base58
+	ARTICLE:   `(总结一下\s?)?.*(read\\?/cv|read\\?/mobile\\?/)([0-9]{1,9})`,                                //8位 预留9
+	MUSIC:     `(总结一下\s?)?.*audio\\?/au([0-9]{1,10})`,                                                   //
+	SPACE:     `(总结一下\s?)?.*space\.bilibili\.com\\?/([0-9]{1,16})`,                                      //新uid 16位
+	LIVE:      `(总结一下\s?)?.*live\.bilibili\.com\\?/([0-9]{1,9})`,                                        //8位 预留9
 }
 
 var everyBiliLinkRegexp = func() (everyBiliLinkRegexp string) {
@@ -308,11 +308,12 @@ func getPrompt(kind string, title string, up string, seq string) string {
 		"article": "专栏文章",
 		"dynamic": "空间动态",
 	}
-	return "使用以下Markdown模板为我总结" + kindList[kind] + "，除非" + kindList[kind][6:] + "中的内容无意义，或者未提供" + kindList[kind][6:] + "内容，或者内容较少无法总结，或者无有效内容，你就不使用模板回复，只回复“无意义”。" +
+	//return "使用以下Markdown模板为我总结" + kindList[kind] + "，除非" + kindList[kind][6:] + "中的内容无意义，或者未提供" + kindList[kind][6:] + "内容，或者内容较少无法总结，或者无有效内容，你就不使用模板回复，只回复“无意义”。" +
+	return "使用以下Markdown模板为我总结" + kindList[kind] + "，除非内容较少无法总结，或者无有效内容，你就不使用模板回复，只回复“无意义”。" +
 		"\n## 概述" +
-		"\n{内容，尽可能精简总结内容不要太详细}" +
+		"\n{尽可能精简总结内容不要太详细}" +
 		"\n## 要点" +
-		"\n- {内容不换行大于15字，可多项，条数与有效内容数量呈正比}" +
+		"\n- {不换行、大于15字、可多项、条数与有效内容数量呈正比}" +
 		"\n不要随意翻译任何内容。仅使用中文总结。" +
 		"\n不说与总结无关的其他内容，你的回复仅限固定格式提供的“概述”和“要点”两项。" +
 		func() (s string) {

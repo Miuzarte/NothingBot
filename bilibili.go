@@ -844,6 +844,9 @@ func getMusicJson(sid int) (gson.JSON, gson.JSON, gson.JSON) {
 	tagJson, err := ihttp.New().WithUrl("https://www.bilibili.com/audio/music-service-c/web/tag/song").
 		WithAddQuerys(map[string]any{"sid": sid}).WithHeaders(iheaders).
 		Get().ToGson()
+	if err != nil {
+		log.Error("[bilibili] getMusicJson().tagJson.ihttp请求错误: ", err)
+	}
 	log.Trace("[bilibili] rawMusicTagJson: ", tagJson.JSON("", ""))
 	if tagJson.Get("code").Int() != 0 {
 		log.Error("[bilibili] 音频tag ", sid, " 信息获取错误: ", tagJson.JSON("", ""))
@@ -851,6 +854,9 @@ func getMusicJson(sid int) (gson.JSON, gson.JSON, gson.JSON) {
 	stuffJson, err := ihttp.New().WithUrl("https://www.bilibili.com/audio/music-service-c/web/member/song").
 		WithAddQuerys(map[string]any{"sid": sid}).WithHeaders(iheaders).
 		Get().ToGson()
+	if err != nil {
+		log.Error("[bilibili] getMusicJson().stuffJson.ihttp请求错误: ", err)
+	}
 	log.Trace("[bilibili] rawMusicstuffJson: ", stuffJson.JSON("", ""))
 	if stuffJson.Get("code").Int() != 0 {
 		log.Error("[bilibili] 音频tag ", sid, " 信息获取错误: ", stuffJson.JSON("", ""))

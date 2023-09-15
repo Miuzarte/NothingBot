@@ -165,5 +165,4 @@ func checkRecall(ctx gocqMessage) {
 		}
 		ctx.sendForwardMsg(r.format())
 	}
-	return
 }

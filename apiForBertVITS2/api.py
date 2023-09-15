@@ -15,8 +15,8 @@ current_dir = os.path.dirname(os.path.abspath(__file__))
 app = FastAPI()
 
 device = "cuda:0" if torch.cuda.is_available() else "cpu"
-net_g = None
 hps = None
+net_g = None
 speakers = []
 
 def load_model_and_config(model_path, config_path):
@@ -84,16 +84,13 @@ async def tts_endpoint(request: Request):
     if text == "":
         return {"code": 400, "output": "", "error": "输入不可为空"}
     audio_output = infer(text, sdp_ratio, noise_scale, noise_scale_w, length_scale, speaker)
-    saveWav(audio_output)
-    output = current_dir + "\\output.wav"
-    return {"code": 0, "output": output, "error": ""}
 
-def saveWav(audio):
-    audio_tensor = torch.tensor(audio).unsqueeze(0)
-    torchaudio.save("output.wav", audio_tensor, hps.data.sampling_rate)
+    output_file_name = "output.wav"
+    torchaudio.save(output_file_name, torch.tensor(audio_output).unsqueeze(0), hps.data.sampling_rate)
+
+    return {"code": 0, "output": (current_dir + "\\" + output_file_name), "error": ""}
 
 if __name__ == "__main__":
-    import argparse
     parser = argparse.ArgumentParser()
     parser.add_argument("-m", "--model", default="./logs/as/G_22000.pth", help="path of your model")
     parser.add_argument("-c", "--config", default="./configs/config.json", help="path of your config file")
