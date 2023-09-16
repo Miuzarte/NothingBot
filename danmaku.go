@@ -205,10 +205,10 @@ func (d *danmaku) heartBeatLoop() {
 			if err := d.conn.WriteMessage(websocket.BinaryMessage, pkt); err != nil {
 				log.Warn("[danmaku] heartbeat error: ", err)
 				d.connected = false
-				break
+				return
 			}
 		case <-boolChange:
-			break
+			return
 		}
 	}
 }

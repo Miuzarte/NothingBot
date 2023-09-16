@@ -66,8 +66,7 @@ func (w *whoAtMe) format() (forwardNode []map[string]any) {
 	})
 	for i := 0; i < atListLen; i++ {
 		atMsg := w.atList[i]
-		name := fmt.Sprintf(
-			`(%s)%s%s%s`,
+		name := fmt.Sprintf(`(%s)%s%s%s`,
 			atMsg.extra.timeFormat,
 			atMsg.getCardOrNickname(),
 			func() string { //查看所有群的时候补充来源群
@@ -92,7 +91,7 @@ func (w *whoAtMe) format() (forwardNode []map[string]any) {
 			if atMsg.user_id != 0 {
 				return atMsg.user_id
 			}
-			return selfID
+			return selfId
 		}()
 		content := strings.ReplaceAll(atMsg.extra.messageWithReply, "CQ:at,", "CQ:at,​") //插入零宽空格阻止CQ码解析
 		forwardNode = appendForwardNode(forwardNode, gocqNodeData{

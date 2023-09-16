@@ -15,7 +15,7 @@ var (
 func checkBotInternal(ctx gocqMessage) {
 	var match [][]string
 	//连续at两次获取帮助, 带文字则视为喊话超级用户
-	match = ctx.regexpMustCompile(fmt.Sprintf(`^\[CQ:at,qq=%d]\s*\[CQ:at,qq=%d]\s*(.*)$`, selfID, selfID))
+	match = ctx.regexpMustCompile(fmt.Sprintf(`^\[CQ:at,qq=%d]\s*\[CQ:at,qq=%d]\s*(.*)$`, selfId, selfId))
 	if len(match) > 0 {
 		call := match[0][1]
 		if len(call) > 0 { //记录喊话
@@ -34,7 +34,7 @@ func checkBotInternal(ctx gocqMessage) {
 				"哔哩哔哩链接解析：\n短链、动态、视频、专栏、空间、直播间\n（“space.bilibili.com/59442895”）\n解析内容信息",
 				"哔哩哔哩视频、专栏总结：\n“总结一下+内容链接”\n（“总结一下www.bilibili.com/read/cv19661826”）\n总结视频字幕（无字幕时调用剪映语言识别接口，准确率较低）、专栏正文",
 				"哔哩哔哩快捷搜索：\n“B搜{视频|番剧|影视|直播间|直播|主播|专栏|用户}{keywords}”\n（“B搜用户謬紗特”）\n取决于类别，B站只会返回最多20或30条结果",
-				fmt.Sprintf("注入消息：\n“{@Bot}run{text}”\n（“@Bot run[CQ:at,​qq=%d]”）\n输出相应消息，支持CQ码", selfID),
+				fmt.Sprintf("注入消息：\n“{@Bot}run{text}”\n（“@Bot run[CQ:at,​qq=%d]”）\n输出相应消息，支持CQ码", selfId),
 				"回复：\n“{@Bot}回复我[text]”\n（“@Bot 回复我114514”）\n回复对应消息，支持CQ码，at需要at两遍，第一个at会被回复吃掉",
 				"运行状态：\n“{@Bot}{检查身体|运行状态}”\n（“检查身体”）\n输出NothingBot运行信息",
 				"setu：\n“{@Bot}来{点|一点|几张|几份|.*张|.*份}[tag][的]色图|{@Bot}[tag][的]色图来{点|一点|几张|几份|.*张|.*份}”\n（“@Bot来点碧蓝档案色图”）\n“点”、“一点”、“几张”、“几份”会取一个[3,6]的随机数，“来张”、“来份”不含数量则为1，“xx张”，“xx份”支持[1,20]的阿拉伯数字、汉字大小写数字，可以使用 &(和) 和 |(或) 将多个关键词进行组合， | 的优先级永远高于 & ",

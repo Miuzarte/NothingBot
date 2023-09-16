@@ -104,7 +104,7 @@ func extractBuvid(c string) (bvuid string) {
 }
 
 // 管理员私聊更新cookie
-func checkCookie(ctx gocqMessage) {
+func checkCookieUpdate(ctx gocqMessage) {
 	if !ctx.isPrivateSU() {
 		return
 	}
@@ -134,7 +134,7 @@ func initPush() {
 	dynamicCheckDuration = time.Millisecond * time.Duration(v.GetFloat64("push.settings.dynamicUpdateInterval")*1000)
 	if cookie = v.GetString("push.settings.cookie"); len(cookie) != 0 {
 		log.Trace("[bilibili] cookie:\n", cookie)
-		if cookieChecker() {
+		if validateCookie() {
 			if cookieUid = extractUid(cookie); cookieUid != 0 {
 				log.Info("[bilibili] cookie所属uid: ", cookieUid)
 			} else {
@@ -263,7 +263,7 @@ func getUpdate(update_baseline string) (update_num string) {
 }
 
 // 检测cookie有效性
-func cookieChecker() bool {
+func validateCookie() bool {
 	g, err := ihttp.New().WithUrl("https://passport.bilibili.com/x/passport-login/web/cookie/info").
 		WithHeaders(iheaders).WithCookie(cookie).
 		Get().ToGson()
@@ -272,8 +272,6 @@ func cookieChecker() bool {
 	}
 	switch g.Get("code").Int() {
 	case 0:
-		log.Warn("[push] cookie未过期但触发了有效性检测")
-		log2SU.Warn("[push] cookie未过期但触发了有效性检测")
 		return true
 	case -101:
 		log.Error("[push] cookie已过期")
@@ -303,10 +301,11 @@ func dynamicMonitor() {
 		switch update_num {
 		case "-1":
 			log.Error("[push] 获取update_num时出现错误    update_num = ", update_num, "  update_baseline = ", update_baseline)
-			if !cookieChecker() {
+			if !validateCookie() {
 				dynamicBlock = true
 				failureCount = 0
 				temporaryBlock("!cookieChecker()")
+				continue
 			}
 			failureCount++
 			if failureCount >= 10 {
@@ -315,6 +314,7 @@ func dynamicMonitor() {
 				dynamicBlock = true
 				failureCount = 0
 				temporaryBlock("failureCount >= 10")
+				continue
 			}
 			duration := time.Duration(time.Second * time.Duration(failureCount) * 30)
 			log.Error("[push] 获取更新失败 ", failureCount, " 次, 将在 ", duration, " 后重试")

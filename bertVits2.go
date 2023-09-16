@@ -79,7 +79,7 @@ func wav2amr(wav []byte) (amr []byte, err error) {
 }
 
 func checkBertVITS2(ctx gocqMessage) {
-	match := ctx.regexpMustCompile(`(?s)(\[CQ:reply,id=(-?.*)].*)?让岁己(说|复述)(.*)`)
+	match := ctx.regexpMustCompile(`(?s)(\[CQ:reply,id=(-?.*)].*)?让岁己(说|复述)\s*(.*)`)
 	if len(match) > 0 {
 		isInWhite := func() (is bool) {
 			for i := 0; i < len(v.GetStringSlice("bertVits.whiteList.group")); i++ { //群聊黑名单
@@ -107,6 +107,10 @@ func checkBertVITS2(ctx gocqMessage) {
 		log.Debug("text: ", text)
 		log.Debug("reply: ", reply)
 		log.Debug("replyId: ", replyId)
+		if len(strings.TrimSpace(text)) == 0 {
+			ctx.sendMsg("[BertVITS2] 文本输入不可为空！")
+			return
+		}
 		out, err := bertVits2TTS(text)
 		if err != nil {
 			ctx.sendMsgReply("[BertVITS2] 出现错误：", err.Error())

@@ -24,12 +24,7 @@ var corpuses []corpus
 
 // 初始化语料库
 func initCorpus() {
-	for { //拿到selfID才能存合并转发的自身uin
-		time.Sleep(time.Second)
-		if selfID != 0 {
-			break
-		}
-	}
+	wg.Wait() //拿到selfID才能存合并转发的自身uin
 	corpuses = []corpus{}
 	corpusFound := len(v.GetStringSlice("corpus")) //[]Int没长度
 	log.Info("[corpus] 语料库找到 ", corpusFound, " 条")
