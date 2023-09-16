@@ -21,7 +21,7 @@ type recall struct {
 // 获取
 func (r *recall) get() *recall {
 	var rcList []gocqMessage
-	table := func() map[int]gocqMessage {
+	table := func() map[int]*gocqMessage {
 		switch r.kind {
 		case "group":
 			if msgTableGroup[r.id] != nil {
@@ -40,10 +40,10 @@ func (r *recall) get() *recall {
 	for _, msg := range table {
 		if msg.extra.recalled { //获取已撤回的消息
 			if r.filter == 0 { //不指定群员时获取所有
-				rcList = append(rcList, msg)
+				rcList = append(rcList, *msg)
 			} else {
 				if msg.user_id == r.filter {
-					rcList = append(rcList, msg)
+					rcList = append(rcList, *msg)
 				}
 			}
 		}
@@ -102,7 +102,7 @@ func (r *recall) format() (forwardNode []map[string]any) {
 }
 
 // 撤回消息记录
-func checkRecall(ctx gocqMessage) {
+func checkRecall(ctx *gocqMessage) {
 	//开关
 	match := ctx.regexpMustCompile(`(开启|启用|关闭|禁用)撤回记录`)
 	if len(match) > 0 && ctx.isPrivateSU() {

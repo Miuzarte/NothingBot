@@ -11,7 +11,7 @@ import (
 )
 
 // 运行状态
-func checkInfo(ctx gocqMessage) {
+func checkInfo(ctx *gocqMessage) {
 	match := ctx.regexpMustCompile(`检查身体|运行状态`)
 	if len(match) > 0 && ctx.isToMe() {
 		product, _ := ghw.Product()

@@ -104,7 +104,7 @@ func extractBuvid(c string) (bvuid string) {
 }
 
 // 管理员私聊更新cookie
-func checkCookieUpdate(ctx gocqMessage) {
+func checkCookieUpdate(ctx *gocqMessage) {
 	if !ctx.isPrivateSU() {
 		return
 	}

@@ -129,8 +129,13 @@ type dynamicContent struct {
 }
 
 // 内容解析并格式化
-func parseAndFormatBiliLink(ctx gocqMessage, id string, kind string, summary bool) (content string) {
-	op := ctx.isBiliLinkOverParse(id, kind)
+func parseAndFormatBiliLink(ctx *gocqMessage, id string, kind string, summary bool) (content string) {
+	var op bool
+	if ctx != nil {
+		op = ctx.isBiliLinkOverParse(id, kind)
+	} else {
+		op, summary = false, false
+	}
 	if !summary { //需要总结时不检测屏蔽，到最后再清空content
 		if op {
 			return
@@ -148,13 +153,13 @@ func parseAndFormatBiliLink(ctx gocqMessage, id string, kind string, summary boo
 		} else {
 			content = formatDynamic(g.Get("data.item"))
 			if summary {
-				go func(ctx gocqMessage) {
+				go func() {
 					dc := &dynamicContent{
 						up:   g.Get("data.item.modules.module_author.name").Str(),
 						text: g.Get("data.item.modules.module_dynamic.desc.text").Str(),
 					}
 					ctx.sendMsg(dc.summary())
-				}(ctx)
+				}()
 			}
 		}
 	case "ARCHIVE":
@@ -165,7 +170,7 @@ func parseAndFormatBiliLink(ctx gocqMessage, id string, kind string, summary boo
 		} else {
 			content = formatArchive(g.Get("data"), h.Get("data"))
 			if summary {
-				go func(ctx gocqMessage) {
+				go func() {
 					var as *archiveSubtitle
 					if cache, hasCache := archiveSubtitleTable[aid]; hasCache {
 						as = cache
@@ -182,7 +187,7 @@ func parseAndFormatBiliLink(ctx gocqMessage, id string, kind string, summary boo
 					} else {
 						ctx.sendMsg("[NothingBot] [Error] 字幕转录失败力")
 					}
-				}(ctx)
+				}()
 			}
 		}
 	case "ARTICLE":
@@ -193,7 +198,7 @@ func parseAndFormatBiliLink(ctx gocqMessage, id string, kind string, summary boo
 		} else {
 			content = formatArticle(g.Get("data"), cvid) //专栏信息拿不到自身cv号
 			if summary {
-				go func(ctx gocqMessage) {
+				go func() {
 					var at *articleText
 					if cache, hasCache := articleTextTable[cvid]; hasCache {
 						at = cache
@@ -206,7 +211,7 @@ func parseAndFormatBiliLink(ctx gocqMessage, id string, kind string, summary boo
 					} else {
 						ctx.sendMsg("[NothingBot] 文章正文获取失败力")
 					}
-				}(ctx)
+				}()
 			}
 		}
 	case "MUSIC":
@@ -413,7 +418,7 @@ func deShortLink(slug string) (location string) {
 }
 
 // 短时间重复解析屏蔽, op:=true
-func (ctx gocqMessage) isBiliLinkOverParse(id string, kind string) bool {
+func (ctx *gocqMessage) isBiliLinkOverParse(id string, kind string) bool {
 	if ctx.message_type == "group" { //只有群聊有限制
 		duration := int64(v.GetFloat64("parse.settings.sameParseInterval"))
 		during := time.Now().Unix()-groupParseHistory[ctx.group_id].time < duration
@@ -437,7 +442,7 @@ func (ctx gocqMessage) isBiliLinkOverParse(id string, kind string) bool {
 }
 
 // 哔哩哔哩链接解析
-func checkParse(ctx gocqMessage) {
+func checkParse(ctx *gocqMessage) {
 	reg := regexp.MustCompile(everyBiliLinkRegexp)
 	match := reg.FindAllStringSubmatch(ctx.message, -1)
 	if len(match) > 0 {

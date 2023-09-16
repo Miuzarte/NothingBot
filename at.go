@@ -33,7 +33,7 @@ func (w *whoAtMe) get() *whoAtMe {
 		for _, msg := range table {
 			for _, at := range msg.extra.atWho {
 				if w.atId == at {
-					atList = append(atList, msg)
+					atList = append(atList, *msg)
 				}
 			}
 		}
@@ -69,10 +69,10 @@ func (w *whoAtMe) format() (forwardNode []map[string]any) {
 		name := fmt.Sprintf(`(%s)%s%s%s`,
 			atMsg.extra.timeFormat,
 			atMsg.getCardOrNickname(),
-			func() string { //查看所有群的时候补充来源群
+			func() string {
 				if w.groupId != 0 {
 					return ""
-				} else {
+				} else { //查看所有群的时候补充来源群
 					return fmt.Sprintf("  (%d)", atMsg.group_id)
 				}
 			}(),
@@ -104,7 +104,7 @@ func (w *whoAtMe) format() (forwardNode []map[string]any) {
 }
 
 // 谁at我
-func checkAt(ctx gocqMessage) {
+func checkAt(ctx *gocqMessage) {
 	match := ctx.regexpMustCompile(`^谁(@|[aA艾][tT特])(我|(\s*\[CQ:at,qq=)?([0-9]{1,11})?(]\s*))$`)
 	if len(match) > 0 {
 		var atId int

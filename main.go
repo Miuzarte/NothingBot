@@ -91,8 +91,9 @@ const (
 )
 
 var (
-	wg                   sync.WaitGroup
-	onDevelopmen         = false
+	isRunningBeforeBuild = false                //启动方式
+	onDevelopmen         = false                //开发模式
+	gbwg                 sync.WaitGroup         //全局WaitGroup
 	startTime            = time.Now().Unix()    //启动时间
 	initCount            = 0                    //配置更新次数
 	gocqUrl              = ""                   //websocketurl
@@ -116,8 +117,8 @@ var (
 	suID                 = []int{}              //超级用户
 	unescape             = strings.NewReplacer( //反转义还原CQ码
 		"&amp;", "&", "&#44;", ",", "&#91;", "[", "&#93;", "]")
-	msgTableGroup  = make(map[int]map[int]gocqMessage) //group_id:msg_id:msg
-	msgTableFriend = make(map[int]map[int]gocqMessage) //user_id:msg_id:msg
+	msgTableGroup  = make(map[int]map[int]*gocqMessage) //group_id:msg_id:msg
+	msgTableFriend = make(map[int]map[int]*gocqMessage) //user_id:msg_id:msg
 	timeLayout     = struct {
 		L24  string
 		L24C string
@@ -225,7 +226,7 @@ type gocqNodeData struct {
 
 // 连接go-cqhttp
 func connect(url string) {
-	wg.Add(1) //等待成功连接直到成功获取selfId
+	gbwg.Add(1) //等待成功连接直到成功获取selfId
 	retryCount := 0
 	for {
 		c, err := websocket.Dial(url, "", "http://127.0.0.1")
@@ -237,8 +238,9 @@ func connect(url string) {
 			break
 		}
 		retryCount++
-		log.Error("[main] 与go-cqhttp建立ws连接失败, 5秒后重试")
-		time.Sleep(time.Second * 5)
+		duration := time.Second * 5
+		log.Error("[main] 与go-cqhttp建立ws连接失败,", duration, "后重试")
+		time.Sleep(duration)
 	}
 	for {
 		var rawPost string
@@ -327,20 +329,20 @@ func postHandler(rawPost string) {
 		switch msg.message_type {
 		case "group":
 			if msgTableGroup[msg.group_id] == nil {
-				msgTableGroup[msg.group_id] = make(map[int]gocqMessage)
+				msgTableGroup[msg.group_id] = make(map[int]*gocqMessage)
 			}
 			if msg.user_id != selfId {
 				log.Info("[gocq] 在 ", msg.group_id, " 收到 ", msg.sender_card, "(", msg.sender_nickname, " ", msg.user_id, ") 的群聊消息(", msg.message_id, "): ", msg.message)
 			}
-			msgTableGroup[msg.group_id][msg.message_id] = msg //消息缓存
+			msgTableGroup[msg.group_id][msg.message_id] = &msg //消息缓存
 		case "private":
 			if msgTableFriend[msg.user_id] == nil {
-				msgTableFriend[msg.user_id] = make(map[int]gocqMessage)
+				msgTableFriend[msg.user_id] = make(map[int]*gocqMessage)
 			}
 			if msg.user_id != selfId {
 				log.Info("[gocq] 收到 ", msg.sender_nickname, "(", msg.user_id, ") 的消息(", msg.message_id, "): ", msg.message)
 			}
-			msgTableFriend[msg.user_id][msg.message_id] = msg //消息缓存
+			msgTableFriend[msg.user_id][msg.message_id] = &msg //消息缓存
 		}
 		if msg.user_id == selfId {
 			return
@@ -363,7 +365,7 @@ func postHandler(rawPost string) {
 				return
 			}
 		}
-		go func(msg gocqMessage) {
+		go func(msg *gocqMessage) {
 			go checkCookieUpdate(msg)
 			go checkCorpus(msg)
 			go checkParse(msg)
@@ -376,7 +378,7 @@ func postHandler(rawPost string) {
 			go checkPixiv(msg)
 			go checkBertVITS2(msg)
 			go checkGocqAct(msg)
-		}(msg)
+		}(&msg)
 	case "message_sent":
 		log.Info("[gocq] 发出了一条消息")
 	case "request":
@@ -448,7 +450,7 @@ func postHandler(rawPost string) {
 				_post_method: p.Get("_post_method").Int(),
 			}
 			selfId = lifecycle.self_id
-			wg.Done()
+			gbwg.Done()
 			log.Info("[gocq] lifecycle: ", lifecycle)
 		default:
 			log.Info("[gocq] meta_event: ", p.JSON("", ""))
@@ -463,18 +465,18 @@ func postHandler(rawPost string) {
 }
 
 // 反转义还原CQ码
-func (g gocqMessage) unescape() gocqMessage {
+func (g *gocqMessage) unescape() *gocqMessage {
 	g.message = unescape.Replace(g.message)
 	return g
 }
 
 // 具体化回复，go-cqhttp.extra-reply-data: true时不必要，但是开了那玩意又会导致回复带上原文又触发一遍机器人
-func (ctx gocqMessage) entityReply() (messageWithReply string) {
+func (ctx *gocqMessage) entityReply() (messageWithReply string) {
 	match := ctx.regexpMustCompile(`\[CQ:reply,id=(-?.*)]`)
 	if len(match) > 0 {
 		replyIdS := match[0][1]
 		replyId, _ := strconv.Atoi(replyIdS)
-		replyMsg := gocqMessage{}
+		var replyMsg *gocqMessage
 		switch ctx.message_type {
 		case "group":
 			replyMsg = msgTableGroup[ctx.group_id][replyId]
@@ -491,7 +493,7 @@ func (ctx gocqMessage) entityReply() (messageWithReply string) {
 }
 
 // @的人列表
-func (ctx gocqMessage) collectAt() (atWho []int) {
+func (ctx *gocqMessage) collectAt() (atWho []int) {
 	match := ctx.regexpMustCompile(`\[CQ:reply,id=(.*)]`) //回复也算@
 	if len(match) > 0 {
 		replyid, _ := strconv.Atoi(match[0][1])
@@ -531,7 +533,7 @@ func (poke gocqPoke) handler() {
 }
 
 // 超级用户注入gocqAPI
-func checkGocqAct(ctx gocqMessage) {
+func checkGocqAct(ctx *gocqMessage) {
 	if !ctx.isPrivateSU() {
 		return
 	}
@@ -661,7 +663,7 @@ func sendForwardMsg(userID []int, groupID []int, forwardNode []map[string]any) {
 }
 
 // 根据上下文发送消息
-func (ctx gocqMessage) sendMsg(msg ...any) {
+func (ctx *gocqMessage) sendMsg(msg ...any) {
 	if ctx.message_type == "" || len(msg) == 0 {
 		return
 	}
@@ -674,7 +676,7 @@ func (ctx gocqMessage) sendMsg(msg ...any) {
 }
 
 // 根据上下文发送消息，带@
-func (ctx gocqMessage) sendMsgAt(msg ...any) {
+func (ctx *gocqMessage) sendMsgAt(msg ...any) {
 	if ctx.message_type == "" || len(msg) == 0 {
 		return
 	}
@@ -687,7 +689,7 @@ func (ctx gocqMessage) sendMsgAt(msg ...any) {
 }
 
 // 根据上下文发送消息，带回复
-func (ctx gocqMessage) sendMsgReply(msg ...any) {
+func (ctx *gocqMessage) sendMsgReply(msg ...any) {
 	if ctx.message_type == "" || len(msg) == 0 {
 		return
 	}
@@ -700,7 +702,7 @@ func (ctx gocqMessage) sendMsgReply(msg ...any) {
 }
 
 // 根据上下文发送合并转发消息
-func (ctx gocqMessage) sendForwardMsg(forwardNode []map[string]any) {
+func (ctx *gocqMessage) sendForwardMsg(forwardNode []map[string]any) {
 	if ctx.message_type == "" || len(forwardNode) == 0 {
 		return
 	}
@@ -713,12 +715,12 @@ func (ctx gocqMessage) sendForwardMsg(forwardNode []map[string]any) {
 }
 
 // 正则完全匹配
-func (ctx gocqMessage) regexpMustCompile(str string) (match [][]string) {
+func (ctx *gocqMessage) regexpMustCompile(str string) (match [][]string) {
 	return regexp.MustCompile(str).FindAllStringSubmatch(ctx.message, -1)
 }
 
 // 匹配超级用户
-func (ctx gocqMessage) isSU() bool {
+func (ctx *gocqMessage) isSU() bool {
 	for _, su := range suID {
 		if ctx.user_id == su {
 			return true
@@ -728,22 +730,22 @@ func (ctx gocqMessage) isSU() bool {
 }
 
 // 匹配消息来源
-func (ctx gocqMessage) isGroup() bool {
+func (ctx *gocqMessage) isGroup() bool {
 	return ctx.message_type == "group"
 }
 
 // 匹配消息来源
-func (ctx gocqMessage) isPrivate() bool {
+func (ctx *gocqMessage) isPrivate() bool {
 	return ctx.message_type == "private"
 }
 
 // isPrivate() && isSU()
-func (ctx gocqMessage) isPrivateSU() bool {
+func (ctx *gocqMessage) isPrivateSU() bool {
 	return ctx.isPrivate() && ctx.isSU()
 }
 
 // 是否提及了Bot
-func (ctx gocqMessage) isToMe() bool {
+func (ctx *gocqMessage) isToMe() bool {
 	atMe := func() bool {
 		match := ctx.regexpMustCompile(fmt.Sprintf(`\[CQ:at,qq=%d]`, selfId))
 		return len(match) > 0
@@ -759,7 +761,7 @@ func (ctx gocqMessage) isToMe() bool {
 }
 
 // 群名片为空则返回昵称
-func (ctx gocqMessage) getCardOrNickname() string {
+func (ctx *gocqMessage) getCardOrNickname() string {
 	if ctx.sender_card != "" {
 		return ctx.sender_card
 	}
@@ -767,7 +769,7 @@ func (ctx gocqMessage) getCardOrNickname() string {
 }
 
 // 获取消息
-func (ctx gocqMessage) getMsgFromId(msgId int) (msg gocqMessage) {
+func (ctx *gocqMessage) getMsgFromId(msgId int) (msg *gocqMessage) {
 	if msgId == 0 {
 		return
 	}
@@ -905,13 +907,26 @@ func initModules() {
 }
 
 func main() {
-	fmt.Print("        \n  Powered      \n         by    \n           GO  \n        \n")
+	fmt.Print("            \n   Powered       \n         by    \n            GO   \n            \n")
 	log.SetFormatter(&easy.Formatter{
 		TimestampFormat: timeLayout.M24,
 		LogFormat:       "[%time%] [%lvl%] %msg%\n",
 	})
 	initFlag()
 	initConfig()
+	if isRunningBeforeBuild = func() bool {
+		return strings.Contains(os.Args[0], `go-build`)
+	}(); isRunningBeforeBuild {
+		log.Debug(func() (s string) {
+			for _, arg := range os.Args {
+				if s != "" {
+					s += " "
+				}
+				s += arg
+			}
+			return
+		}())
+	}
 	func() {
 		go connect(gocqUrl)
 		for {

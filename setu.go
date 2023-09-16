@@ -41,7 +41,7 @@ var numberMap = map[string]int{"两": 2,
 	"拾陆": 16, "拾柒": 17, "拾捌": 18, "拾玖": 19, "贰拾": 20,
 }
 
-func checkSetu(ctx gocqMessage) {
+func checkSetu(ctx *gocqMessage) {
 	match := ctx.unescape().regexpMustCompile(`(来(?P<num>点|一点|几张|几份|.*张|.*份)?(?P<r18>[Rr]18)?的?(?P<tag>.*)?的?[色瑟涩铯][图圖])|((?P<r18>[Rr]18)?的?(?P<tag>.*)?的?[色瑟涩铯][图圖]来(?P<num>点|一点|几张|几份|.*张|.*份)?)`)
 	// 一条正则多个同名捕获组只会索引到第一个, 所以下面直接把对应的捕获组全加起来
 	if len(match) > 0 && ctx.isToMe() {

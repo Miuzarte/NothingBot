@@ -331,7 +331,7 @@ space.bilibili.com/%d
 }
 
 // 哔哩哔哩快捷搜索
-func checkSearch(ctx gocqMessage) {
+func checkSearch(ctx *gocqMessage) {
 	match := ctx.regexpMustCompile(biliSearchRegexp)
 	if len(match) > 0 {
 		ctx.sendForwardMsg(formatBiliSearch(match[0][1], match[0][2]))

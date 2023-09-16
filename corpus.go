@@ -24,7 +24,7 @@ var corpuses []corpus
 
 // 初始化语料库
 func initCorpus() {
-	wg.Wait() //拿到selfID才能存合并转发的自身uin
+	gbwg.Wait() //拿到selfID才能存合并转发的自身uin
 	corpuses = []corpus{}
 	corpusFound := len(v.GetStringSlice("corpus")) //[]Int没长度
 	log.Info("[corpus] 语料库找到 ", corpusFound, " 条")
@@ -180,7 +180,7 @@ corpus[%d]    regexpOK: %t  replyOK: %t  sceneOK: %t  delayOK: %t`,
 }
 
 // 语料库
-func checkCorpus(ctx gocqMessage) {
+func checkCorpus(ctx *gocqMessage) {
 	for i, c := range corpuses {
 		log.Trace("[corpus] 匹配语料库: ", i, "   正则: ", c.regStr)
 		match := c.regexp.FindAllStringSubmatch(ctx.message, -1)

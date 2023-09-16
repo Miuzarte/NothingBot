@@ -12,14 +12,14 @@ var (
 )
 
 // Bot内置逻辑
-func checkBotInternal(ctx gocqMessage) {
+func checkBotInternal(ctx *gocqMessage) {
 	var match [][]string
 	//连续at两次获取帮助, 带文字则视为喊话超级用户
 	match = ctx.regexpMustCompile(fmt.Sprintf(`^\[CQ:at,qq=%d]\s*\[CQ:at,qq=%d]\s*(.*)$`, selfId, selfId))
 	if len(match) > 0 {
 		call := match[0][1]
 		if len(call) > 0 { //记录喊话
-			callSUMsgList = append(callSUMsgList, ctx)
+			callSUMsgList = append(callSUMsgList, *ctx)
 			callSUMsgUnread++
 			ctx.sendMsgReply("[NothingBot] 已记录此条喊话并通知超级用户")
 			log2SU.Info("收到一条新的喊话，未读", callSUMsgUnread)

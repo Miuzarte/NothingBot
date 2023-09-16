@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -9,6 +10,7 @@ import (
 	"os/exec"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/moxcomic/ihttp"
 	log "github.com/sirupsen/logrus"
@@ -51,20 +53,61 @@ func bertVits2TTS(intput string) (output string, err error) {
 		Text:    intput,
 		Speaker: "suijiSUI",
 	}
+	nowTime := time.Now().Format(timeLayout.L24)
+	recordHist := func(stat string) { // 记录历史
+		if err = appendToFile("./tts_history.txt",
+			fmt.Sprintf("%s  (%s)\n%s\n\n",
+				nowTime,
+				stat,
+				intput)); err != nil {
+			log.Warn("[BertVITS2] 历史写入失败")
+			log2SU.Warn("[BertVITS2] 历史写入失败")
+		}
+	}
 	resp, err := post.post()
 	if err != nil {
+		recordHist("Failed (" + err.Error() + ")")
 		return "", err
 	}
 	if resp.Error != "" {
-		return "", errors.New(resp.Error)
+		err = errors.New(resp.Error)
+		recordHist("Failed (" + err.Error() + ")")
+		return "", err
 	}
 	if resp.Code != 0 {
-		return "", errors.New("TTS FAILED")
+		err = errors.New("TTS FAILED")
+		recordHist("Failed (" + err.Error() + ")")
+		return "", err
 	}
 	if resp.Output == "" {
-		return "", errors.New("OUTPUT IS EMPTY")
+		err = errors.New("OUTPUT IS EMPTY")
+		recordHist("Failed (" + err.Error() + ")")
+		return "", err
 	}
+
+	recordHist("Success")
 	return resp.Output, nil
+}
+
+// 追加文本
+func appendToFile(filePath, content string) error {
+	file, err := os.OpenFile(filePath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+
+	writer := bufio.NewWriter(file)
+	_, err = writer.WriteString(content)
+	if err != nil {
+		return err
+	}
+	err = writer.Flush()
+	if err != nil {
+		return err
+	}
+
+	return nil
 }
 
 func wav2amr(wav []byte) (amr []byte, err error) {
@@ -78,7 +121,7 @@ func wav2amr(wav []byte) (amr []byte, err error) {
 	return
 }
 
-func checkBertVITS2(ctx gocqMessage) {
+func checkBertVITS2(ctx *gocqMessage) {
 	match := ctx.regexpMustCompile(`(?s)(\[CQ:reply,id=(-?.*)].*)?让岁己(说|复述)\s*(.*)`)
 	if len(match) > 0 {
 		isInWhite := func() (is bool) {

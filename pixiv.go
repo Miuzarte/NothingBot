@@ -18,7 +18,7 @@ type pixiv struct {
 	num int
 }
 
-func checkPixiv(ctx gocqMessage) {
+func checkPixiv(ctx *gocqMessage) {
 	match := ctx.regexpMustCompile(`[看康k]{2}([Pp]|[Pp]站|[Pp][Ii][Dd]|[Pp][Ii][Xx][Ii][Vv])([0-9]+)`)
 	if len(match) > 0 {
 		pid, _ := strconv.Atoi(match[0][2])

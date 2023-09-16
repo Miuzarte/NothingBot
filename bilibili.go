@@ -136,7 +136,7 @@ func formatDynamic(g gson.JSON) string {
 		case "ADDITIONAL_TYPE_UGC": //评论同时转发
 			url := dynamic.Get("additional.ugc.jump_url").Str()
 			id, kind, _ := extractBiliLink(url)
-			addtion = "\n\n转发的视频：\n" + parseAndFormatBiliLink(gocqMessage{}, id, kind, false)
+			addtion = "\n\n转发的视频：\n" + parseAndFormatBiliLink(nil, id, kind, false)
 		}
 		return
 	}(dynamic.Get("additional.type").Str())
