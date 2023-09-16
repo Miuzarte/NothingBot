@@ -102,13 +102,13 @@ func checkBertVITS2(ctx gocqMessage) {
 		reply := match[0][2]
 		replyId, _ := strconv.Atoi(reply)
 		if reply != "" { //复述回复时无视内容
-			text = ctx.getMsgFromId(replyId).message
+			text = trimOuterQuotes(ctx.getMsgFromId(replyId).message)
 		}
 		log.Debug("text: ", text)
 		log.Debug("reply: ", reply)
 		log.Debug("replyId: ", replyId)
 		if len(strings.TrimSpace(text)) == 0 {
-			ctx.sendMsg("[BertVITS2] 文本输入不可为空！")
+			ctx.sendMsgReply("[BertVITS2] 文本输入不可为空！")
 			return
 		}
 		out, err := bertVits2TTS(text)
@@ -128,4 +128,24 @@ func checkBertVITS2(ctx gocqMessage) {
 		}
 		ctx.sendMsg("[CQ:record,file=base64://" + base64.StdEncoding.EncodeToString(amr) + "]")
 	}
+}
+
+// 去除最外层一对互相匹配的引号
+func trimOuterQuotes(s string) string {
+	r := []rune(s)
+	if len(r) < 2 {
+		return s
+	}
+
+	f := r[0]
+	l := r[(len(s) - 1)]
+
+	if (f == '\'' && l == '\'') ||
+		(f == '`' && l == '`') ||
+		(f == '"' && l == '"') ||
+		(f == '“' && l == '”') ||
+		(f == '”' && l == '“') {
+		r = r[1 : len(s)-1]
+	}
+	return string(r)
 }
