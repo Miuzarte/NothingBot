@@ -39,7 +39,7 @@ var searchTypes = struct {
 }
 
 // 获取搜索并格式化
-func formatBiliSearch(KIND string, keyword string) (forwardNode []map[string]any) {
+func formatBiliSearch(KIND string, keyword string) (nodes gocqForwardNodes) {
 	//KIND = "用户", kind = "bili_user"
 	kind := func() string {
 		switch KIND {
@@ -69,16 +69,16 @@ func formatBiliSearch(KIND string, keyword string) (forwardNode []map[string]any
 	}
 	log.Trace("[search] body: ", g.JSON("", ""))
 	if g.Get("code").Int() != 0 {
-		return []map[string]any{}
+		return nil
 	}
 	results := g.Get("data.result").Arr()
 	resultCount := len(results)
-	forwardNode = appendForwardNode(forwardNode, gocqNodeData{ //标题
+	nodes = appendForwardNode(nodes, gocqNodeData{ //标题
 		content: []string{fmt.Sprint("快捷搜索", KIND, "(", kind, ") ：\n", keyword, "\n", "共", resultCount, "个结果")},
 	})
 	switch kind {
 	case searchTypes.VIDEO: //视频
-		forwardNode = appendForwardNode(forwardNode, gocqNodeData{
+		nodes = appendForwardNode(nodes, gocqNodeData{
 			content: func() []string {
 				var content []string
 				for _, g := range results {
@@ -113,7 +113,7 @@ www.bilibili.com/video/%s`,
 			}(),
 		})
 	case searchTypes.BANGUMI, searchTypes.FT: //番剧, 影视
-		forwardNode = appendForwardNode(forwardNode, gocqNodeData{
+		nodes = appendForwardNode(nodes, gocqNodeData{
 			content: func() (content []string) {
 				for _, g := range results {
 					cover := g.Get("cover").Str()                                            //封面
@@ -166,7 +166,7 @@ CV：
 			}(),
 		})
 	case searchTypes.LIVE_ROOM: //直播, 直播间
-		forwardNode = appendForwardNode(forwardNode, gocqNodeData{
+		nodes = appendForwardNode(nodes, gocqNodeData{
 			content: func() []string {
 				var content []string
 				for _, g := range results {
@@ -203,7 +203,7 @@ space.bilibili.com/%d`,
 			}(),
 		})
 	case searchTypes.LIVE_USER: //主播
-		forwardNode = appendForwardNode(forwardNode, gocqNodeData{
+		nodes = appendForwardNode(nodes, gocqNodeData{
 			content: func() []string {
 				var content []string
 				for _, g := range results {
@@ -263,7 +263,7 @@ space.bilibili.com/%d`,
 			}(),
 		})
 	case searchTypes.ARTICLE: //专栏
-		forwardNode = appendForwardNode(forwardNode, gocqNodeData{
+		nodes = appendForwardNode(nodes, gocqNodeData{
 			content: func() []string {
 				var content []string
 				for _, g := range results {
@@ -298,7 +298,7 @@ space.bilibili.com/%d`,
 			}(),
 		})
 	case searchTypes.USER: //用户
-		forwardNode = appendForwardNode(forwardNode, gocqNodeData{
+		nodes = appendForwardNode(nodes, gocqNodeData{
 			content: func() (content []string) {
 				for _, g := range results {
 					upic := g.Get("upic").String()   //头像

@@ -12,19 +12,18 @@ import (
 )
 
 type corpus struct {
-	regStr    string
-	regexp    *regexp.Regexp
-	reply     string
-	replyNode []map[string]any
-	scene     string
-	delay     time.Duration
+	regStr     string
+	regexp     *regexp.Regexp
+	reply      string
+	replyNodes gocqForwardNodes
+	scene      string
+	delay      time.Duration
 }
 
 var corpuses []corpus
 
 // 初始化语料库
 func initCorpus() {
-	gbwg.Wait() //拿到selfID才能存合并转发的自身uin
 	corpuses = []corpus{}
 	corpusFound := len(v.GetStringSlice("corpus")) //[]Int没长度
 	log.Info("[corpus] 语料库找到 ", corpusFound, " 条")
@@ -114,7 +113,7 @@ func initCorpus() {
 					default:
 						nodeData.content = []string{fmt.Sprint(a)}
 					}
-					c.replyNode = appendForwardNode(c.replyNode, nodeData)
+					c.replyNodes = appendForwardNode(c.replyNodes, nodeData)
 				}
 			}
 		}
@@ -175,7 +174,7 @@ corpus[%d]    regexpOK: %t  replyOK: %t  sceneOK: %t  delayOK: %t`,
 				return "  "
 			}
 			return "\n" + str + "\n"
-		}(gson.New(c.replyNode).JSON("", "")), "scene: ", c.scene, "  delay: ", c.delay)
+		}(gson.New(c.replyNodes).JSON("", "")), "scene: ", c.scene, "  delay: ", c.delay)
 	}
 }
 
@@ -205,7 +204,7 @@ func checkCorpus(ctx *gocqMessage) {
 					if c.reply != "" {
 						ctx.sendMsg(c.reply[0])
 					} else {
-						ctx.sendForwardMsg(c.replyNode)
+						ctx.sendForwardMsg(c.replyNodes)
 					}
 				}(c)
 			}

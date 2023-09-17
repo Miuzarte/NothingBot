@@ -224,6 +224,8 @@ type gocqNodeData struct {
 	time    int64    //时间戳
 }
 
+type gocqForwardNodes []map[string]any
+
 // 连接go-cqhttp
 func connect(url string) {
 	gbwg.Add(1) //等待成功连接直到成功获取selfId
@@ -282,11 +284,11 @@ func heartbeatCheck(interval int) {
 			log.Error("[main] 心跳超时，开始重连")
 			heartbeatLostCount++
 			retry()
-			return // 用 return 提前退出函数
+			return
 		case <-connLost:
 			log.Error("[main] 连接丢失，开始重连")
 			retry()
-			return // 用 return 提前退出函数
+			return
 		}
 	}
 }
@@ -395,12 +397,16 @@ func postHandler(rawPost string) {
 				operator_id: p.Get("operator_id").Int(),
 				message_id:  p.Get("message_id").Int(),
 			}
-			log.Info("[gocq] 在 ", recall.group_id, " 收到 ", recall.user_id, " 撤回群聊消息: ", msgTableGroup[recall.group_id][recall.message_id].message, " (", recall.message_id, ")")
-			if msgTableGroup[recall.group_id] != nil { //防止开机刚好遇到撤回
-				msg := msgTableGroup[recall.group_id][recall.message_id]
-				msg.extra.recalled = true //标记撤回
-				msg.extra.operator_id = recall.operator_id
-				msgTableGroup[recall.group_id][recall.message_id] = msg
+			recalledMsgInGroup := msgTableGroup[recall.group_id]
+			if recalledMsgInGroup != nil {
+				recalledMsg := recalledMsgInGroup[recall.message_id]
+				if recalledMsg != nil {
+					log.Info("[gocq] 在 ", recall.group_id, " 收到 ", recall.user_id, " 撤回群聊消息(", recall.message_id, "): ", recalledMsg.message)
+					msg := msgTableGroup[recall.group_id][recall.message_id]
+					msg.extra.recalled = true
+					msg.extra.operator_id = recall.operator_id
+					msgTableGroup[recall.group_id][recall.message_id] = msg
+				}
 			}
 		case "friend_recall": //好友消息撤回
 			recall := gocqFriendRecall{
@@ -408,10 +414,12 @@ func postHandler(rawPost string) {
 				user_id:    p.Get("user_id").Int(),
 				message_id: p.Get("message_id").Int(),
 			}
-			log.Info("[gocq] 收到 ", recall.user_id, " 撤回私聊消息: ", msgTableFriend[recall.user_id][recall.message_id], " (", recall.message_id, ")")
-			if msgTableFriend[recall.user_id] != nil { //防止开机刚好遇到撤回
+			recalledMsgInPrivate := msgTableFriend[recall.user_id]
+			if recalledMsgInPrivate != nil {
+				recalledMsg := recalledMsgInPrivate[recall.message_id]
+				log.Info("[gocq] 收到 ", recall.user_id, " 撤回私聊消息(", recall.message_id, "): ", recalledMsg.message)
 				msg := msgTableFriend[recall.user_id][recall.message_id]
-				msg.extra.recalled = true //标记撤回
+				msg.extra.recalled = true
 				msgTableFriend[recall.user_id][recall.message_id] = msg
 			}
 		case "notify": //通知
@@ -471,7 +479,7 @@ func (g *gocqMessage) unescape() *gocqMessage {
 }
 
 // 具体化回复，go-cqhttp.extra-reply-data: true时不必要，但是开了那玩意又会导致回复带上原文又触发一遍机器人
-func (ctx *gocqMessage) entityReply() (messageWithReply string) {
+func (ctx *gocqMessage) entityReply() string {
 	match := ctx.regexpMustCompile(`\[CQ:reply,id=(-?.*)]`)
 	if len(match) > 0 {
 		replyIdS := match[0][1]
@@ -483,40 +491,46 @@ func (ctx *gocqMessage) entityReply() (messageWithReply string) {
 		case "private":
 			replyMsg = msgTableFriend[ctx.user_id][replyId]
 		}
+		if replyMsg == nil {
+			log.Warn("[main] 具体化回复遇到空指针")
+			return ctx.message
+		}
 		replyCQ := fmt.Sprint("[CQ:reply,qq=", replyMsg.user_id, ",time=", replyMsg.time, ",text=", replyMsg.message, "]")
-		messageWithReply = strings.ReplaceAll(ctx.message, match[0][0], replyCQ)
 		log.Debug("[main] 具体化回复了这条消息, reply: ", replyCQ)
+		return strings.ReplaceAll(ctx.message, match[0][0], replyCQ)
 	} else {
-		messageWithReply = ctx.message
+		return ctx.message
 	}
-	return
 }
 
 // @的人列表
 func (ctx *gocqMessage) collectAt() (atWho []int) {
-	match := ctx.regexpMustCompile(`\[CQ:reply,id=(.*)]`) //回复也算@
-	if len(match) > 0 {
-		replyid, _ := strconv.Atoi(match[0][1])
+	matches := ctx.regexpMustCompile(`\[CQ:reply,id=(-?.*)]`) //回复也算@
+	if len(matches) > 0 {
+		replyid, _ := strconv.Atoi(matches[0][1])
 		switch ctx.message_type {
 		case "group":
-			atWho = append(atWho, msgTableGroup[ctx.group_id][replyid].user_id)
+			if replyMsg := msgTableGroup[ctx.group_id][replyid]; replyMsg != nil {
+				atWho = append(atWho, replyMsg.user_id)
+			}
 		case "private":
-			atWho = append(atWho, msgTableFriend[ctx.user_id][replyid].user_id)
+			if replyMsg := msgTableFriend[ctx.user_id][replyid]; replyMsg != nil {
+				atWho = append(atWho, replyMsg.user_id)
+			}
 		}
 	}
-	match = ctx.regexpMustCompile(`\[CQ:at,qq=(.*)]`)
-	if len(match) > 0 {
-		for _, v := range match {
-			atId, _ := strconv.Atoi(v[1])
-			repeat := func() (repeat bool) { //检查重复收录
+	matches = ctx.regexpMustCompile(`\[CQ:at,qq=(\d+)]`)
+	if len(matches) > 0 {
+		for _, match := range matches {
+			atId, _ := strconv.Atoi(match[1])
+			if isRepeated := func() bool { //检查重复收录
 				for _, a := range atWho {
 					if atId == a {
-						repeat = true
+						return true
 					}
 				}
-				return
-			}()
-			if !repeat {
+				return false
+			}(); !isRepeated {
 				atWho = append(atWho, atId)
 			}
 		}
@@ -576,61 +590,75 @@ func sendPrivateMsg(user_id int, msg ...any) {
 }
 
 // 发送群聊合并转发消息
-func sendGroupForwardMsg(group_id int, forwardNode []map[string]any) {
-	if group_id == 0 || len(forwardNode) == 0 {
+func sendGroupForwardMsg(group_id int, nodes gocqForwardNodes) {
+	if group_id == 0 || len(nodes) == 0 {
 		return
 	}
 	g := gson.New("")
 	g.Set("action", "send_group_forward_msg")
-	g.Set("params", map[string]any{"group_id": group_id, "messages": forwardNode})
-	log.Info("[main] 发送合并转发到群聊 ", group_id, " ", gson.New(forwardNode).JSON("", ""))
+	g.Set("params", map[string]any{"group_id": group_id, "messages": nodes})
+	log.Info("[main] 发送合并转发到群聊 ", group_id, " ", gson.New(nodes).JSON("", ""))
 	postMsg(g)
 }
 
 // 发送私聊合并转发消息
-func sendPrivateForwardMsg(user_id int, forwardNode []map[string]any) {
-	if user_id == 0 || len(forwardNode) == 0 {
+func sendPrivateForwardMsg(user_id int, nodes gocqForwardNodes) {
+	if user_id == 0 || len(nodes) == 0 {
 		return
 	}
 	g := gson.New("")
 	g.Set("action", "send_private_forward_msg")
-	g.Set("params", map[string]any{"user_id": user_id, "messages": forwardNode})
-	log.Info("[main] 发送合并转发到好友 ", user_id, " ", gson.New(forwardNode).JSON("", ""))
+	g.Set("params", map[string]any{"user_id": user_id, "messages": nodes})
+	log.Info("[main] 发送合并转发到好友 ", user_id, " ", gson.New(nodes).JSON("", ""))
 	postMsg(g)
 }
 
-type log2SuperUsers func(...any)
+type SelfID int
 
-func (log2SU log2SuperUsers) Panic(msg ...any) {
+func getSelfId() SelfID {
+	return SelfID(selfId)
+}
+
+func (s SelfID) Int() int {
+	return int(s)
+}
+
+func (s SelfID) Str() string {
+	return strconv.Itoa(int(s))
+}
+
+type Log2SuperUsers func(...any)
+
+func (log2SU Log2SuperUsers) Panic(msg ...any) {
 	log2SU("[NothingBot] [Panic] ", fmt.Sprint(msg...))
 }
 
-func (log2SU log2SuperUsers) Fatal(msg ...any) {
+func (log2SU Log2SuperUsers) Fatal(msg ...any) {
 	log2SU("[NothingBot] [Fatal] ", fmt.Sprint(msg...))
 }
 
-func (log2SU log2SuperUsers) Error(msg ...any) {
+func (log2SU Log2SuperUsers) Error(msg ...any) {
 	log2SU("[NothingBot] [Error] ", fmt.Sprint(msg...))
 }
 
-func (log2SU log2SuperUsers) Warn(msg ...any) {
+func (log2SU Log2SuperUsers) Warn(msg ...any) {
 	log2SU("[NothingBot] [Warn] ", fmt.Sprint(msg...))
 }
 
-func (log2SU log2SuperUsers) Info(msg ...any) {
+func (log2SU Log2SuperUsers) Info(msg ...any) {
 	log2SU("[NothingBot] [Info] ", fmt.Sprint(msg...))
 }
 
-func (log2SU log2SuperUsers) Debug(msg ...any) {
+func (log2SU Log2SuperUsers) Debug(msg ...any) {
 	log2SU("[NothingBot] [Debug] ", fmt.Sprint(msg...))
 }
 
-func (log2SU log2SuperUsers) Trace(msg ...any) {
+func (log2SU Log2SuperUsers) Trace(msg ...any) {
 	log2SU("[NothingBot] [Trace] ", fmt.Sprint(msg...))
 }
 
 // 发送日志到超级用户
-var log2SU log2SuperUsers = func(msg ...any) {
+var log2SU Log2SuperUsers = func(msg ...any) {
 	sendMsg(suID, nil, msg...)
 }
 
@@ -649,15 +677,15 @@ func sendMsg(userID []int, groupID []int, msg ...any) {
 }
 
 // 批量发送合并转发消息
-func sendForwardMsg(userID []int, groupID []int, forwardNode []map[string]any) {
+func sendForwardMsg(userID []int, groupID []int, nodes gocqForwardNodes) {
 	if len(groupID) > 0 {
 		for _, group := range groupID {
-			sendGroupForwardMsg(group, forwardNode)
+			sendGroupForwardMsg(group, nodes)
 		}
 	}
 	if len(userID) > 0 {
 		for _, user := range userID {
-			sendPrivateForwardMsg(user, forwardNode)
+			sendPrivateForwardMsg(user, nodes)
 		}
 	}
 }
@@ -702,15 +730,15 @@ func (ctx *gocqMessage) sendMsgReply(msg ...any) {
 }
 
 // 根据上下文发送合并转发消息
-func (ctx *gocqMessage) sendForwardMsg(forwardNode []map[string]any) {
-	if ctx.message_type == "" || len(forwardNode) == 0 {
+func (ctx *gocqMessage) sendForwardMsg(nodes gocqForwardNodes) {
+	if ctx.message_type == "" || len(nodes) == 0 {
 		return
 	}
 	switch ctx.message_type {
 	case "group":
-		sendGroupForwardMsg(ctx.group_id, forwardNode)
+		sendGroupForwardMsg(ctx.group_id, nodes)
 	case "private":
-		sendPrivateForwardMsg(ctx.user_id, forwardNode)
+		sendPrivateForwardMsg(ctx.user_id, nodes)
 	}
 }
 
@@ -769,21 +797,23 @@ func (ctx *gocqMessage) getCardOrNickname() string {
 }
 
 // 获取消息
-func (ctx *gocqMessage) getMsgFromId(msgId int) (msg *gocqMessage) {
-	if msgId == 0 {
-		return
+func (ctx *gocqMessage) getReplyedMsg() (msg *gocqMessage) {
+	matches := ctx.regexpMustCompile(`\[CQ:reply,id=(-?.*)].*`)
+	if len(matches) == 0 {
+		return nil
 	}
+	replyId, _ := strconv.Atoi(matches[0][1])
 	switch ctx.message_type {
 	case "private":
-		return msgTableFriend[ctx.user_id][msgId]
+		return msgTableFriend[ctx.user_id][replyId]
 	case "group":
-		return msgTableGroup[ctx.group_id][msgId]
+		return msgTableGroup[ctx.group_id][replyId]
 	}
 	return
 }
 
 // 快捷添加合并转发消息
-func appendForwardNode(forwardNode []map[string]any, nodeData gocqNodeData) []map[string]any {
+func appendForwardNode(nodes gocqForwardNodes, nodeData gocqNodeData) gocqForwardNodes {
 	timeS := nodeData.time
 	name := nodeData.name
 	uin := nodeData.uin
@@ -801,14 +831,14 @@ func appendForwardNode(forwardNode []map[string]any, nodeData gocqNodeData) []ma
 			break
 		}
 		if nodeData.seq == "" {
-			forwardNode = append(forwardNode, map[string]any{"type": "node", "data": map[string]any{
+			nodes = append(nodes, map[string]any{"type": "node", "data": map[string]any{
 				"time": timeS, "name": name, "uin": uin, "content": content_}})
 		} else {
-			forwardNode = append(forwardNode, map[string]any{"type": "node", "data": map[string]any{"seq": nodeData.seq,
+			nodes = append(nodes, map[string]any{"type": "node", "data": map[string]any{"seq": nodeData.seq,
 				"time": timeS, "name": name, "uin": uin, "content": content_}})
 		}
 	}
-	return forwardNode
+	return nodes
 }
 
 // 格式化时间戳至 x天x小时x分钟x秒
@@ -896,11 +926,15 @@ func initConfig() {
 
 func initModules() {
 	if !onDevelopmen {
+		gbwg.Wait() //直到成功连接且获取selfId
 		initCorpus()
 		initParse()
 		initQianfan()
 		initCache()
 		initPush()
+		initRecall()
+		initPixiv()
+		initSetu()
 	} else {
 		log.Warn("[main] skiped initModules(), developing...")
 	}

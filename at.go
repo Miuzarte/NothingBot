@@ -47,13 +47,13 @@ func (w *whoAtMe) get() *whoAtMe {
 }
 
 // 格式化
-func (w *whoAtMe) format() (forwardNode []map[string]any) {
+func (w *whoAtMe) format() (nodes gocqForwardNodes) {
 	atList := w.atList
 	atListLen := len(atList)
 	if atListLen > 99 { //超过100条合并转发放不下, 标题占1条
 		atListLen = 99
 	}
-	forwardNode = appendForwardNode(forwardNode, gocqNodeData{ //标题
+	nodes = appendForwardNode(nodes, gocqNodeData{ //标题
 		content: []string{
 			func() string {
 				if w.groupId != 0 {
@@ -94,7 +94,7 @@ func (w *whoAtMe) format() (forwardNode []map[string]any) {
 			return selfId
 		}()
 		content := strings.ReplaceAll(atMsg.extra.messageWithReply, "CQ:at,", "CQ:at,​") //插入零宽空格阻止CQ码解析
-		forwardNode = appendForwardNode(forwardNode, gocqNodeData{
+		nodes = appendForwardNode(nodes, gocqNodeData{
 			name:    name,
 			uin:     uin,
 			content: []string{content},

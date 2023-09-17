@@ -8,17 +8,40 @@ import (
 	"github.com/moxcomic/ihttp"
 )
 
-var pUrl = map[string]string{
-	"cat": "https://pixiv.cat/",
-	"re":  "https://pixiv.re/",
-}
+var (
+	pixivEnable = false
+	pUrl        = map[string]string{
+		"cat": "https://pixiv.cat/",
+		"re":  "https://pixiv.re/",
+	}
+)
 
 type pixiv struct {
 	pid int
 	num int
 }
 
+func initPixiv() {
+	pixivEnable = v.GetBool("pixiv.enable")
+}
+
 func checkPixiv(ctx *gocqMessage) {
+	//开关控制
+	matches := ctx.regexpMustCompile(`(开启|启用|关闭|禁用)pixiv`)
+	if len(matches) > 0 && ctx.isPrivateSU() {
+		switch matches[0][1] {
+		case "开启", "启用":
+			pixivEnable = true
+			ctx.sendMsg("pixiv已启用")
+		case "关闭", "禁用":
+			pixivEnable = false
+			ctx.sendMsg("pixiv已禁用")
+		}
+		return
+	}
+	if !pixivEnable {
+		return
+	}
 	match := ctx.regexpMustCompile(`[看康k]{2}([Pp]|[Pp]站|[Pp][Ii][Dd]|[Pp][Ii][Xx][Ii][Vv])([0-9]+)`)
 	if len(match) > 0 {
 		pid, _ := strconv.Atoi(match[0][2])
@@ -32,7 +55,7 @@ func checkPixiv(ctx *gocqMessage) {
 		}
 		content := []string{fmt.Sprint("在 pixiv.net/i/", p.pid, " 下共有 ", p.num, " 张图片")}
 		content = append(content, p.getPicUrl()...)
-		ctx.sendForwardMsg(appendForwardNode([]map[string]any{}, gocqNodeData{
+		ctx.sendForwardMsg(appendForwardNode(gocqForwardNodes{}, gocqNodeData{
 			uin:     ctx.user_id,
 			content: content,
 		}))

@@ -8,7 +8,7 @@ import (
 	"time"
 )
 
-var recallSwitch = true
+var recallEnable = false
 
 type recall struct {
 	kind      string //group / private
@@ -16,6 +16,10 @@ type recall struct {
 	filter    int    //group member
 	rcList    []gocqMessage
 	rcListLen int
+}
+
+func initRecall() {
+	recallEnable = v.GetBool("recall.enable")
 }
 
 // 获取
@@ -57,13 +61,13 @@ func (r *recall) get() *recall {
 }
 
 // 格式化
-func (r *recall) format() (forwardNode []map[string]any) {
+func (r *recall) format() (nodes gocqForwardNodes) {
 	rcList := r.rcList
 	rcListLen := r.rcListLen
 	if rcListLen > 99 { //超过100条合并转发放不下, 标题占1条
 		rcListLen = 99
 	}
-	forwardNode = appendForwardNode(forwardNode, gocqNodeData{ //标题
+	nodes = appendForwardNode(nodes, gocqNodeData{ //标题
 		content: []string{
 			func() string {
 				if r.kind == "group" {
@@ -92,7 +96,7 @@ func (r *recall) format() (forwardNode []map[string]any) {
 				return ""
 			}())
 		content := strings.ReplaceAll(rcMsg.extra.messageWithReply, "CQ:at,", "CQ:at,​") //插入零宽空格阻止CQ码解析
-		forwardNode = appendForwardNode(forwardNode, gocqNodeData{
+		nodes = appendForwardNode(nodes, gocqNodeData{
 			name:    name,
 			uin:     rcMsg.user_id,
 			content: []string{content},
@@ -108,15 +112,15 @@ func checkRecall(ctx *gocqMessage) {
 	if len(match) > 0 && ctx.isPrivateSU() {
 		switch match[0][1] {
 		case "开启", "启用":
-			recallSwitch = true
+			recallEnable = true
 			ctx.sendMsg("撤回记录已启用")
 		case "关闭", "禁用":
-			recallSwitch = false
+			recallEnable = false
 			ctx.sendMsg("撤回记录已禁用")
 		}
 		return
 	}
-	if !recallSwitch && !ctx.isSU() {
+	if !recallEnable && !ctx.isSU() {
 		return
 	}
 	//发送
