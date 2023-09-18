@@ -16,6 +16,13 @@ import sys
 import signal
 import asyncio
 
+from numba.core.errors import NumbaWarning
+import warnings
+warnings.simplefilter('ignore', category=NumbaWarning)
+
+import logging
+logging.getLogger('numba').setLevel(logging.WARNING)
+
 current_dir = os.path.dirname(os.path.abspath(__file__))
 app = FastAPI()
 

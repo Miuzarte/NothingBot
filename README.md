@@ -135,7 +135,7 @@ GLM2在int4量化的情况下也足以用于总结内容
 
 ### TODO:
 
-不知道还能写什么
+**重写轮子、哔哩哔哩视频解析上传**
 
 [@moxcomic](https://github.com/moxcomic) :
 

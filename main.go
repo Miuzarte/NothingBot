@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/base64"
 	"flag"
 	"fmt"
 	"io"
@@ -91,31 +92,32 @@ const (
 )
 
 var (
-	isRunningBeforeBuild = false                //启动方式
-	onDevelopmen         = false                //开发模式
-	gbwg                 sync.WaitGroup         //全局WaitGroup
-	startTime            = time.Now().Unix()    //启动时间
-	initCount            = 0                    //配置更新次数
-	gocqUrl              = ""                   //websocketurl
-	gocqConn             *websocket.Conn        //
-	mainBlock            = make(chan os.Signal) //main阻塞
-	tempBlock            = make(chan struct{})  //其他阻塞 热更新时重置
-	dynamicBlock         = false
-	logLever             = DebugLevel //日志等级
-	lastConfigChangeTime = startTime
-	configPath           = ""                   //配置路径
-	v                    = viper.New()          //配置体
-	botName              = ""                   //bot称呼, 用于判断ctx.isToMe()
-	connLost             = make(chan struct{})  //
-	reconnectCount       = 0                    //
-	heartbeatChecking    = false                //
-	heartbeatOK          = false                //
-	heartbeatCount       = 0                    //
-	heartbeatLostCount   = 0                    //
-	heartbeatChan        = make(chan struct{})  //
-	selfId               = 0                    //机器人QQ
-	suID                 = []int{}              //超级用户
-	unescape             = strings.NewReplacer( //反转义还原CQ码
+	isRunningBeforeBuild = false                      //启动方式
+	onDevelopmen         = false                      //开发模式
+	gbwg                 sync.WaitGroup               //全局WaitGroup
+	startTime            = time.Now().Unix()          //启动时间
+	initCount            = 0                          //配置更新次数
+	gocqUrl              = ""                         //websocketurl
+	gocqConn             *websocket.Conn              //
+	mainBlock            = make(chan os.Signal)       //main阻塞
+	tempBlock            = make(chan struct{})        //其他阻塞 热更新时重置
+	lastGetMsgTime       = 0                          //最后一次调用/get_msg的时间戳
+	dynamicBlock         = false                      //
+	logLever             = DebugLevel                 //日志等级
+	lastConfigChangeTime = startTime                  //最后一次更新配置文件的时间戳
+	configPath           = ""                         //配置路径
+	v                    = viper.New()                //配置体
+	botNames             = []string{"ruru", "rurudo"} //bot称呼, 用于判断ctx.isToMe()
+	connLost             = make(chan struct{})        //
+	reconnectCount       = 0                          //
+	heartbeatChecking    = false                      //
+	heartbeatOK          = false                      //
+	heartbeatCount       = 0                          //
+	heartbeatLostCount   = 0                          //
+	heartbeatChan        = make(chan struct{})        //
+	selfId               = 0                          //机器人QQ
+	suID                 = []int{}                    //超级用户
+	unescape             = strings.NewReplacer(       //反转义还原CQ码
 		"&amp;", "&", "&#44;", ",", "&#91;", "[", "&#93;", "]")
 	msgTableGroup  = make(map[int]map[int]*gocqMessage) //group_id:msg_id:msg
 	msgTableFriend = make(map[int]map[int]*gocqMessage) //user_id:msg_id:msg
@@ -226,6 +228,29 @@ type gocqNodeData struct {
 
 type gocqForwardNodes []map[string]any
 
+type gocqGetMsgResp struct {
+	data    gocqGetMsgRespData
+	message string
+	retcode int
+	status  string
+}
+
+type gocqGetMsgRespData struct {
+	group         bool
+	group_id      int
+	message       string
+	message_id    int
+	message_id_v2 string
+	message_seq   int
+	message_type  string
+	real_id       int
+	sender        struct {
+		nickname string
+		user_id  int
+	}
+	time int
+}
+
 // 连接go-cqhttp
 func connect(url string) {
 	gbwg.Add(1) //等待成功连接直到成功获取selfId
@@ -294,9 +319,9 @@ func heartbeatCheck(interval int) {
 }
 
 // 上报消息至go-cqhttp
-func postMsg(msg gson.JSON) {
+func postToGocq(data gson.JSON) {
 	if heartbeatOK {
-		go gocqConn.Write([]byte(msg.JSON("", "")))
+		go gocqConn.Write([]byte(data.JSON("", "")))
 	} else {
 		log.Error("[main] 未连接到go-cqhttp")
 	}
@@ -367,20 +392,26 @@ func postHandler(rawPost string) {
 				return
 			}
 		}
-		go func(msg *gocqMessage) {
-			go checkCookieUpdate(msg)
-			go checkCorpus(msg)
-			go checkParse(msg)
-			go checkSearch(msg)
-			go checkRecall(msg)
-			go checkAt(msg)
-			go checkInfo(msg)
-			go checkBotInternal(msg)
-			go checkSetu(msg)
-			go checkPixiv(msg)
-			go checkBertVITS2(msg)
-			go checkGocqAct(msg)
-		}(&msg)
+		if msg.user_id != selfId {
+			go func(msg *gocqMessage) {
+				go checkCookieUpdate(msg)
+				go checkCorpus(msg)
+				go checkParse(msg)
+				go checkSearch(msg)
+				go checkRecall(msg)
+				go checkAt(msg)
+				go checkInfo(msg)
+				go checkBotInternal(msg)
+				go checkSetu(msg)
+				go checkPixiv(msg)
+				go checkBertVITS2(msg)
+				go checkGocqAct(msg)
+				go checkCardParse(msg)
+
+				go checkDownload(msg)
+				go checkGetMsg(msg)
+			}(&msg)
+		}
 	case "message_sent":
 		log.Info("[gocq] 发出了一条消息")
 	case "request":
@@ -464,11 +495,29 @@ func postHandler(rawPost string) {
 			log.Info("[gocq] meta_event: ", p.JSON("", ""))
 		}
 	default:
-		if !p.Get("data.message_id").Nil() && !p.Get("retcode").Nil() && !p.Get("status").Nil() {
-			log.Info("[gocq] 消息发送成功    message_id: ", p.Get("data.message_id").Int(), "  retcode: ", p.Get("retcode").Int(), "  status: ", p.Get("status").Str())
-		} else {
-			log.Debug("[gocq] raw: ", rawPost)
-		}
+		isGetMsgResp := func() (is bool) {
+			is = true
+			is = is && !p.Get("data.group").Nil()
+			is = is && !p.Get("data.group_id").Nil()
+			is = is && !p.Get("data.message").Nil()
+			is = is && !p.Get("data.message_id").Nil()
+			is = is && !p.Get("data.message_id_v2").Nil()
+			is = is && !p.Get("data.message_seq").Nil()
+			is = is && !p.Get("data.message_type").Nil()
+			is = is && !p.Get("data.real_id").Nil()
+			is = is && !p.Get("data.sender").Nil()
+			is = is && !p.Get("data.time").Nil()
+			is = is && !p.Get("message").Nil()
+			is = is && !p.Get("retcode").Nil()
+			is = is && !p.Get("status").Nil()
+			return
+		}()
+		_ = isGetMsgResp
+		// if !p.Get("data.message_id").Nil() && !p.Get("retcode").Nil() && !p.Get("status").Nil() {
+		// 	log.Info("[gocq] 消息发送成功    message_id: ", p.Get("data.message_id").Int(), "  retcode: ", p.Get("retcode").Int(), "  status: ", p.Get("status").Str())
+		// } else {
+		log.Debug("[gocq] raw: ", rawPost)
+		// }
 	}
 }
 
@@ -561,7 +610,7 @@ func checkGocqAct(ctx *gocqMessage) {
 		case "get_online_clients":
 			g.Set("no_cache", value)
 		}
-		postMsg(g)
+		postToGocq(g)
 	}
 }
 
@@ -574,7 +623,7 @@ func sendGroupMsg(group_id int, msg ...any) {
 	g.Set("action", "send_group_msg")
 	g.Set("params", map[string]any{"group_id": group_id, "message": fmt.Sprint(msg...)})
 	log.Info("[main] 发送消息到群聊 ", group_id, " ", g.Get("params.message").Str())
-	postMsg(g)
+	postToGocq(g)
 }
 
 // 发送私聊消息
@@ -586,7 +635,7 @@ func sendPrivateMsg(user_id int, msg ...any) {
 	g.Set("action", "send_private_msg")
 	g.Set("params", map[string]any{"user_id": user_id, "message": fmt.Sprint(msg...)})
 	log.Info("[main] 发送消息到好友 ", user_id, " ", g.Get("params.message").Str())
-	postMsg(g)
+	postToGocq(g)
 }
 
 // 发送群聊合并转发消息
@@ -598,7 +647,7 @@ func sendGroupForwardMsg(group_id int, nodes gocqForwardNodes) {
 	g.Set("action", "send_group_forward_msg")
 	g.Set("params", map[string]any{"group_id": group_id, "messages": nodes})
 	log.Info("[main] 发送合并转发到群聊 ", group_id, " ", gson.New(nodes).JSON("", ""))
-	postMsg(g)
+	postToGocq(g)
 }
 
 // 发送私聊合并转发消息
@@ -610,7 +659,7 @@ func sendPrivateForwardMsg(user_id int, nodes gocqForwardNodes) {
 	g.Set("action", "send_private_forward_msg")
 	g.Set("params", map[string]any{"user_id": user_id, "messages": nodes})
 	log.Info("[main] 发送合并转发到好友 ", user_id, " ", gson.New(nodes).JSON("", ""))
-	postMsg(g)
+	postToGocq(g)
 }
 
 type SelfID int
@@ -742,9 +791,79 @@ func (ctx *gocqMessage) sendForwardMsg(nodes gocqForwardNodes) {
 	}
 }
 
+// 发送语音
+func (ctx *gocqMessage) sendVocal(wavData []byte) {
+	if ctx.message_type == "" || len(wavData) < 4 {
+		return
+	}
+	amrData, err := wav2amr(wavData)
+	if err != nil {
+		return
+	}
+	ctx.sendMsg("[CQ:record,file=base64://" + base64.StdEncoding.EncodeToString(amrData) + "]")
+}
+
+// 发送视频(不可通过base64)
+func (ctx *gocqMessage) sendVideo(videoData []byte) {
+	if ctx.message_type == "" || len(videoData) < 4 {
+		return
+	}
+	ctx.sendMsg("[CQ:video,file=base64://" + base64.StdEncoding.EncodeToString(videoData) + "]")
+}
+
+func checkDownload(ctx *gocqMessage) {
+	if !ctx.isPrivateSU() {
+		return
+	}
+	matches := ctx.regexpMustCompile(`下载(.*)`)
+	if len(matches) > 0 {
+		gocqDownloadFile(matches[0][1], 1, iheaders)
+	}
+}
+
+// 下载文件到缓存目录
+func gocqDownloadFile(url string, thread_count int, customHeaders map[string]string) {
+	h := []string{}
+	for k, v := range customHeaders {
+		h = append(h, k+"="+v)
+	}
+	g := gson.NewFrom("")
+	g.Set("action", "download_file")
+	g.Set("params.url", url)
+	g.Set("params.headers", h)
+	g.Set("params.thread_count", thread_count)
+	log.Info("[main] 执行远程下载: ", url)
+	log.Debug("[main] 执行远程下载: ", g.JSON("", ""))
+	postToGocq(g)
+}
+
+func checkGetMsg(ctx *gocqMessage) {
+	if !ctx.isSU() {
+		return
+	}
+	matches := ctx.regexpMustCompile(`\[CQ:reply,id=(-?.*)]\s*获取`)
+	if len(matches) > 0 {
+		replyId, _ := strconv.Atoi(matches[0][1])
+		gocqGetMsg(replyId)
+	}
+}
+
+// 从gocq获取消息
+func gocqGetMsg(msgId int) {
+	var g gson.JSON
+	g.Set("action", "get_msg")
+	g.Set("params.message_id", msgId)
+	log.Info("[main] 从gocq获取消息: ", msgId)
+	postToGocq(g)
+}
+
 // 正则完全匹配
 func (ctx *gocqMessage) regexpMustCompile(str string) (match [][]string) {
 	return regexp.MustCompile(str).FindAllStringSubmatch(ctx.message, -1)
+}
+
+func (ctx *gocqMessage) stringsContains(substr string) bool {
+	return strings.Contains(ctx.message, substr)
 }
 
 // 匹配超级用户
@@ -774,18 +893,40 @@ func (ctx *gocqMessage) isPrivateSU() bool {
 
 // 是否提及了Bot
 func (ctx *gocqMessage) isToMe() bool {
-	atMe := func() bool {
+	isAtMe := func() bool {
 		match := ctx.regexpMustCompile(fmt.Sprintf(`\[CQ:at,qq=%d]`, selfId))
 		return len(match) > 0
 	}()
-	callMe := func() bool {
-		if botName == "" {
-			return false
+	isCallMe := func() bool {
+		for _, n := range botNames {
+			if ctx.stringsContains(n) {
+				return true
+			}
 		}
-		match := ctx.regexpMustCompile(botName)
-		return len(match) > 0
+		return false
 	}()
-	return atMe || callMe || ctx.isPrivate() //私聊永远都是
+	return isAtMe || isCallMe || ctx.isPrivate() //私聊永远都是
+}
+
+// 是否为卡片消息
+func (ctx *gocqMessage) isCardMsg() bool {
+	return ctx.isJsonMsg() || ctx.isXmlMsg()
+}
+
+// 是否为json卡片消息
+func (ctx *gocqMessage) isJsonMsg() bool {
+	if len(ctx.message) < 8 {
+		return false
+	}
+	return ctx.message[1:8] == "CQ:json"
+}
+
+// 是否为xml卡片消息
+func (ctx *gocqMessage) isXmlMsg() bool {
+	if len(ctx.message) < 7 {
+		return false
+	}
+	return ctx.message[1:7] == "CQ:xml"
 }
 
 // 群名片为空则返回昵称
@@ -864,12 +1005,12 @@ func checkDir(path string) {
 	if _, err := os.Stat(path); os.IsNotExist(err) {
 		err := os.Mkdir(path, 0755)
 		if err != nil {
-			log.Error("无法创建文件夹:", err)
+			log.Error("无法创建文件夹: ", err)
 		} else {
-			log.Info("文件夹创建成功")
+			log.Info("文件夹 ", path, " 创建成功")
 		}
 	} else {
-		log.Debug("文件夹已存在", path)
+		log.Debug("文件夹 ", path, " 已存在")
 	}
 }
 
@@ -961,15 +1102,7 @@ func main() {
 			return
 		}())
 	}
-	func() {
-		go connect(gocqUrl)
-		for {
-			time.Sleep(time.Second)
-			if heartbeatOK {
-				return
-			}
-		}
-	}()
+	go connect(gocqUrl)
 	initModules()
 	v.OnConfigChange(func(in fsnotify.Event) {
 		nowTime := time.Now().Unix()
@@ -999,7 +1132,7 @@ func temporaryBlock(info string) {
 
 // 结束运行前报告
 func exitJobs() {
-	signal.Notify(mainBlock, syscall.SIGHUP, syscall.SIGINT, syscall.SIGQUIT, syscall.SIGKILL, syscall.SIGTERM)
+	signal.Notify(mainBlock, syscall.SIGHUP, syscall.SIGINT, syscall.SIGQUIT, syscall.SIGTERM)
 	<-mainBlock
 	runTime := timeFormat(time.Now().Unix() - startTime)
 	log2SU.Info("[exit] 已下线",

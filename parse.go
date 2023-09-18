@@ -2,9 +2,11 @@ package main
 
 import (
 	"fmt"
+	"os"
 	"reflect"
 	"regexp"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/moxcomic/ihttp"
@@ -21,14 +23,14 @@ var biliLinkRegexp = struct {
 	SPACE     string
 	LIVE      string
 }{
-	SHORT:     `(总结一下\s?)?.*(b23|acg)\.tv\\?/(BV[1-9A-HJ-NP-Za-km-z]{10}|av[0-9]{1,10}|[0-9A-Za-z]{7})`, //暂时应该只有7位  也有可能是av/bv号
-	DYNAMIC:   `(总结一下\s?)?.*(t.bilibili.com|dynamic|opus)\\?/([0-9]{18,19})`,                            //应该不会有17位的，可能要有19位
-	ARCHIVEav: `(总结一下\s?)?.*video\\?/av([0-9]{1,10})`,                                                   //9位 预留10
-	ARCHIVEbv: `(总结一下\s?)?.*video\\?/(BV[1-9A-HJ-NP-Za-km-z]{10})`,                                      //恒定BV + 10位base58
-	ARTICLE:   `(总结一下\s?)?.*(read\\?/cv|read\\?/mobile\\?/)([0-9]{1,9})`,                                //8位 预留9
-	MUSIC:     `(总结一下\s?)?.*audio\\?/au([0-9]{1,10})`,                                                   //
-	SPACE:     `(总结一下\s?)?.*space\.bilibili\.com\\?/([0-9]{1,16})`,                                      //新uid 16位
-	LIVE:      `(总结一下\s?)?.*live\.bilibili\.com\\?/([0-9]{1,9})`,                                        //8位 预留9
+	SHORT:     `((让岁己)?(总结一下\s?)|我要看\s?)?.*(b23|acg)\.tv\\?/(BV[1-9A-HJ-NP-Za-km-z]{10}|av[0-9]{1,10}|[0-9A-Za-z]{7})`, //暂时应该只有7位  也有可能是av/bv号
+	DYNAMIC:   `(让岁己)?(总结一下\s?)?.*(t.bilibili.com|dynamic|opus)\\?/([0-9]{18,19})`,                                     //应该不会有17位的，可能要有19位
+	ARCHIVEav: `((让岁己)?(总结一下\s?)|我要看\s?)?.*video\\?/av([0-9]{1,10})`,                                                   //9位 预留10
+	ARCHIVEbv: `((让岁己)?(总结一下\s?)|我要看\s?)?.*video\\?/(BV[1-9A-HJ-NP-Za-km-z]{10})`,                                      //恒定BV + 10位base58
+	ARTICLE:   `(让岁己)?(总结一下\s?)?.*(read\\?/cv|read\\?/mobile\\?/)([0-9]{1,9})`,                                         //8位 预留9
+	MUSIC:     `(让岁己)?(总结一下\s?)?.*audio\\?/au([0-9]{1,10})`,                                                            //
+	SPACE:     `(让岁己)?(总结一下\s?)?.*space\.bilibili\.com\\?/([0-9]{1,16})`,                                               //新uid 16位
+	LIVE:      `(让岁己)?(总结一下\s?)?.*live\.bilibili\.com\\?/([0-9]{1,9})`,                                                 //8位 预留9
 }
 
 var everyBiliLinkRegexp = func() (everyBiliLinkRegexp string) {
@@ -50,12 +52,16 @@ type parseHistory struct {
 	time  int64
 }
 
-var archiveAudioTable = make(map[int]*archiveAudio)
+var archiveVideoTable = make(map[int]*archiveVideo)       //av:
+var archiveAudioTable = make(map[int]*archiveAudio)       //av:
 var archiveSubtitleTable = make(map[int]*archiveSubtitle) //av:
 var articleTextTable = make(map[int]*articleText)         //cv:
 
+var rmTitle = strings.NewReplacer("概述", "", "要点", "", "由", "", "总结：", "", "总结（原文长度超过1500字符，输入经过去尾）：", "",
+	"ChatGLM2-6B", "", "ERNIE_Bot", "", "ERNIE_Bot_turbo", "", "BLOOMZ_7B", "", "Llama_2_7b", "", "Llama_2_13b", "", "Llama_2_70b", "")
+
 // 链接提取
-func extractBiliLink(str string) (id string, kind string, summary bool) {
+func extractBiliLink(str string) (id string, kind string, summary bool, tts bool, upload bool) {
 	short := regexp.MustCompile(biliLinkRegexp.SHORT).FindAllStringSubmatch(str, -1)
 	dynamic := regexp.MustCompile(biliLinkRegexp.DYNAMIC).FindAllStringSubmatch(str, -1)
 	av := regexp.MustCompile(biliLinkRegexp.ARCHIVEav).FindAllStringSubmatch(str, -1)
@@ -78,47 +84,70 @@ func extractBiliLink(str string) (id string, kind string, summary bool) {
 		}
 		return
 	}
+	ttsTest := func(ttsStr string) (tts bool) {
+		if ttsStr == "让岁己" {
+			tts = true
+		}
+		return
+	}
+	uploadTest := func(uploadStr string) (upload bool) {
+		if uploadStr == "我要看" {
+			upload = true
+		}
+		return
+	}
 	switch {
 	case len(short) > 0:
-		log.Debug("[parse] 识别到一个短链, short[0][3]: ", short[0][3])
-		id = short[0][3]
+		log.Debug("[parse] 识别到一个短链, short[0][4]: ", short[0][5])
+		id = short[0][5]
 		kind = "SHORT"
-		summary = sumTest(short[0][1])
+		tts = ttsTest(short[0][2])
+		summary = sumTest(short[0][3])
+		upload = uploadTest(short[0][1])
 	case len(dynamic) > 0:
-		log.Debug("[parse] 识别到一个动态, dynamic[0][3]: ", dynamic[0][3])
-		id = dynamic[0][3]
+		log.Debug("[parse] 识别到一个动态, dynamic[0][4]: ", dynamic[0][4])
+		id = dynamic[0][4]
 		kind = "DYNAMIC"
-		summary = sumTest(dynamic[0][1])
+		tts = ttsTest(dynamic[0][1])
+		summary = sumTest(dynamic[0][2])
 	case len(av) > 0:
-		log.Debug("[parse] 识别到一个视频(av), av[0][2]: ", av[0][2])
-		id = av[0][2]
+		log.Debug("[parse] 识别到一个视频(av), av[0][4]: ", av[0][4])
+		id = av[0][4]
 		kind = "ARCHIVE"
-		summary = sumTest(av[0][1])
+		tts = ttsTest(av[0][2])
+		summary = sumTest(av[0][3])
+		upload = uploadTest(av[0][1])
 	case len(bv) > 0:
-		log.Debug("[parse] 识别到一个视频(bv), bv[0][2]: ", bv[0][2])
-		id = strconv.Itoa(bv2av(bv[0][2]))
+		log.Debug("[parse] 识别到一个视频(bv), bv[0][4]: ", bv[0][4])
+		id = strconv.Itoa(bv2av(bv[0][4]))
 		kind = "ARCHIVE"
-		summary = sumTest(bv[0][1])
+		tts = ttsTest(bv[0][2])
+		summary = sumTest(bv[0][3])
+		upload = uploadTest(bv[0][1])
 	case len(cv) > 0:
-		log.Debug("[parse] 识别到一个专栏, cv[0][3]: ", cv[0][3])
-		id = cv[0][3]
+		log.Debug("[parse] 识别到一个专栏, cv[0][4]: ", cv[0][4])
+		id = cv[0][4]
 		kind = "ARTICLE"
-		summary = sumTest(cv[0][1])
+		tts = ttsTest(cv[0][1])
+		summary = sumTest(cv[0][2])
 	case len(au) > 0:
-		log.Debug("[parse] 识别到一个音频, au[0][2]: ", au[0][2])
-		id = au[0][2]
+		log.Debug("[parse] 识别到一个音频, au[0][3]: ", au[0][3])
+		id = au[0][3]
 		kind = "MUSIC"
-		summary = sumTest(au[0][1])
+		tts = ttsTest(au[0][1])
+		summary = sumTest(au[0][2])
 	case len(space) > 0:
-		log.Debug("[parse] 识别到一个用户空间, space[0][2]: ", space[0][2])
-		id = space[0][2]
+		log.Debug("[parse] 识别到一个用户空间, space[0][3]: ", space[0][3])
+		id = space[0][3]
 		kind = "SPACE"
-		summary = sumTest(space[0][1])
+		tts = ttsTest(space[0][1])
+		summary = sumTest(space[0][2])
 	case len(live) > 0:
-		log.Debug("[parse] 识别到一个直播, live[0][2]: ", live[0][2])
-		id = live[0][2]
+		log.Debug("[parse] 识别到一个直播, live[0][3]: ", live[0][3])
+		id = live[0][3]
 		kind = "LIVE"
-		summary = sumTest(live[0][1])
+		tts = ttsTest(live[0][1])
+		summary = sumTest(live[0][2])
 	}
 	return
 }
@@ -129,7 +158,7 @@ type dynamicContent struct {
 }
 
 // 内容解析并格式化
-func parseAndFormatBiliLink(ctx *gocqMessage, id string, kind string, summary bool) (content string) {
+func parseAndFormatBiliLink(ctx *gocqMessage, id string, kind string, summary bool, tts bool, upload bool) (content string) {
 	var op bool
 	if ctx != nil {
 		op = ctx.isBiliLinkOverParse(id, kind)
@@ -144,8 +173,8 @@ func parseAndFormatBiliLink(ctx *gocqMessage, id string, kind string, summary bo
 	switch kind {
 	case "":
 	case "SHORT":
-		id, kind, summary := extractBiliLink(deShortLink(id))
-		content = parseAndFormatBiliLink(ctx, id, kind, summary)
+		id, kind, _, _, _ := extractBiliLink(deShortLink(id))
+		content = parseAndFormatBiliLink(ctx, id, kind, summary, tts, upload)
 	case "DYNAMIC":
 		g := getDynamicJson(id)
 		if g.Get("code").Int() != 0 {
@@ -158,7 +187,11 @@ func parseAndFormatBiliLink(ctx *gocqMessage, id string, kind string, summary bo
 						up:   g.Get("data.item.modules.module_author.name").Str(),
 						text: g.Get("data.item.modules.module_dynamic.desc.text").Str(),
 					}
-					ctx.sendMsg(dc.summary())
+					s := dc.summary()
+					ctx.sendMsg(s)
+					if tts {
+						ctx.sendVitsMsg(rmTitle.Replace(s)) //不念“概述”、“要点”
+					}
 				}()
 			}
 		}
@@ -177,15 +210,41 @@ func parseAndFormatBiliLink(ctx *gocqMessage, id string, kind string, summary bo
 					} else {
 						as = getSubtitle(aid, g.Get("data.owner.name").Str(), g.Get("data.title").Str())
 						if as == nil {
-							ctx.sendMsg("[NothingBot] [Info] 无法获取视频字幕，尝试调用BcutASR")
+							ctx.sendMsgReply("[NothingBot] [Info] 无法获取视频字幕，尝试调用BcutASR")
 							as = bcutSubtitle(aid, g.Get("data.owner.name").Str(), g.Get("data.title").Str())
 						}
 					}
 					if as != nil {
 						archiveSubtitleTable[aid] = as //缓存字幕
-						ctx.sendMsg(as.summary())
+						s := as.summary()
+						ctx.sendMsg(s)
+						if tts {
+							ctx.sendVitsMsg(rmTitle.Replace(s)) //不念“概述”、“要点”
+						}
 					} else {
-						ctx.sendMsg("[NothingBot] [Error] 字幕转录失败力")
+						ctx.sendMsgReply("[NothingBot] [Error] 字幕转录失败力")
+					}
+				}()
+			}
+			upload = false
+			if upload {
+				go func() {
+					var av *archiveVideo
+					if cache, hasCache := archiveVideoTable[aid]; hasCache {
+						av = cache
+					} else {
+						av = getVideoMp4(aid, videoQual.gq720)
+					}
+					if av != nil {
+						archiveVideoTable[aid] = av //缓存视频
+						videoData, err := os.ReadFile(av.localPath)
+						if err == nil {
+							ctx.sendVideo(videoData)
+						} else {
+							log.Error("[NothingBot] [Error] 视频读取失败")
+						}
+					} else {
+						ctx.sendMsgReply("[NothingBot] [Error] 视频获取失败力")
 					}
 				}()
 			}
@@ -207,9 +266,13 @@ func parseAndFormatBiliLink(ctx *gocqMessage, id string, kind string, summary bo
 					}
 					if at != nil {
 						articleTextTable[cvid] = at //缓存专栏
-						ctx.sendMsg(at.summary())
+						s := at.summary()
+						ctx.sendMsg(s)
+						if tts {
+							ctx.sendVitsMsg(rmTitle.Replace(s)) //不念“概述”、“要点”
+						}
 					} else {
-						ctx.sendMsg("[NothingBot] 文章正文获取失败力")
+						ctx.sendMsgReply("[NothingBot] 文章正文获取失败力")
 					}
 				}()
 			}
@@ -224,7 +287,7 @@ func parseAndFormatBiliLink(ctx *gocqMessage, id string, kind string, summary bo
 			if summary {
 				go func() {
 					time.Sleep(time.Second * 2)
-					ctx.sendMsg("没做")
+					ctx.sendMsgReply("没做")
 				}()
 			}
 		}
@@ -238,7 +301,7 @@ func parseAndFormatBiliLink(ctx *gocqMessage, id string, kind string, summary bo
 			if summary {
 				go func() {
 					time.Sleep(time.Second * 2)
-					ctx.sendMsg("？")
+					ctx.sendMsgReply("？")
 				}()
 			}
 		}
@@ -252,7 +315,7 @@ func parseAndFormatBiliLink(ctx *gocqMessage, id string, kind string, summary bo
 				if summary {
 					go func() {
 						time.Sleep(time.Second * 2)
-						ctx.sendMsg("？？？")
+						ctx.sendMsgReply("？？？")
 					}()
 				}
 			} else {
@@ -314,7 +377,7 @@ func getPrompt(kind string, title string, up string, seq string) string {
 		"dynamic": "空间动态",
 	}
 	//return "使用以下Markdown模板为我总结" + kindList[kind] + "，除非" + kindList[kind][6:] + "中的内容无意义，或者未提供" + kindList[kind][6:] + "内容，或者内容较少无法总结，或者无有效内容，你就不使用模板回复，只回复“无意义”。" +
-	return "使用以下Markdown模板为我总结" + kindList[kind] + "，除非内容较少无法总结，或者无有效内容，你就不使用模板回复，只回复“无意义”。" +
+	return "使用以下Markdown模板为我总结" + kindList[kind] + "，除非内容较少无法总结，你就不使用模板回复，只回复“内容过少，无法总结”。" +
 		"\n## 概述" +
 		"\n{尽可能精简总结内容不要太详细}" +
 		"\n## 要点" +
@@ -447,18 +510,18 @@ func checkParse(ctx *gocqMessage) {
 	match := reg.FindAllStringSubmatch(ctx.message, -1)
 	if len(match) > 0 {
 		log.Debug("[parse] 识别到哔哩哔哩链接: ", match[0][0])
-		id, kind, summary := extractBiliLink(match[0][0])
+		id, kind, summary, tts, upload := extractBiliLink(match[0][0])
 		if kind == "SHORT" { //短链先解析提取再往下, 保证parseHistory里没有短链
 			loc := deShortLink(id)
 			match = reg.FindAllStringSubmatch(loc, -1)
 			if len(match) > 0 {
 				log.Debug("[parse] 短链解析结果: ", match[0][0])
-				id, kind, _ = extractBiliLink(match[0][0])
+				id, kind, _, _, _ = extractBiliLink(match[0][0])
 			} else {
 				log.Debug("[parse] 短链解析失败: ", loc)
 				return
 			}
 		}
-		ctx.sendMsg(parseAndFormatBiliLink(ctx, id, kind, summary))
+		ctx.sendMsg(parseAndFormatBiliLink(ctx, id, kind, summary, tts, upload))
 	}
 }

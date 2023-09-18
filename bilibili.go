@@ -18,11 +18,15 @@ import (
 )
 
 var (
-	transcriptSaveDir = "./bilibili_transcript/"
+	tempDir = "./bilibili_temp/"
 )
 
 // bv转av
 func bv2av(bv string) (av int) {
+	if length, standard := len(bv), len("BV1vh4y1U71j"); length < standard {
+		log.Warn("[bv2av] 输入了错误的bv号: ", bv, " (len: ", length, ")")
+		return 0
+	}
 	table := "fZodR9XQDSUm21yCkr6zBqiveYah8bt4xsWpHnJE7jL5VG3guMTKNPAwcF"
 	tr := make(map[byte]int)
 	for i := 0; i < 58; i++ {
@@ -135,8 +139,8 @@ func formatDynamic(g gson.JSON) string {
 				c_cnt, cnt, option)
 		case "ADDITIONAL_TYPE_UGC": //评论同时转发
 			url := dynamic.Get("additional.ugc.jump_url").Str()
-			id, kind, _ := extractBiliLink(url)
-			addtion = "\n\n转发的视频：\n" + parseAndFormatBiliLink(nil, id, kind, false)
+			id, kind, _, _, _ := extractBiliLink(url)
+			addtion = "\n\n转发的视频：\n" + parseAndFormatBiliLink(nil, id, kind, false, false, false)
 		}
 		return
 	}(dynamic.Get("additional.type").Str())
@@ -336,7 +340,7 @@ func getArchiveJsonB(bvid string) (archiveJson gson.JSON, stateJson gson.JSON) {
 
 // 读取缓存
 func initCache() {
-	err := filepath.Walk(transcriptSaveDir, func(path string, info os.FileInfo, err error) error {
+	err := filepath.Walk(tempDir, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			log.Error("访问路径 ", path, " 时发生错误: ", err.Error())
 			return err
@@ -388,6 +392,137 @@ func initCache() {
 	}
 }
 
+var videoCodec = struct {
+	avc  int
+	hevc int
+	av1  int
+}{
+	avc:  7,
+	hevc: 12,
+	av1:  13,
+}
+
+var videoQual = struct {
+	js240      int
+	lc360      int
+	qx480      int
+	gq720      int
+	gzl720p60  int
+	gq1080     int
+	gml1080    int
+	gzl1080p60 int
+	cq4K       int
+	zcsHDR     int
+	dolby      int
+	cgq8K      int
+}{
+	js240:      6,
+	lc360:      16,
+	qx480:      32,
+	gq720:      64,
+	gzl720p60:  74,
+	gq1080:     80,
+	gml1080:    112,
+	gzl1080p60: 116,
+	cq4K:       120,
+	zcsHDR:     125,
+	dolby:      126,
+	cgq8K:      127,
+}
+
+type archiveVideo struct {
+	aid       int
+	cid       int
+	hasAudio  bool //是否带音频
+	localPath string
+}
+
+// 获取视频流(mp4)
+func getVideoMp4(aid int, qual int) *archiveVideo {
+	if cacheVi, has := archiveVideoTable[aid]; has {
+		return cacheVi
+	}
+	checkDir(tempDir)
+	cid := getCid(aid)
+	url := getVideoUrlMp4(aid, cid, qual)
+	fileName := fmt.Sprint("av", aid, "_c", cid, "_qn", qual, ".mp4")
+	localPath := tempDir + fileName
+	videoByte, err := ihttp.New().WithUrl(url).
+		WithHeaders(iheaders).
+		Get().ToBytes()
+	if err != nil {
+		log.Error("[bilibili] 视频(mp4)下载失败 err: ", err)
+		return nil
+	} else {
+		log.Debug("[bilibili] len(videoByte): ", len(videoByte))
+	}
+	os.WriteFile(localPath, videoByte, 0664)
+	return &archiveVideo{
+		aid:       aid,
+		cid:       cid,
+		hasAudio:  true,
+		localPath: localPath,
+	}
+}
+
+type videoUrls map[int]map[int]string //qual:codec:
+
+// 获取视频流(dash)链接
+func getVideoUrlDash(aid int, cid int) (urls videoUrls) {
+	g, err := ihttp.New().WithUrl(`https://api.bilibili.com/x/player/playurl`).
+		WithHeaders(iheaders).WithCookie(cookie).
+		WithAddQuerys(map[string]any{
+			"avid":  aid,
+			"cid":   cid,
+			"fnval": 16, //dash
+		}).
+		Get().ToGson()
+	if err != nil {
+		log.Error("[bilibili] 获取视频流(dash)链接失败 err: ", err)
+		return
+	}
+	if g.Get("code").Int() != 0 {
+		log.Error("[bilibili] 获取视频流(dash)链接失败 g: ", g.JSON("", ""))
+		return
+	}
+	urls = make(videoUrls)
+	for _, h := range g.Get("data.dash.video").Arr() {
+		qualId := h.Get("id").Int()
+		urls[qualId] = make(map[int]string)
+		codecId := h.Get("codecid").Int()
+		baseUrl := h.Get("baseUrl").Str()
+		urls[qualId][codecId] = baseUrl
+	}
+	return
+}
+
+// 获取视频流(mp4)链接, avc only
+func getVideoUrlMp4(aid int, cid int, qual int) (url string) {
+	g, err := ihttp.New().WithUrl(`https://api.bilibili.com/x/player/playurl`).
+		WithHeaders(iheaders).WithCookie(cookie).
+		WithAddQuerys(map[string]any{
+			"avid":  aid,
+			"cid":   cid,
+			"qn":    qual,
+			"fnval": 1, //mp4
+		}).
+		Get().ToGson()
+	if err != nil {
+		log.Error("[bilibili] 获取视频流(mp4)链接失败 err: ", err)
+		return
+	}
+	if g.Get("code").Int() != 0 {
+		log.Error("[bilibili] 获取视频流(mp4)链接失败 g: ", g.JSON("", ""))
+		return
+	}
+	url = g.Get("data.durl").Arr()[0].Get("url").Str()
+	if len(url) < 16 {
+		log.Error("[bilibili] 获取视频流(mp4)链接失败 url: ", url, " g: ", g.JSON("", ""))
+		return ""
+	}
+	return
+}
+
 var audioQual = struct {
 	low   int //64k
 	mid   int //132k
@@ -408,15 +543,15 @@ type archiveAudio struct {
 	localPath string
 }
 
-// 获取视频音频流
+// 获取音频流
 func getAudio(aid int, cid int) *archiveAudio {
 	if cacheAu, has := archiveAudioTable[aid]; has {
 		return cacheAu
 	}
-	checkDir(transcriptSaveDir)
+	checkDir(tempDir)
 	url := getAudioUrl(aid, cid).high()
 	fileName := fmt.Sprint("av", aid, "_c", cid, ".aac")
-	localPath := transcriptSaveDir + fileName
+	localPath := tempDir + fileName
 	audioByte, err := ihttp.New().WithUrl(url).
 		WithHeaders(iheaders).
 		Get().ToBytes()
@@ -456,9 +591,9 @@ func getAudioUrl(aid int, cid int) (urls audioUrls) {
 	}
 	urls = make(audioUrls)
 	for _, h := range g.Get("data.dash.audio").Arr() {
-		id := h.Get("id").Int()
+		qualId := h.Get("id").Int()
 		baseUrl := h.Get("baseUrl").Str()
-		urls[id] = baseUrl
+		urls[qualId] = baseUrl
 	}
 	return
 }
@@ -527,12 +662,12 @@ func getSubtitle(aid int, up string, title string) *archiveSubtitle {
 		Result:   result,
 		IsNative: true,
 	}
-	checkDir(transcriptSaveDir)
+	checkDir(tempDir)
 	asByte, err := json.Marshal(as)
 	if err != nil {
 		log.Error("[bilibili] Cache Marshal err: ", err.Error())
 	}
-	localPath := fmt.Sprint(transcriptSaveDir, "av", aid, "_c", cid, ".json")
+	localPath := fmt.Sprint(tempDir, "av", aid, "_c", cid, ".json")
 	os.WriteFile(localPath, asByte, 0644) //缓存
 	as.nativeMarshal()
 	return as
@@ -540,7 +675,7 @@ func getSubtitle(aid int, up string, title string) *archiveSubtitle {
 
 // 调用必剪转录视频字幕
 func bcutSubtitle(aid int, up string, title string) *archiveSubtitle {
-	checkDir(transcriptSaveDir)
+	checkDir(tempDir)
 	cid := getCid(aid)
 	if cid == 0 {
 		log.Error("[bilibili] cid == 0")
@@ -561,12 +696,12 @@ func bcutSubtitle(aid int, up string, title string) *archiveSubtitle {
 		Result:   result,
 		IsNative: false,
 	}
-	checkDir(transcriptSaveDir)
+	checkDir(tempDir)
 	asByte, err := json.Marshal(as)
 	if err != nil {
 		log.Error("[bilibili] Cache Marshal err: ", err.Error())
 	}
-	localPath := fmt.Sprint(transcriptSaveDir, "av", aid, "_c", cid, ".json")
+	localPath := fmt.Sprint(tempDir, "av", aid, "_c", cid, ".json")
 	os.WriteFile(localPath, asByte, 0644) //缓存
 	as.bcutMarshal()
 	return as
@@ -770,12 +905,12 @@ func getArticleText(cvid int) *articleText {
 		Title: title,
 		Text:  text,
 	}
-	checkDir(transcriptSaveDir)
+	checkDir(tempDir)
 	atByte, err := json.Marshal(at)
 	if err != nil {
 		log.Error("Cache Marshal err: ", err.Error())
 	}
-	localPath := fmt.Sprint(transcriptSaveDir, "cv", cvid, ".json")
+	localPath := fmt.Sprint(tempDir, "cv", cvid, ".json")
 	os.WriteFile(localPath, atByte, 0644) //缓存
 	at.marshal()
 	return at

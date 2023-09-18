@@ -2,7 +2,6 @@ package main
 
 import (
 	"bufio"
-	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -156,38 +155,36 @@ func checkBertVITS2(ctx *gocqMessage) {
 			return false
 		}()
 		if !ctx.isSU() && !isInWhite {
-			ctx.sendMsg("[BertVITS2] 岁己TTS需要主人权限捏")
+			ctx.sendMsg("[BertVITS2] Permission Denied")
 			return
 		}
 		text := trimOuterQuotes(matches[0][2])
 		if replyMsg := ctx.getReplyedMsg(); replyMsg != nil { //复述回复时无视内容
 			text = trimOuterQuotes(replyMsg.message)
 		}
-		log.Debug("text: ", text)
-		if len(strings.TrimSpace(text)) == 0 {
-			ctx.sendMsgReply("[BertVITS2] 文本输入不可为空！")
-			return
-		}
-		out, err := bertVits2TTS(text)
-		if err != nil {
-			log.Error("[BertVITS2] 出现错误(1): ", err)
-			ctx.sendMsgReply("[BertVITS2] 出现错误(1)：", err.Error())
-			return
-		}
-		wav, err := os.ReadFile(out)
-		if err != nil {
-			log.Error("[BertVITS2] 出现错误(2): ", err)
-			ctx.sendMsgReply("[BertVITS2] 出现错误(2)：", err.Error())
-			return
-		}
-		amr, err := wav2amr(wav)
-		if err != nil {
-			log.Error("[BertVITS2] 出现错误(3): ", err)
-			ctx.sendMsgReply("[BertVITS2] 出现错误(3)：", err.Error())
-			return
-		}
-		ctx.sendMsg("[CQ:record,file=base64://" + base64.StdEncoding.EncodeToString(amr) + "]")
+		ctx.sendVitsMsg(text)
 	}
+}
+
+func (ctx *gocqMessage) sendVitsMsg(text string) {
+	log.Debug("text: ", text)
+	if len(strings.TrimSpace(text)) == 0 {
+		ctx.sendMsgReply("[BertVITS2] 文本输入不可为空！")
+		return
+	}
+	output, err := bertVits2TTS(text)
+	if err != nil {
+		log.Error("[BertVITS2] 出现错误(1): ", err)
+		ctx.sendMsgReply("[BertVITS2] 出现错误(1)：", err.Error())
+		return
+	}
+	wavData, err := os.ReadFile(output)
+	if err != nil {
+		log.Error("[BertVITS2] 出现错误(2): ", err)
+		ctx.sendMsgReply("[BertVITS2] 出现错误(2)：", err.Error())
+		return
+	}
+	ctx.sendVocal(wavData)
 }
 
 // 去除最外层一对互相匹配的引号
