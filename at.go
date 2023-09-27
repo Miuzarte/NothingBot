@@ -1,6 +1,7 @@
 package main
 
 import (
+	"NothinBot/EasyBot"
 	"fmt"
 	"sort"
 	"strconv"
@@ -11,17 +12,17 @@ import (
 type whoAtMe struct {
 	groupId   int
 	atId      int
-	atList    []gocqMessage
+	atList    []*EasyBot.CQMessage
 	atListLen int
 }
 
 // 获取
 func (w *whoAtMe) get() *whoAtMe {
-	atList := []gocqMessage{}
+	atList := []*EasyBot.CQMessage{}
 	tables := func() []int {
 		if w.groupId == 0 {
 			var tables []int
-			for i := range msgTableGroup {
+			for i := range bot.MessageTableGroup {
 				tables = append(tables, i)
 			}
 			return tables
@@ -29,17 +30,17 @@ func (w *whoAtMe) get() *whoAtMe {
 		return []int{w.groupId}
 	}()
 	for _, i := range tables {
-		table := msgTableGroup[i]
+		table := bot.MessageTableGroup[i]
 		for _, msg := range table {
-			for _, at := range msg.extra.atWho {
+			for _, at := range msg.Extra.AtWho {
 				if w.atId == at {
-					atList = append(atList, *msg)
+					atList = append(atList, msg)
 				}
 			}
 		}
 	}
 	sort.Slice(atList, func(i, j int) bool { //根据msg的时间戳由大到小排序
-		return atList[i].time > atList[j].time
+		return atList[i].Event.Time > atList[j].Event.Time
 	})
 	w.atList = atList
 	w.atListLen = len(atList)
@@ -47,38 +48,39 @@ func (w *whoAtMe) get() *whoAtMe {
 }
 
 // 格式化
-func (w *whoAtMe) format() (nodes gocqForwardNodes) {
+func (w *whoAtMe) format() (forwardMsg EasyBot.CQForwardMsg) {
 	atList := w.atList
 	atListLen := len(atList)
 	if atListLen > 99 { //超过100条合并转发放不下, 标题占1条
 		atListLen = 99
 	}
-	nodes = appendForwardNode(nodes, gocqNodeData{ //标题
-		content: []string{
-			func() string {
-				if w.groupId != 0 {
-					return fmt.Sprintf("%s之后群%d中最近%d条at过%d的消息：", time.Unix(startTime, 0).Format(timeLayout.M24C), w.groupId, atListLen, w.atId)
-				} else {
-					return fmt.Sprintf("%s之后所有群中最近%d条at过%d的消息：", time.Unix(startTime, 0).Format(timeLayout.M24C), atListLen, w.atId)
-				}
-			}(),
-		},
-	})
+	forwardMsg = EasyBot.AppendForwardMsg(forwardMsg, EasyBot.NewForwardNode( //标题
+		"NothingBot",
+		bot.GetSelfID(),
+		func() string {
+			if w.groupId != 0 {
+				return fmt.Sprintf("%s之后群%d中最近%d条at过%d的消息：", time.Unix(startTime, 0).Format(timeLayout.M24C), w.groupId, atListLen, w.atId)
+			} else {
+				return fmt.Sprintf("%s之后所有群中最近%d条at过%d的消息：", time.Unix(startTime, 0).Format(timeLayout.M24C), atListLen, w.atId)
+			}
+		}(),
+		0, 0,
+	))
 	for i := 0; i < atListLen; i++ {
 		atMsg := w.atList[i]
 		name := fmt.Sprintf(`(%s)%s%s%s`,
-			atMsg.extra.timeFormat,
-			atMsg.getCardOrNickname(),
+			atMsg.Extra.TimeFormat,
+			atMsg.GetCardOrNickname(),
 			func() string {
 				if w.groupId != 0 {
 					return ""
 				} else { //查看所有群的时候补充来源群
-					return fmt.Sprintf("  (%d)", atMsg.group_id)
+					return fmt.Sprintf("  (%d)", atMsg.GroupID)
 				}
 			}(),
 			func() string {
-				if atMsg.extra.recalled {
-					if atMsg.extra.operator_id == atMsg.user_id {
+				if atMsg.Extra.Recalled {
+					if atMsg.Extra.OperatorID == atMsg.UserID {
 						return "(已撤回)"
 					} else {
 						return "(已被他人撤回)"
@@ -88,28 +90,25 @@ func (w *whoAtMe) format() (nodes gocqForwardNodes) {
 				}
 			}())
 		uin := func() (uin int) {
-			if atMsg.user_id != 0 {
-				return atMsg.user_id
+			if atMsg.UserID != 0 {
+				return atMsg.UserID
 			}
-			return selfId
+			return bot.GetSelfID()
 		}()
-		content := strings.ReplaceAll(atMsg.extra.messageWithReply, "CQ:at,", "CQ:at,​") //插入零宽空格阻止CQ码解析
-		nodes = appendForwardNode(nodes, gocqNodeData{
-			name:    name,
-			uin:     uin,
-			content: []string{content},
-		})
+		content := strings.ReplaceAll(atMsg.Extra.MessageWithReply, "CQ:at,", "CQ:at,​") //插入零宽空格阻止CQ码解析
+		forwardMsg = EasyBot.AppendForwardMsg(forwardMsg, EasyBot.NewForwardNode(
+			name, uin, content, 0, 0))
 	}
 	return
 }
 
 // 谁at我
-func checkAt(ctx *gocqMessage) {
-	match := ctx.regexpMustCompile(`^谁(@|[aA艾][tT特])(我|(\s*\[CQ:at,qq=)?([0-9]{1,11})?(]\s*))$`)
+func checkWhoAtMe(ctx *EasyBot.CQMessage) {
+	match := ctx.RegexpMustCompile(`^谁(@|[aA艾][tT特])(我|(\s*\[CQ:at,qq=)?([0-9]{1,11})?(]\s*))$`)
 	if len(match) > 0 {
 		var atId int
 		if match[0][2] == "我" {
-			atId = ctx.user_id
+			atId = ctx.UserID
 		} else {
 			var err error
 			atId, err = strconv.Atoi(match[0][4])
@@ -120,8 +119,8 @@ func checkAt(ctx *gocqMessage) {
 		w := whoAtMe{
 			atId: atId,
 			groupId: func() int {
-				if ctx.message_type == "group" {
-					return ctx.group_id
+				if ctx.MessageType == "group" {
+					return ctx.GroupID
 				}
 				return 0
 			}(),
@@ -129,12 +128,12 @@ func checkAt(ctx *gocqMessage) {
 		w.get()
 		if w.atListLen == 0 {
 			if w.groupId != 0 {
-				ctx.sendMsgReply(fmt.Sprintf("%s之后群%d中没有人at过%d", time.Unix(startTime, 0).Format(timeLayout.M24C), w.groupId, w.atId))
+				ctx.SendMsgReply(fmt.Sprintf("%s之后群%d中没有人at过%d", time.Unix(startTime, 0).Format(timeLayout.M24C), w.groupId, w.atId))
 			} else {
-				ctx.sendMsgReply(fmt.Sprintf("%s之后所有群中没有人at过%d", time.Unix(startTime, 0).Format(timeLayout.M24C), w.atId))
+				ctx.SendMsgReply(fmt.Sprintf("%s之后所有群中没有人at过%d", time.Unix(startTime, 0).Format(timeLayout.M24C), w.atId))
 			}
 			return
 		}
-		ctx.sendForwardMsg(w.format())
+		ctx.SendForwardMsg(w.format())
 	}
 }

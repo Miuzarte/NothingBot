@@ -1,6 +1,7 @@
 package main
 
 import (
+	"NothinBot/EasyBot"
 	"fmt"
 	"strconv"
 	"time"
@@ -8,203 +9,202 @@ import (
 	"regexp"
 
 	log "github.com/sirupsen/logrus"
-	"github.com/ysmood/gson"
 )
 
 type corpus struct {
-	regStr     string
-	regexp     *regexp.Regexp
-	reply      string
-	replyNodes gocqForwardNodes
-	scene      string
-	delay      time.Duration
+	regstr          string
+	regexp          *regexp.Regexp
+	reply           string
+	replyForwardMsg EasyBot.CQForwardMsg
+	scene           string
+	delay           time.Duration
 }
 
-var corpuses []corpus
+var allCorpuses []corpus
 
 // 初始化语料库
 func initCorpus() {
-	corpuses = []corpus{}
-	corpusFound := len(v.GetStringSlice("corpus")) //[]Int没长度
-	log.Info("[corpus] 语料库找到 ", corpusFound, " 条")
-	var errorLog string
-	for i := 0; i < corpusFound; i++ { //读取语料库并验证合法性
-		c := corpus{}
-		var regexpOK bool
-		var replyOK bool
-		var sceneOK bool
-		var delayOK bool
-
-		regRaw := v.Get(fmt.Sprint("corpus.", i, ".regexp"))
-		regStr, ok := regRaw.(string)
-		regCompiler, err := regexp.Compile(regStr)
-		switch {
-		case !ok:
-			regexpOK = false
-			log.Error("[corpus] 第 ", i+1, " 条语料库.regexp: 正则表达式项格式错误!")
-		case err != nil:
-			regexpOK = false
-			log.Error("[corpus] 第 ", i+1, " 条语料库.regexp: 正则表达式内容语法错误!")
-		default:
-			regexpOK = true
-			c.regStr = regStr
-			c.regexp = regCompiler
+	allCorpuses = []corpus{}
+	configsRaw := v.Get("corpus")
+	if configsRaw == nil {
+		log.Info("[Init] 未找到语料库")
+		return
+	}
+	configs, isArr := configsRaw.([]any)
+	if !isArr {
+		log.Error("[Init] corpus 内容应为数组")
+		return
+	}
+	for i, config := range configs {
+		configMap, isMap := config.(map[string]any)
+		if !isMap {
+			log.Error("[Init] corpus.", i, " 内容数据类型错误")
+			continue
 		}
 
-		replyRaw := v.Get(fmt.Sprint("corpus.", i, ".reply"))
-		replyInt, isInt := replyRaw.(int)
-		replyFloat, isFloat := replyRaw.(float64)
-		replyString, isString := replyRaw.(string)
-		replySlice, isSlice := replyRaw.([]any)
-		switch {
-		case !isInt && !isFloat && !isString && !isSlice:
-			replyOK = false
-			log.Error("[corpus] 第 ", i+1, " 条语料库.reply: 回复项格式错误!")
-		default:
-			replyOK = true
+		corpus := corpus{}
+
+		if regStr := fmt.Sprint(configMap["regexp"]); regStr != "" {
+			corpus.regstr = regStr
+		} else {
+			log.Error("[Init] corpus.", i, ".regexp 正则表达式非法, 禁止为空")
+			continue
+		}
+
+		if regExp, err := regexp.Compile(corpus.regstr); err == nil {
+			corpus.regexp = regExp
+		} else {
+			log.Error("[Init] corpus.", i, ".regexp 正则表达式非法, err: ", err)
+			continue
+		}
+
+		if sceneStr := fmt.Sprint(configMap["scene"]); sceneStr == "a" || sceneStr == "all" || sceneStr == "g" || sceneStr == "group" || sceneStr == "p" || sceneStr == "private" {
+			corpus.scene = sceneStr
+		} else {
+			log.Error("[Init] corpus.", i, ".scene 需要在\"a\",\"g\",\"p\"之间指定一个触发场景")
+			continue
+		}
+
+		corpus.delay = func() (delay time.Duration) {
+			delayRaw := v.Get(fmt.Sprint("corpus.", i, ".delay"))
+			delayInt, isInt := delayRaw.(int)
+			delayFloat, isFloat := delayRaw.(float64)
+			delayString, isString := delayRaw.(string)
+			delayParseFloat, err := strconv.ParseFloat(delayString, 64)
 			switch {
-			case isInt:
-				c.reply = fmt.Sprint(replyInt)
-			case isFloat:
-				c.reply = fmt.Sprint(replyFloat)
-			case isString:
-				c.reply = replyString
-			case isSlice:
-				for _, a := range replySlice {
-					var nodeData gocqNodeData
-					aInt, isInt := a.(int)
-					aFloat, isFloat := a.(float64)
-					aStr, isString := a.(string)
-					aNode, isCustomNode := a.(map[string]any)
-					switch {
-					case isInt:
-						nodeData.content = []string{fmt.Sprint(aInt)}
-					case isFloat:
-						nodeData.content = []string{fmt.Sprint(aFloat)}
-					case isString:
-						nodeData.content = []string{aStr}
-					case isCustomNode:
-						if aNode["name"] != nil {
-							nodeData.name = fmt.Sprint(aNode["name"])
-						}
-						if aNode["uin"] != nil {
-							uinInt, isInt := aNode["uin"].(int)
-							uinStr, isString := aNode["uin"].(string)
-							if isInt {
-								nodeData.uin = uinInt
-							} else if isString {
-								uinAtoi, err := strconv.Atoi(uinStr)
-								if err == nil {
-									nodeData.uin = uinAtoi
-								}
-							}
-						}
-						if aNode["content"] != nil {
-							contentString, isString := aNode["content"].(string)
-							contentNode, isSlice := aNode["content"].([]any)
-							if isString {
-								nodeData.content = []string{contentString}
-							} else if isSlice {
-								for _, s := range contentNode {
-									nodeData.content = append(nodeData.content, fmt.Sprint(s))
-								}
-							}
-						}
-					default:
-						nodeData.content = []string{fmt.Sprint(a)}
-					}
-					c.replyNodes = appendForwardNode(c.replyNodes, nodeData)
+			case delayRaw == nil:
+				return 0
+			case (!isInt && !isFloat && !isString) || (isString && err != nil):
+				log.Error("[Init] corpus.", i, ".scene 延迟格式错误    isInt: ", isInt, "  isFloat: ", isFloat, "  isString: ", isString, "  err: ", err)
+				return 0
+			default: // (isInt || isFloat || isString) && (!isString || err == nil)
+				switch {
+				case isInt:
+					return time.Millisecond * 1000 * time.Duration(delayInt)
+				case isFloat:
+					return time.Millisecond * 1000 * time.Duration(delayFloat)
+				case isString:
+					return time.Millisecond * 1000 * time.Duration(delayParseFloat)
 				}
 			}
-		}
+			return 0
+		}()
 
-		sceneRaw := v.Get(fmt.Sprint("corpus.", i, ".scene"))
-		scene := fmt.Sprint(sceneRaw)
-		switch scene {
-		case "a", "all", "g", "group", "p", "private":
-			sceneOK = true
-			c.scene = scene
-		default:
-			sceneOK = false
-			log.Error("[corpus] 第 ", i+1, " 条语料库.scene: 需要在\"a\",\"g\",\"p\"之间指定一个触发场景!")
-		}
-
-		delayRaw := v.Get(fmt.Sprint("corpus.", i, ".delay"))
-		delayInt, isInt := delayRaw.(int)
-		delayFloat, isFloat := delayRaw.(float64)
-		delayString, isString := delayRaw.(string)
-		delayParseFloat, err := strconv.ParseFloat(delayString, 64)
-		switch {
-		case delayRaw == nil:
-			delayOK = true
-			c.delay = 0
-		case (!isInt && !isFloat && !isString) || (isString && err != nil):
-			delayOK = false
-			log.Error("[corpus] 第 ", i+1, " 条语料库.delay: 延迟格式错误!  isInt: ", isInt, "  isFloat: ", isFloat, "  isString: ", isString, "  err: ", err)
-		default: // (isInt || isFloat || isString) && (!isString || err == nil)
-			delayOK = true
+		corpus.reply, corpus.replyForwardMsg = func() (string, EasyBot.CQForwardMsg) {
+			replySlice, isSlice := configMap["reply"].([]any)
 			switch {
-			case isInt:
-				c.delay = time.Millisecond * time.Duration(delayInt*1000)
-			case isFloat:
-				c.delay = time.Millisecond * time.Duration(delayFloat*1000)
-			case isString:
-				c.delay = time.Millisecond * time.Duration(delayParseFloat*1000)
-			}
-		}
+			default: //corpus.reply
+				return fmt.Sprint(configMap["reply"]), nil
 
-		if regexpOK && replyOK && sceneOK && delayOK {
-			corpuses = append(corpuses, c)
-		} else {
-			errorLog += fmt.Sprintf(`
-corpus[%d]    regexpOK: %t  replyOK: %t  sceneOK: %t  delayOK: %t`,
-				i, regexpOK, replyOK, sceneOK, delayOK)
-		}
-	}
-	corpusAdded := len(corpuses)
-	if corpusAdded == corpusFound {
-		log.Info("[corpus] 成功解析所有 ", corpusAdded, " 条语料库")
-	} else {
-		log.Warn("[corpus] 仅成功解析 ", corpusAdded, " 条语料库, 错误列表: ", errorLog)
-		log2SU.Warn("仅成功解析 ", corpusAdded, " 条语料库，详细错误信息请查看控制台输出")
-	}
-	for i, c := range corpuses {
-		log.Trace("[corpus] ", i, "  -  regexp: ", c.regStr, "  reply: ", c.reply, func(str string) string {
-			if str == "null" {
-				return "  "
+			case isSlice: //corpus.replyForwardMsg
+				return "", func() (forwardMsg EasyBot.CQForwardMsg) {
+
+					for _, eachReply := range replySlice {
+
+						if eachReplyMap, isMap := eachReply.(map[string]any); isMap { //自定义名字、头像
+							//使用自定义信息
+							name := func() (name string) {
+								if nameAny := eachReplyMap["name"]; nameAny != nil {
+									return fmt.Sprint(nameAny)
+								}
+								return "NothingBot"
+							}()
+							uin := func() (uin int) {
+								if uinAny := eachReplyMap["uin"]; uinAny != nil {
+									if uinInt, isInt := uinAny.(int); isInt {
+										return uinInt
+									}
+								}
+								return bot.GetSelfID()
+							}()
+							timestamp := func() (timestamp int64) {
+								if tsAny := eachReplyMap["time"]; tsAny != nil {
+									if tsInt, isInt := tsAny.(int); isInt {
+										return int64(tsInt)
+									}
+								}
+								return 0
+							}()
+							seq := func() (seq int64) {
+								if seqAny := eachReplyMap["time"]; seqAny != nil {
+									if seqInt, isInt := seqAny.(int); isInt {
+										return int64(seqInt)
+									}
+								}
+								return 0
+							}()
+
+							eachReplyMapContentSlice, isSlice := eachReplyMap["content"].([]any)
+							if !isSlice {
+								forwardMsg = EasyBot.AppendForwardMsg(forwardMsg,
+									EasyBot.NewForwardNode(
+										name,
+										uin,
+										fmt.Sprint(eachReplyMap["content"]),
+										timestamp, seq,
+									))
+							}
+							if isSlice {
+								for _, eachEachReplyMapContentSlice := range eachReplyMapContentSlice {
+									forwardMsg = EasyBot.AppendForwardMsg(forwardMsg,
+										EasyBot.NewForwardNode(
+											name,
+											uin,
+											fmt.Sprint(eachEachReplyMapContentSlice),
+											timestamp, seq,
+										))
+								}
+							}
+
+						} else { //未自定义名字、头像
+
+							//使用bot信息
+							forwardMsg = EasyBot.AppendForwardMsg(forwardMsg,
+								EasyBot.NewForwardNode(
+									"NothingBot",
+									bot.GetSelfID(),
+									fmt.Sprint(eachReply),
+									0, 0,
+								))
+
+						}
+					}
+					return
+				}()
 			}
-			return "\n" + str + "\n"
-		}(gson.New(c.replyNodes).JSON("", "")), "scene: ", c.scene, "  delay: ", c.delay)
+		}()
+
+		allCorpuses = append(allCorpuses, corpus)
 	}
 }
 
 // 语料库
-func checkCorpus(ctx *gocqMessage) {
-	for i, c := range corpuses {
-		log.Trace("[corpus] 匹配语料库: ", i, "   正则: ", c.regStr)
-		match := c.regexp.FindAllStringSubmatch(ctx.message, -1)
-		if len(match) > 0 {
+func checkCorpus(ctx *EasyBot.CQMessage) {
+	for i, c := range allCorpuses {
+		log.Trace("[corpus] 匹配语料库: ", i, "   正则: ", c.regstr)
+		matches := c.regexp.FindAllStringSubmatch(ctx.RawMessage, -1)
+		if len(matches) > 0 {
 			var ok bool
 			switch c.scene {
 			case "a", "all":
 				ok = true
 			case "p", "private":
-				if ctx.message_type == "private" {
+				if ctx.MessageType == "private" {
 					ok = true
 				}
 			case "g", "group":
-				if ctx.message_type == "group" {
+				if ctx.MessageType == "group" {
 					ok = true
 				}
 			}
 			if ok {
-				log.Info("[corpus] 成功匹配语料库 ", i, "   正则: ", c.regStr)
+				log.Info("[corpus] 成功匹配语料库 ", i, "   正则: ", c.regstr)
 				go func(c corpus) {
 					time.Sleep(c.delay)
 					if c.reply != "" {
-						ctx.sendMsg(c.reply[0])
+						ctx.SendMsg(c.reply)
 					} else {
-						ctx.sendForwardMsg(c.replyNodes)
+						ctx.SendForwardMsg(c.replyForwardMsg)
 					}
 				}(c)
 			}

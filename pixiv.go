@@ -1,6 +1,7 @@
 package main
 
 import (
+	"NothinBot/EasyBot"
 	"fmt"
 	"regexp"
 	"strconv"
@@ -25,40 +26,37 @@ func initPixiv() {
 	pixivEnable = v.GetBool("pixiv.enable")
 }
 
-func checkPixiv(ctx *gocqMessage) {
+func checkPixiv(ctx *EasyBot.CQMessage) {
 	//开关控制
-	matches := ctx.regexpMustCompile(`(开启|启用|关闭|禁用)pixiv`)
-	if len(matches) > 0 && ctx.isPrivateSU() {
+	matches := ctx.RegexpMustCompile(`(开启|启用|关闭|禁用)pixiv`)
+	if len(matches) > 0 && ctx.IsPrivateSU() {
 		switch matches[0][1] {
 		case "开启", "启用":
 			pixivEnable = true
-			ctx.sendMsg("pixiv已启用")
+			ctx.SendMsg("pixiv已启用")
 		case "关闭", "禁用":
 			pixivEnable = false
-			ctx.sendMsg("pixiv已禁用")
+			ctx.SendMsg("pixiv已禁用")
 		}
 		return
 	}
 	if !pixivEnable {
 		return
 	}
-	match := ctx.regexpMustCompile(`[看康k]{2}([Pp]|[Pp]站|[Pp][Ii][Dd]|[Pp][Ii][Xx][Ii][Vv])([0-9]+)`)
-	if len(match) > 0 {
+	match := ctx.RegexpMustCompile(`[看康k]{2}([Pp]|[Pp]站|[Pp][Ii][Dd]|[Pp][Ii][Xx][Ii][Vv])([0-9]+)`)
+	if len(match) > 0 && ctx.IsToMe() {
 		pid, _ := strconv.Atoi(match[0][2])
 		p := &pixiv{
 			pid: pid,
 		}
 		p, err := p.getPicNum()
 		if err != nil {
-			ctx.sendMsgReply("[pixiv] 获取图片数量失败\n", err.Error())
+			ctx.SendMsgReply("[pixiv] 获取图片数量失败\n", err.Error())
 			return
 		}
 		content := []string{fmt.Sprint("在 pixiv.net/i/", p.pid, " 下共有 ", p.num, " 张图片")}
-		content = append(content, p.getPicUrl()...)
-		ctx.sendForwardMsg(appendForwardNode(gocqForwardNodes{}, gocqNodeData{
-			uin:     ctx.user_id,
-			content: content,
-		}))
+		ctx.SendForwardMsg(EasyBot.FastNewForwardMsg(
+			"NothingBot", ctx.UserID, 0, 0, append(content, p.getPicUrl()...)...))
 	}
 }
 

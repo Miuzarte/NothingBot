@@ -106,7 +106,7 @@ func checkCC() (ok bool, err error) {
 		if err == nil {
 			cc = ccNew
 		} else {
-			return false, errors.New("更新凭据出现问题")
+			return false, errors.New("FAILED TO UPDATE CREDENTIALS")
 		}
 		ccByte, err := json.Marshal(cc)
 		if err != nil {

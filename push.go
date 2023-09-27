@@ -1,6 +1,7 @@
 package main
 
 import (
+	"NothinBot/EasyBot"
 	"fmt"
 	"regexp"
 	"strconv"
@@ -12,43 +13,20 @@ import (
 	"github.com/ysmood/gson"
 )
 
-var (
-	cookie               string
-	cookieBuvid          string
-	cookieUid            int
-	dynamicCheckDuration time.Duration
-	dynamicHistrory      = make(map[string]string)
-	liveList             = make(map[int]liveInfo) // roomid : liveInfo
-)
-
-type liveInfo struct {
-	live   *danmaku
-	uid    int
-	roomid int
-	state  int
-	time   int64
-}
-
-var liveState = struct {
-	UNKNOWN int
-	OFFLINE int
-	ONLINE  int
-	ROTATE  int
-}{
-	UNKNOWN: -1,
-	OFFLINE: 0,
-	ONLINE:  1,
-	ROTATE:  2,
-}
-
-type push struct {
-	userID  []int
-	groupID []int
-}
-
 // 推送消息
 func (p push) send(msg ...any) {
-	sendMsg(p.userID, p.groupID, msg...)
+	go func() {
+		err := bot.SendPrivateMsgs(p.userID, fmt.Sprint(msg...))
+		if err != nil {
+			log.Error("[Push] err: ", err)
+		}
+	}()
+	go func() {
+		err := bot.SendGroupMsgs(p.groupID, fmt.Sprint(msg...))
+		if err != nil {
+			log.Error("[Push] err: ", err)
+		}
+	}()
 }
 
 // 生成推送对象
@@ -60,7 +38,7 @@ func genPush(i int) (p push) {
 			user, err := strconv.Atoi(each)
 			if err != nil {
 				log.Error("[strconv.Atoi] ", err)
-				log2SU.Error(fmt.Sprint("[strconv.Atoi] ", err))
+				bot.Log2SU.Error(fmt.Sprint("[strconv.Atoi] ", err))
 			}
 			p.userID = append(p.userID, user)
 		}
@@ -72,7 +50,7 @@ func genPush(i int) (p push) {
 			group, err := strconv.Atoi(each)
 			if err != nil {
 				log.Error("[strconv.Atoi] ", err)
-				log2SU.Error(fmt.Sprint("[strconv.Atoi] ", err))
+				bot.Log2SU.Error(fmt.Sprint("[strconv.Atoi] ", err))
 			}
 			p.groupID = append(p.groupID, group)
 		}
@@ -104,27 +82,27 @@ func extractBuvid(c string) (bvuid string) {
 }
 
 // 管理员私聊更新cookie
-func checkCookieUpdate(ctx *gocqMessage) {
-	if !ctx.isPrivateSU() {
+func checkCookieUpdate(ctx *EasyBot.CQMessage) {
+	if !ctx.IsPrivateSU() {
 		return
 	}
-	match := ctx.regexpMustCompile(`(设置|set)\s*(饼干|cookie)\s*(.*)`)
+	match := ctx.RegexpMustCompile(`(设置|set)\s*(饼干|cookie)\s*(.*)`)
 	if len(match) > 0 {
 		if c := match[0][3]; len(c) != 0 {
 			cookie = c
-			ctx.sendMsg("[bilibili] 设置cookie成功\ncookie: ", cookie)
+			ctx.SendMsg("[bilibili] 设置cookie成功\ncookie: ", cookie)
 		} else {
-			ctx.sendMsg("[bilibili] 设置cookie失败\nmatch: ", match)
+			ctx.SendMsg("[bilibili] 设置cookie失败\nmatch: ", match)
 		}
 		if cookieUid = extractUid(cookie); cookieUid != 0 {
-			ctx.sendMsg("[bilibili] uid获取成功\nuid: ", cookieUid)
+			ctx.SendMsg("[bilibili] uid获取成功\nuid: ", cookieUid)
 		} else {
-			ctx.sendMsg("[bilibili] uid获取失败")
+			ctx.SendMsg("[bilibili] uid获取失败")
 		}
 		if cookieBuvid = extractBuvid(cookie); cookieBuvid != "" {
-			ctx.sendMsg("[bilibili] buvid获取成功\nbuvid: ", cookieBuvid)
+			ctx.SendMsg("[bilibili] buvid获取成功\nbuvid: ", cookieBuvid)
 		} else {
-			ctx.sendMsg("[bilibili] buvid获取失败")
+			ctx.SendMsg("[bilibili] buvid获取失败")
 		}
 	}
 }
@@ -142,13 +120,13 @@ func initPush() {
 			}
 			if cookieBuvid = extractBuvid(cookie); cookieBuvid != "" {
 				log.Info("[bilibili] cookie buvid: ", cookieBuvid)
-				if initCount == 0 {
+				if configUpdateCount == 0 {
 					go initLive() //弹幕监听需要buvid
 				}
 			} else {
 				log.Warn("[bilibili] buvid识别失败! 将不监听直播推送")
 			}
-			if initCount == 0 {
+			if configUpdateCount == 0 {
 				go dynamicMonitor()
 			}
 		} else {
@@ -275,11 +253,11 @@ func validateCookie() bool {
 		return true
 	case -101:
 		log.Error("[push] cookie已过期")
-		log2SU.Error("[push] cookie已过期")
+		bot.Log2SU.Error("[push] cookie已过期")
 		return false
 	default:
 		log.Error("[push] 非正常cookie状态: ", g.JSON("", ""))
-		log2SU.Error(fmt.Sprint("[push] 非正常cookie状态：", g.JSON("", "")))
+		bot.Log2SU.Error(fmt.Sprint("[push] 非正常cookie状态：", g.JSON("", "")))
 		return false
 	}
 }
@@ -302,18 +280,18 @@ func dynamicMonitor() {
 		case "-1":
 			log.Error("[push] 获取update_num时出现错误    update_num = ", update_num, "  update_baseline = ", update_baseline)
 			if !validateCookie() {
-				dynamicBlock = true
+				pushWait.Add(1)
+				pushWait.Wait()
 				failureCount = 0
-				temporaryBlock("!cookieChecker()")
 				continue
 			}
 			failureCount++
 			if failureCount >= 10 {
 				log.Error("[push] 尝试更新失败 ", failureCount, " 次, 暂停拉取动态更新")
-				log2SU.Error(fmt.Sprint("[push] 连续更新失败 ", failureCount, " 次，暂停拉取动态更新"))
-				dynamicBlock = true
+				bot.Log2SU.Error(fmt.Sprint("[push] 连续更新失败 ", failureCount, " 次，暂停拉取动态更新"))
+				pushWait.Add(1)
+				pushWait.Wait()
 				failureCount = 0
-				temporaryBlock("failureCount >= 10")
 				continue
 			}
 			duration := time.Duration(time.Second * time.Duration(failureCount) * 30)
@@ -337,7 +315,7 @@ func dynamicMonitor() {
 					case 4101131: //动态已删除，不推送
 						if dynamicHistrory[dynamicID] != "" {
 							log.Info("[push] 明确记录到一条来自 ", dynamicHistrory[dynamicID], " 的已删除动态 ", dynamicID)
-							log2SU.Info(fmt.Sprint("[push] 明确记录到一条来自 ", dynamicHistrory[dynamicID], " 的已删除动态 ", dynamicID))
+							bot.Log2SU.Info(fmt.Sprint("[push] 明确记录到一条来自 ", dynamicHistrory[dynamicID], " 的已删除动态 ", dynamicID))
 						}
 					case 500: //加载错误，请稍后再试
 						if dynamicHistrory[dynamicID] == "" { //检测是否为重复动态

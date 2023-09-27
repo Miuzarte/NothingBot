@@ -1,0 +1,68 @@
+EasyBot:
+  wsUrl: "ws://" #go-cqhttp
+  superUsers: #int / []int
+    - 
+  nickName: #机器人别称(用于判断是否提到了机器人)
+    - "rurudo"
+    - "ruru"
+  #控制台日志等级，越大输出越多
+  #PanicLevel = 0
+  #FatalLevel = 1
+  #ErrorLevel = 2
+  #WarnLevel  = 3
+  #InfoLevel  = 4
+  #DebugLevel = 5
+  #TraceLevel = 6
+  logLevel: 4
+  ban:
+    private:
+      -
+    group:
+      -
+recall: #热更新
+  enable: true
+setu: #热更新
+  enable: true
+pixiv: #热更新
+  enable: true
+bertVits: #热更新
+  whiteList:
+    private:
+    group:
+qianfan: #热更新
+  #https://cloud.baidu.com/doc/WENXINWORKSHOP/s/Nlks5zkzu
+  #留空fallback至glm
+  #"ERNIE_Bot", "ERNIE_Bot_turbo", "BLOOMZ_7B"
+  #"Llama_2_7b", "Llama_2_13b", "Llama_2_70b"
+  model: "ERNIE_Bot"
+  keys:
+    api: ""
+    secret: ""
+parse: #热更新
+  settings:
+    #"glm", "qianfan"
+    summaryBackend: "qianfan"
+    #同一会话重复解析同一链接的间隔（秒）
+    sameParseInterval: 60
+    #过长的视频/投票简介保留长度（中英字符）
+    descTruncationLength: 32
+push: #热更新
+  settings:
+    livePushMinimumInterval: 300 #同一直播间多次开播推送的最小间隔（秒）  用于解决某些主播因网络问题频繁重新推流导致多次推送
+    dynamicUpdateInterval: 3 #拉取更新间隔（秒）
+    resetCheckInterval: 15 #直播监听重连检测间隔（秒）
+    roomChangeInfo: false #直播监控推送房间名更新（如果主播开播同时改房间名会导致推送两条）
+    #通过拉取动态流进行推送，必须设置B站cookie，且需要关注想要推送的up
+    cookie: ""
+  list:
+  # - #模板
+  # uid: #up的uid  int ONLY
+  # live: #up的直播间号，存在则监听并推送直播  int ONLY
+  # user: #推送到的用户  int / []int
+  # group: #推送到的群组  int / []int
+  # at: #推送到群组时消息末尾at的人  int / []int
+  # filter: #此键存在内容时仅推送包含在内的动态类型（白名单） []string
+  #     - "DYNAMIC_TYPE_WORD" #文本动态（包括投票/预约）
+  #     - "DYNAMIC_TYPE_DRAW" #图文动态（包括投票/预约）
+  #     - "DYNAMIC_TYPE_AV" #视频投稿（包括动态视频）
+  #     - "DYNAMIC_TYPE_ARTICLE" #文章投稿

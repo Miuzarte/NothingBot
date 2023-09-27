@@ -1,6 +1,7 @@
 package main
 
 import (
+	"NothinBot/EasyBot"
 	"fmt"
 	"sort"
 	"strconv"
@@ -14,7 +15,7 @@ type recall struct {
 	kind      string //group / private
 	id        int    //qq / groupId
 	filter    int    //group member
-	rcList    []gocqMessage
+	rcList    []*EasyBot.CQMessage
 	rcListLen int
 }
 
@@ -24,16 +25,16 @@ func initRecall() {
 
 // 获取
 func (r *recall) get() *recall {
-	var rcList []gocqMessage
-	table := func() map[int]*gocqMessage {
+	var rcList []*EasyBot.CQMessage
+	table := func() (table map[int]*EasyBot.CQMessage) {
 		switch r.kind {
 		case "group":
-			if msgTableGroup[r.id] != nil {
-				return msgTableGroup[r.id]
+			if table = bot.MessageTableGroup[r.id]; table != nil {
+				return
 			}
 		case "private":
-			if msgTableFriend[r.id] != nil {
-				return msgTableFriend[r.id]
+			if table = bot.MessageTablePrivate[r.id]; table != nil {
+				return
 			}
 		}
 		return nil
@@ -42,18 +43,18 @@ func (r *recall) get() *recall {
 		return r
 	}
 	for _, msg := range table {
-		if msg.extra.recalled { //获取已撤回的消息
+		if msg.Extra.Recalled { //获取已撤回的消息
 			if r.filter == 0 { //不指定群员时获取所有
-				rcList = append(rcList, *msg)
+				rcList = append(rcList, msg)
 			} else {
-				if msg.user_id == r.filter {
-					rcList = append(rcList, *msg)
+				if msg.UserID == r.filter {
+					rcList = append(rcList, msg)
 				}
 			}
 		}
 	}
 	sort.Slice(rcList, func(i, j int) bool { //根据msg的时间戳由大到小排序
-		return rcList[i].time > rcList[j].time
+		return rcList[i].Event.Time > rcList[j].Event.Time
 	})
 	r.rcList = rcList
 	r.rcListLen = len(rcList)
@@ -61,79 +62,75 @@ func (r *recall) get() *recall {
 }
 
 // 格式化
-func (r *recall) format() (nodes gocqForwardNodes) {
+func (r *recall) format() (forwardMsg EasyBot.CQForwardMsg) {
 	rcList := r.rcList
 	rcListLen := r.rcListLen
 	if rcListLen > 99 { //超过100条合并转发放不下, 标题占1条
 		rcListLen = 99
 	}
-	nodes = appendForwardNode(nodes, gocqNodeData{ //标题
-		content: []string{
-			func() string {
-				if r.kind == "group" {
-					if r.filter != 0 {
-						return fmt.Sprintf("%s之后群%d中来自%d的最近%d条被撤回的消息：", time.Unix(startTime, 0).Format(timeLayout.M24C), r.id, r.filter, rcListLen)
-					} else {
-						return fmt.Sprintf("%s之后群%d中最近%d条被撤回的消息：", time.Unix(startTime, 0).Format(timeLayout.M24C), r.id, rcListLen)
-					}
-				} else if r.kind == "private" {
-					return fmt.Sprintf("%s之后%d的最近%d条被撤回的消息：", time.Unix(startTime, 0).Format(timeLayout.M24C), r.id, rcListLen)
+	forwardMsg = EasyBot.FastNewForwardMsg( //标题
+		"NothingBot", bot.GetSelfID(), 0, 0,
+		func() string {
+			if r.kind == "group" {
+				if r.filter != 0 {
+					return fmt.Sprintf("%s之后群%d中来自%d的最近%d条被撤回的消息：", time.Unix(startTime, 0).Format(timeLayout.M24C), r.id, r.filter, rcListLen)
+				} else {
+					return fmt.Sprintf("%s之后群%d中最近%d条被撤回的消息：", time.Unix(startTime, 0).Format(timeLayout.M24C), r.id, rcListLen)
 				}
-				return ""
-			}(),
-		},
-	})
+			} else if r.kind == "private" {
+				return fmt.Sprintf("%s之后%d的最近%d条被撤回的消息：", time.Unix(startTime, 0).Format(timeLayout.M24C), r.id, rcListLen)
+			}
+			return ""
+		}(),
+	)
 	for i := 0; i < rcListLen; i++ {
 		rcMsg := rcList[i]
 		name := fmt.Sprintf(
 			`(%s)%s%s`,
-			rcMsg.extra.timeFormat,
-			rcMsg.getCardOrNickname(),
+			rcMsg.Extra.TimeFormat,
+			rcMsg.GetCardOrNickname(),
 			func() string {
-				if rcMsg.extra.operator_id != rcMsg.user_id {
+				if rcMsg.Extra.OperatorID != rcMsg.UserID {
 					return "(他人撤回)"
 				}
 				return ""
 			}())
-		content := strings.ReplaceAll(rcMsg.extra.messageWithReply, "CQ:at,", "CQ:at,​") //插入零宽空格阻止CQ码解析
-		nodes = appendForwardNode(nodes, gocqNodeData{
-			name:    name,
-			uin:     rcMsg.user_id,
-			content: []string{content},
-		})
+		content := strings.ReplaceAll(rcMsg.Extra.MessageWithReply, "CQ:at,", "CQ:at,​") //插入零宽空格阻止CQ码解析
+		forwardMsg = EasyBot.AppendForwardMsg(forwardMsg, EasyBot.NewForwardNode(
+			name, rcMsg.UserID, content, 0, 0))
 	}
 	return
 }
 
 // 撤回消息记录
-func checkRecall(ctx *gocqMessage) {
+func checkRecall(ctx *EasyBot.CQMessage) {
 	//开关
-	match := ctx.regexpMustCompile(`(开启|启用|关闭|禁用)撤回记录`)
-	if len(match) > 0 && ctx.isPrivateSU() {
+	match := ctx.RegexpMustCompile(`(开启|启用|关闭|禁用)撤回记录`)
+	if len(match) > 0 && ctx.IsPrivateSU() {
 		switch match[0][1] {
 		case "开启", "启用":
 			recallEnable = true
-			ctx.sendMsg("撤回记录已启用")
+			ctx.SendMsg("撤回记录已启用")
 		case "关闭", "禁用":
 			recallEnable = false
-			ctx.sendMsg("撤回记录已禁用")
+			ctx.SendMsg("撤回记录已禁用")
 		}
 		return
 	}
-	if !recallEnable && !ctx.isSU() {
+	if !recallEnable && !ctx.IsSU() {
 		return
 	}
 	//发送
-	match = ctx.regexpMustCompile(`^让我康康(\s*\[CQ:at,qq=)?([0-9]+)?(]\s*)?撤回了什么$`)
+	match = ctx.RegexpMustCompile(`^让我康康(\s*\[CQ:at,qq=)?([0-9]+)?(]\s*)?撤回了什么$`)
 	if len(match) > 0 {
 		r := recall{
-			kind: ctx.message_type,
+			kind: ctx.MessageType,
 			id: func() (id int) {
 				switch {
-				case ctx.isPrivateSU():
+				case ctx.IsPrivateSU():
 					id = 0 //搜索所有
-				case ctx.isGroup():
-					id = ctx.group_id
+				case ctx.IsGroup():
+					id = ctx.GroupID
 				}
 				return
 			}(),
@@ -146,27 +143,27 @@ func checkRecall(ctx *gocqMessage) {
 				return
 			}(),
 		}
-		if !ctx.isSU() && r.filter != ctx.user_id {
-			ctx.sendMsg("👀？只有超级用户才能查看他人的私聊撤回记录捏")
-			log2SU.Warn(fmt.Sprint("用户 ", ctx.sender_nickname, "(", ctx.user_id, ") 尝试查看 ", r.id, " 的私聊撤回记录"))
+		if !ctx.IsSU() && r.filter != ctx.UserID {
+			ctx.SendMsg("👀？只有超级用户才能查看他人的私聊撤回记录捏")
+			bot.Log2SU.Warn(fmt.Sprint("用户 ", ctx.Sender.NickName, "(", ctx.UserID, ") 尝试查看 ", r.id, " 的私聊撤回记录"))
 			return
 		}
 		r.get()
 		if r.rcListLen == 0 {
 			if r.kind == "group" {
 				if r.filter != 0 {
-					ctx.sendMsgReply(fmt.Sprintf("%s之后群%d中的%d没有撤回过消息",
+					ctx.SendMsgReply(fmt.Sprintf("%s之后群%d中的%d没有撤回过消息",
 						time.Unix(startTime, 0).Format(timeLayout.M24C), r.id, r.filter))
 				} else {
-					ctx.sendMsgReply(fmt.Sprintf("%s之后群%d中没有人撤回过消息",
+					ctx.SendMsgReply(fmt.Sprintf("%s之后群%d中没有人撤回过消息",
 						time.Unix(startTime, 0).Format(timeLayout.M24C), r.id))
 				}
 			} else if r.kind == "private" {
-				ctx.sendMsg(fmt.Sprintf("%s之后%d没有撤回过消息",
+				ctx.SendMsg(fmt.Sprintf("%s之后%d没有撤回过消息",
 					time.Unix(startTime, 0).Format(timeLayout.M24C), r.id))
 			}
 			return
 		}
-		ctx.sendForwardMsg(r.format())
+		ctx.SendForwardMsg(r.format())
 	}
 }

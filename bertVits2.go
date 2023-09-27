@@ -1,17 +1,18 @@
 package main
 
 import (
+	"NothinBot/EasyBot"
 	"bufio"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
-	"os/exec"
 	"strings"
 	"time"
 
 	"github.com/moxcomic/ihttp"
 	log "github.com/sirupsen/logrus"
+	"github.com/spf13/viper"
 )
 
 type bertVitsPost struct {
@@ -60,7 +61,6 @@ func bertVits2TTS(intput string) (output string, err error) {
 				nowTime, stat,
 				speaker, intput)); err != nil {
 			log.Warn("[BertVITS2] 历史写入失败")
-			log2SU.Warn("[BertVITS2] 历史写入失败")
 		}
 	}
 	resp, err := p.post()
@@ -109,21 +109,10 @@ func appendToFile(filePath, content string) error {
 	return nil
 }
 
-func wav2amr(wav []byte) (amr []byte, err error) {
-	cmd := exec.Command("ffmpeg", "-f", "wav", "-i", "pipe:0", "-ar", "8000", "-ac", "1", "-f", "amr", "pipe:1")
-	cmd.Stdin = strings.NewReader(string(wav))
-	amr, err = cmd.Output()
-	if err != nil {
-		log.Error("[w2a] FFmpeg转换失败: ", err)
-		return []byte{}, err
-	}
-	return
-}
-
-func checkBertVITS2(ctx *gocqMessage) {
+func checkBertVITS2(ctx *EasyBot.CQMessage) {
 	//后端控制
-	matches := ctx.regexpMustCompile(`^(unload|refresh|exit|卸载|清理|退出).*(模型|model)$`)
-	if len(matches) > 0 && ctx.isPrivateSU() {
+	matches := ctx.RegexpMustCompile(`^(unload|refresh|exit|卸载|清理|退出).*(模型|model)$`)
+	if len(matches) > 0 && ctx.IsPrivateSU() {
 		p := &bertVitsPost{}
 		switch matches[0][1] {
 		case "unload", "refresh", "卸载", "清理":
@@ -133,58 +122,62 @@ func checkBertVITS2(ctx *gocqMessage) {
 		}
 		_, err := p.post()
 		if err == nil {
-			ctx.sendMsg("已执行")
+			ctx.SendMsg("已执行")
 		} else {
-			ctx.sendMsg(err)
+			ctx.SendMsg(err)
 		}
 		return
 	}
-	matches = ctx.regexpMustCompile(`(?s)让岁己(说|复述)\s*(.*)`)
+	matches = ctx.RegexpMustCompile(`(?s)让岁己(说|复述)\s*(.*)`)
 	if len(matches) > 0 {
 		isInWhite := func() (is bool) {
+
+			var v *viper.Viper
+
 			for i := 0; i < len(v.GetStringSlice("bertVits.whiteList.group")); i++ { //群聊黑名单
-				if ctx.group_id == v.GetInt(fmt.Sprint("bertVits.whiteList.group.", i)) {
+				if ctx.GroupID == v.GetInt(fmt.Sprint("bertVits.whiteList.group.", i)) {
 					return true
 				}
 			}
 			for i := 0; i < len(v.GetStringSlice("bertVits.whiteList.private")); i++ { //私聊黑名单
-				if ctx.user_id == v.GetInt(fmt.Sprint("bertVits.whiteList.private.", i)) {
+				if ctx.UserID == v.GetInt(fmt.Sprint("bertVits.whiteList.private.", i)) {
 					return true
 				}
 			}
 			return false
 		}()
-		if !ctx.isSU() && !isInWhite {
-			ctx.sendMsg("[BertVITS2] Permission Denied")
+		if !ctx.IsSU() && !isInWhite {
+			ctx.SendMsg("[BertVITS2] Permission Denied")
 			return
 		}
 		text := trimOuterQuotes(matches[0][2])
-		if replyMsg := ctx.getReplyedMsg(); replyMsg != nil { //复述回复时无视内容
-			text = trimOuterQuotes(replyMsg.message)
+		replyMsg, err := ctx.GetReplyedMsg()
+		if replyMsg != nil && err == nil { //复述回复时无视内容
+			text = trimOuterQuotes(replyMsg.RawMessage)
 		}
-		ctx.sendVitsMsg(text)
+		sendVitsMsg(ctx, text)
 	}
 }
 
-func (ctx *gocqMessage) sendVitsMsg(text string) {
+func sendVitsMsg(ctx *EasyBot.CQMessage, text string) {
 	log.Debug("text: ", text)
 	if len(strings.TrimSpace(text)) == 0 {
-		ctx.sendMsgReply("[BertVITS2] 文本输入不可为空！")
+		ctx.SendMsgReply("[BertVITS2] 文本输入不可为空！")
 		return
 	}
 	output, err := bertVits2TTS(text)
 	if err != nil {
 		log.Error("[BertVITS2] 出现错误(1): ", err)
-		ctx.sendMsgReply("[BertVITS2] 出现错误(1)：", err.Error())
+		ctx.SendMsgReply("[BertVITS2] 出现错误(1)：", err.Error())
 		return
 	}
 	wavData, err := os.ReadFile(output)
 	if err != nil {
 		log.Error("[BertVITS2] 出现错误(2): ", err)
-		ctx.sendMsgReply("[BertVITS2] 出现错误(2)：", err.Error())
+		ctx.SendMsgReply("[BertVITS2] 出现错误(2)：", err.Error())
 		return
 	}
-	ctx.sendVocal(wavData)
+	ctx.SendMsg(bot.Utils.Format.Vocal(wavData, false))
 }
 
 // 去除最外层一对互相匹配的引号

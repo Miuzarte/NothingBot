@@ -1,6 +1,7 @@
 package main
 
 import (
+	"NothinBot/EasyBot"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -47,26 +48,26 @@ func initSetu() {
 	setuEnable = v.GetBool("setu.enable")
 }
 
-func checkSetu(ctx *gocqMessage) {
+func checkSetu(ctx *EasyBot.CQMessage) {
 	//开关控制
-	matches := ctx.regexpMustCompile(`(开启|启用|关闭|禁用)setu`)
-	if len(matches) > 0 && ctx.isPrivateSU() {
+	matches := ctx.RegexpMustCompile(`(开启|启用|关闭|禁用)setu`)
+	if len(matches) > 0 && ctx.IsPrivateSU() {
 		switch matches[0][1] {
 		case "开启", "启用":
 			setuEnable = true
-			ctx.sendMsg("setu已启用")
+			ctx.SendMsg("setu已启用")
 		case "关闭", "禁用":
 			setuEnable = false
-			ctx.sendMsg("setu已禁用")
+			ctx.SendMsg("setu已禁用")
 		}
 		return
 	}
 	if !setuEnable {
 		return
 	}
-	matches = ctx.unescape().regexpMustCompile(`(来(?P<num>点|一点|几张|几份|.*张|.*份)?(?P<r18>[Rr]18)?的?(?P<tag>.*)?的?[色瑟涩铯][图圖])|((?P<r18>[Rr]18)?的?(?P<tag>.*)?的?[色瑟涩铯][图圖]来(?P<num>点|一点|几张|几份|.*张|.*份)?)`)
+	matches = ctx.Unescape().RegexpMustCompile(`(来(?P<num>点|一点|几张|几份|.*张|.*份)?(?P<r18>[Rr]18)?的?(?P<tag>.*)?的?[色瑟涩铯][图圖])|((?P<r18>[Rr]18)?的?(?P<tag>.*)?的?[色瑟涩铯][图圖]来(?P<num>点|一点|几张|几份|.*张|.*份)?)`)
 	// 一条正则多个同名捕获组只会索引到第一个, 所以下面直接把对应的捕获组全加起来
-	if len(matches) > 0 && ctx.isToMe() {
+	if len(matches) > 0 && ctx.IsToMe() {
 		var numOK bool
 		reqR18 := 0
 		reqNum := 1
@@ -114,7 +115,7 @@ func checkSetu(ctx *gocqMessage) {
 		log.Debug("[setu] reqTag: ", reqTag)
 
 		if !numOK {
-			ctx.sendMsgReply("[setu] 请在1-20之间选择数量")
+			ctx.SendMsgReply("[setu] 请在1-20之间选择数量")
 			return
 		} else {
 			setu := setu{
@@ -136,11 +137,10 @@ func checkSetu(ctx *gocqMessage) {
 					}
 					return
 				}())
-				ctx.sendForwardMsg(appendForwardNode(gocqForwardNodes{}, gocqNodeData{
-					content: append(content, results...),
-				}))
+				ctx.SendForwardMsg(EasyBot.FastNewForwardMsg(
+					"NothinBot", ctx.UserID, 0, 0, append(content, results...)...))
 			} else {
-				ctx.sendMsg(err.Error())
+				ctx.SendMsg(err.Error())
 			}
 		}
 	}

@@ -1,13 +1,17 @@
 package main
 
 import (
+	"NothinBot/EasyBot"
 	"encoding/json"
 	"fmt"
 	"math"
 	"os"
 	"path/filepath"
+	"reflect"
+	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/PuerkitoBio/goquery"
@@ -17,8 +21,84 @@ import (
 	"github.com/ysmood/gson"
 )
 
+type liveInfo struct {
+	live   *danmaku
+	uid    int
+	roomid int
+	state  int
+	time   int64
+}
+
+type push struct {
+	userID  []int
+	groupID []int
+}
+
+type parseHistory struct {
+	parse string
+	time  int64
+}
+
 var (
-	tempDir = "./bilibili_temp/"
+	biliLinkRegexp = struct {
+		SHORT     string
+		DYNAMIC   string
+		ARCHIVEav string
+		ARCHIVEbv string
+		ARTICLE   string
+		MUSIC     string
+		SPACE     string
+		LIVE      string
+	}{
+		SHORT:     `((让岁己)?(总结一下\s?)|我要看\s?)?.*(b23|acg)\.tv\\?/(BV[1-9A-HJ-NP-Za-km-z]{10}|av[0-9]{1,10}|[0-9A-Za-z]{7})`, //暂时应该只有7位  也有可能是av/bv号
+		DYNAMIC:   `(让岁己)?(总结一下\s?)?.*(t.bilibili.com|dynamic|opus)\\?/([0-9]{18,19})`,                                     //应该不会有17位的，可能要有19位
+		ARCHIVEav: `((让岁己)?(总结一下\s?)|我要看\s?)?.*video\\?/av([0-9]{1,10})`,                                                   //9位 预留10
+		ARCHIVEbv: `((让岁己)?(总结一下\s?)|我要看\s?)?.*video\\?/(BV[1-9A-HJ-NP-Za-km-z]{10})`,                                      //恒定BV + 10位base58
+		ARTICLE:   `(让岁己)?(总结一下\s?)?.*(read\\?/cv|read\\?/mobile\\?/)([0-9]{1,9})`,                                         //8位 预留9
+		MUSIC:     `(让岁己)?(总结一下\s?)?.*audio\\?/au([0-9]{1,10})`,                                                            //
+		SPACE:     `(让岁己)?(总结一下\s?)?.*space\.bilibili\.com\\?/([0-9]{1,16})`,                                               //新uid 16位
+		LIVE:      `(让岁己)?(总结一下\s?)?.*live\.bilibili\.com\\?/([0-9]{1,9})`,                                                 //8位 预留9
+	}
+	everyBiliLinkRegexp = func() (everyBiliLinkRegexp string) {
+		structValue := reflect.ValueOf(biliLinkRegexp)
+		for i := 0; i < structValue.NumField(); i++ {
+			field := structValue.Field(i)
+			if everyBiliLinkRegexp != "" {
+				everyBiliLinkRegexp += "|"
+			}
+			everyBiliLinkRegexp += field.Interface().(string)
+		}
+		return
+	}()
+	liveState = struct {
+		UNKNOWN int
+		OFFLINE int
+		ONLINE  int
+		ROTATE  int
+	}{
+		UNKNOWN: -1,
+		OFFLINE: 0,
+		ONLINE:  1,
+		ROTATE:  2,
+	}
+
+	rmTitle = strings.NewReplacer("概述", "", "要点", "", "由", "", "总结：", "", "总结（原文长度超过1500字符，输入经过去尾）：", "",
+		"ChatGLM2-6B", "", "ERNIE_Bot", "", "ERNIE_Bot_turbo", "", "BLOOMZ_7B", "", "Llama_2_7b", "", "Llama_2_13b", "", "Llama_2_70b", "")
+
+	cookie               = ""
+	cookieUid            = 0
+	cookieBuvid          = ""
+	tempDir              = "./bilibili_temp/"
+	summaryBackend       = ""
+	dynamicCheckDuration time.Duration
+	dynamicHistrory      = make(map[string]string)
+	pushWait             sync.WaitGroup
+	liveList             = make(map[int]liveInfo)         // roomid : liveInfo
+	archiveVideoTable    = make(map[int]*archiveVideo)    //av:
+	archiveAudioTable    = make(map[int]*archiveAudio)    //av:
+	archiveSubtitleTable = make(map[int]*archiveSubtitle) //av:
+	articleTextTable     = make(map[int]*articleText)     //cv:
+	groupParseHistory    = make(map[int]parseHistory)     //group:
 )
 
 // bv转av
@@ -274,7 +354,7 @@ func formatDynamic(g gson.JSON) string {
 			dynamicType)
 	default:
 		log.Error("[bilibili] 未知的动态类型: ", dynamicType, id)
-		log2SU.Error(fmt.Sprint("[bilibili] 未知的动态类型：", dynamicType, " (", id, ")"))
+		bot.Log2SU.Error(fmt.Sprint("[bilibili] 未知的动态类型：", dynamicType, " (", id, ")"))
 		return fmt.Sprintf(
 			`t.bilibili.com/%s
 %s：
@@ -1186,4 +1266,411 @@ live.bilibili.com/%d`,
 		title,
 		parea, sarea, history,
 		roomID)
+}
+
+// 链接提取
+func extractBiliLink(str string) (id string, kind string, summary bool, tts bool, upload bool) {
+	short := regexp.MustCompile(biliLinkRegexp.SHORT).FindAllStringSubmatch(str, -1)
+	dynamic := regexp.MustCompile(biliLinkRegexp.DYNAMIC).FindAllStringSubmatch(str, -1)
+	av := regexp.MustCompile(biliLinkRegexp.ARCHIVEav).FindAllStringSubmatch(str, -1)
+	bv := regexp.MustCompile(biliLinkRegexp.ARCHIVEbv).FindAllStringSubmatch(str, -1)
+	cv := regexp.MustCompile(biliLinkRegexp.ARTICLE).FindAllStringSubmatch(str, -1)
+	au := regexp.MustCompile(biliLinkRegexp.MUSIC).FindAllStringSubmatch(str, -1)
+	space := regexp.MustCompile(biliLinkRegexp.SPACE).FindAllStringSubmatch(str, -1)
+	live := regexp.MustCompile(biliLinkRegexp.LIVE).FindAllStringSubmatch(str, -1)
+	log.Trace("[parse] short: ", short)
+	log.Trace("[parse] dynamic: ", dynamic)
+	log.Trace("[parse] av: ", av)
+	log.Trace("[parse] bv: ", bv)
+	log.Trace("[parse] cv: ", cv)
+	log.Trace("[parse] au: ", au)
+	log.Trace("[parse] space: ", space)
+	log.Trace("[parse] live: ", live)
+	sumTest := func(sumStr string) (summary bool) {
+		if sumStr == "总结一下" {
+			summary = true
+		}
+		return
+	}
+	ttsTest := func(ttsStr string) (tts bool) {
+		if ttsStr == "让岁己" {
+			tts = true
+		}
+		return
+	}
+	uploadTest := func(uploadStr string) (upload bool) {
+		if uploadStr == "我要看" {
+			upload = true
+		}
+		return
+	}
+	switch {
+	case len(short) > 0:
+		log.Debug("[parse] 识别到一个短链, short[0][4]: ", short[0][5])
+		id = short[0][5]
+		kind = "SHORT"
+		tts = ttsTest(short[0][2])
+		summary = sumTest(short[0][3])
+		upload = uploadTest(short[0][1])
+	case len(dynamic) > 0:
+		log.Debug("[parse] 识别到一个动态, dynamic[0][4]: ", dynamic[0][4])
+		id = dynamic[0][4]
+		kind = "DYNAMIC"
+		tts = ttsTest(dynamic[0][1])
+		summary = sumTest(dynamic[0][2])
+	case len(av) > 0:
+		log.Debug("[parse] 识别到一个视频(av), av[0][4]: ", av[0][4])
+		id = av[0][4]
+		kind = "ARCHIVE"
+		tts = ttsTest(av[0][2])
+		summary = sumTest(av[0][3])
+		upload = uploadTest(av[0][1])
+	case len(bv) > 0:
+		log.Debug("[parse] 识别到一个视频(bv), bv[0][4]: ", bv[0][4])
+		id = strconv.Itoa(bv2av(bv[0][4]))
+		kind = "ARCHIVE"
+		tts = ttsTest(bv[0][2])
+		summary = sumTest(bv[0][3])
+		upload = uploadTest(bv[0][1])
+	case len(cv) > 0:
+		log.Debug("[parse] 识别到一个专栏, cv[0][4]: ", cv[0][4])
+		id = cv[0][4]
+		kind = "ARTICLE"
+		tts = ttsTest(cv[0][1])
+		summary = sumTest(cv[0][2])
+	case len(au) > 0:
+		log.Debug("[parse] 识别到一个音频, au[0][3]: ", au[0][3])
+		id = au[0][3]
+		kind = "MUSIC"
+		tts = ttsTest(au[0][1])
+		summary = sumTest(au[0][2])
+	case len(space) > 0:
+		log.Debug("[parse] 识别到一个用户空间, space[0][3]: ", space[0][3])
+		id = space[0][3]
+		kind = "SPACE"
+		tts = ttsTest(space[0][1])
+		summary = sumTest(space[0][2])
+	case len(live) > 0:
+		log.Debug("[parse] 识别到一个直播, live[0][3]: ", live[0][3])
+		id = live[0][3]
+		kind = "LIVE"
+		tts = ttsTest(live[0][1])
+		summary = sumTest(live[0][2])
+	}
+	return
+}
+
+// 短时间重复解析屏蔽, op:=true
+func isBiliLinkOverParse(ctx *EasyBot.CQMessage, id string, kind string) bool {
+	if ctx.MessageType == "group" { //只有群聊有限制
+		duration := int64(v.GetFloat64("parse.settings.sameParseInterval"))
+		during := time.Now().Unix()-groupParseHistory[ctx.GroupID].time < duration
+		same := id == groupParseHistory[ctx.GroupID].parse
+		block := during && same
+		if ctx.IsSU() {
+			block = false
+		}
+		if block {
+			log.Info("[parse] 在群 ", ctx.GroupID, " 屏蔽了一次小于 ", duration, " 秒的相同解析 ", kind, " ", id)
+			return true
+		} else {
+			log.Debug("[parse] 记录了一次在 ", ctx.GroupID, " 的解析 ", id)
+			groupParseHistory[ctx.GroupID] = parseHistory{ //记录解析历史
+				parse: id,
+				time:  time.Now().Unix(),
+			}
+		}
+	}
+	return false
+}
+
+type dynamicContent struct {
+	up   string
+	text string
+}
+
+// 内容解析并格式化
+func parseAndFormatBiliLink(ctx *EasyBot.CQMessage, id string, kind string, summary bool, tts bool, upload bool) (content string) {
+	var op bool
+	if ctx != nil {
+		op = isBiliLinkOverParse(ctx, id, kind)
+	} else {
+		op, summary = false, false
+	}
+	if !summary { //需要总结时不检测屏蔽，到最后再清空content
+		if op {
+			return
+		}
+	}
+	switch kind {
+	case "":
+	case "SHORT":
+		id, kind, _, _, _ := extractBiliLink(deShortLink(id))
+		content = parseAndFormatBiliLink(ctx, id, kind, summary, tts, upload)
+	case "DYNAMIC":
+		g := getDynamicJson(id)
+		if g.Get("code").Int() != 0 {
+			content = fmt.Sprintf("[NothingBot] [ERROR] [parse] 动态%s信息获取错误: code%d", id, g.Get("code").Int())
+		} else {
+			content = formatDynamic(g.Get("data.item"))
+			if summary {
+				go func() {
+					dc := &dynamicContent{
+						up:   g.Get("data.item.modules.module_author.name").Str(),
+						text: g.Get("data.item.modules.module_dynamic.desc.text").Str(),
+					}
+					s := dc.summary()
+					ctx.SendMsg(s)
+					if tts {
+						sendVitsMsg(ctx, rmTitle.Replace(s)) //不念“概述”、“要点”
+					}
+				}()
+			}
+		}
+	case "ARCHIVE":
+		aid, _ := strconv.Atoi(id)
+		g, h := getArchiveJson(aid)
+		if g.Get("code").Int() != 0 {
+			content = fmt.Sprintf("[NothingBot] [ERROR] [parse] 视频av%s信息获取错误: code%d", id, g.Get("code").Int())
+		} else {
+			content = formatArchive(g.Get("data"), h.Get("data"))
+			if summary {
+				go func() {
+					var as *archiveSubtitle
+					if cache, hasCache := archiveSubtitleTable[aid]; hasCache {
+						as = cache
+					} else {
+						as = getSubtitle(aid, g.Get("data.owner.name").Str(), g.Get("data.title").Str())
+						if as == nil {
+							ctx.SendMsgReply("[NothingBot] [Info] 无法获取视频字幕，尝试调用BcutASR")
+							as = bcutSubtitle(aid, g.Get("data.owner.name").Str(), g.Get("data.title").Str())
+						}
+					}
+					if as != nil {
+						archiveSubtitleTable[aid] = as //缓存字幕
+						s := as.summary()
+						ctx.SendMsg(s)
+						if tts {
+							sendVitsMsg(ctx, rmTitle.Replace(s)) //不念“概述”、“要点”
+						}
+					} else {
+						ctx.SendMsgReply("[NothingBot] [Error] 字幕转录失败力")
+					}
+				}()
+			}
+			upload = false
+			if upload {
+				go func() {
+					var av *archiveVideo
+					if cache, hasCache := archiveVideoTable[aid]; hasCache {
+						av = cache
+					} else {
+						av = getVideoMp4(aid, videoQual.gq720)
+					}
+					if av != nil {
+						archiveVideoTable[aid] = av //缓存视频
+						videoData, err := os.ReadFile(av.localPath)
+						if err == nil {
+							_ = videoData
+							//ctx.sendVideo(videoData)
+						} else {
+							log.Error("[NothingBot] [Error] 视频读取失败")
+						}
+					} else {
+						ctx.SendMsgReply("[NothingBot] [Error] 视频获取失败力")
+					}
+				}()
+			}
+		}
+	case "ARTICLE":
+		cvid, _ := strconv.Atoi(id)
+		g := getArticleJson(cvid)
+		if g.Get("code").Int() != 0 {
+			content = fmt.Sprintf("[NothingBot] [Error] [parse] 专栏cv%d信息获取错误: code%d", cvid, g.Get("code").Int())
+		} else {
+			content = formatArticle(g.Get("data"), cvid) //专栏信息拿不到自身cv号
+			if summary {
+				go func() {
+					var at *articleText
+					if cache, hasCache := articleTextTable[cvid]; hasCache {
+						at = cache
+					} else {
+						at = getArticleText(cvid)
+					}
+					if at != nil {
+						articleTextTable[cvid] = at //缓存专栏
+						s := at.summary()
+						ctx.SendMsg(s)
+						if tts {
+							sendVitsMsg(ctx, rmTitle.Replace(s)) //不念“概述”、“要点”
+						}
+					} else {
+						ctx.SendMsgReply("[NothingBot] 文章正文获取失败力")
+					}
+				}()
+			}
+		}
+	case "MUSIC":
+		sid, _ := strconv.Atoi(id)
+		g, h, i := getMusicJson(sid)
+		if g.Get("code").Int() != 0 || h.Get("code").Int() != 0 || i.Get("code").Int() != 0 {
+			content = fmt.Sprintf("[NothingBot] [Error] [parse] 音频au%d信息获取错误: codes: %d, %d, %d", sid, g.Get("code").Int(), h.Get("code").Int(), i.Get("code").Int())
+		} else {
+			content = formatMusic(g.Get("data"), h.Get("data"), i.Get("data"))
+			if summary {
+				go func() {
+					time.Sleep(time.Second * 2)
+					ctx.SendMsgReply("没做")
+				}()
+			}
+		}
+	case "SPACE":
+		uid, _ := strconv.Atoi(id)
+		g := getSpaceJson(uid)
+		if g.Get("code").Int() != 0 {
+			content = fmt.Sprintf("[NothingBot] [Error] [parse] 用户%s信息获取错误: code%d", id, g.Get("code").Int())
+		} else {
+			content = formatSpace(g.Get("data.card"))
+			if summary {
+				go func() {
+					time.Sleep(time.Second * 2)
+					ctx.SendMsgReply("？")
+				}()
+			}
+		}
+	case "LIVE":
+		id, _ := strconv.Atoi(id)
+		uid := getRoomJsonRoomid(id).Get("data.uid").Int()
+		if uid != 0 {
+			roomJson, ok := getRoomJsonUID(uid).Gets("data", strconv.Itoa(uid))
+			if ok {
+				content = formatLive(roomJson)
+				if summary {
+					go func() {
+						time.Sleep(time.Second * 2)
+						ctx.SendMsgReply("？？？")
+					}()
+				}
+			} else {
+				content = fmt.Sprintf("[NothingBot] [Error] [parse] 直播间%d信息获取错误, !ok", id)
+			}
+		} else {
+			content = fmt.Sprintf("[NothingBot] [Error] [parse] 直播间%d信息获取错误, uid == \"0\"", id)
+		}
+	}
+	if op {
+		return ""
+	}
+	return
+}
+
+// 短链解析
+func deShortLink(slug string) (location string) {
+	header, err := ihttp.New().WithUrl("https://b23.tv/" + slug).
+		WithHijackRedirect().Head().ToHeader()
+	if err != nil {
+		log.Error("[parse] deShortLink().ihttp请求错误: ", err)
+	}
+	if len(header["Location"]) > 0 {
+		location = header["Location"][0]
+	}
+	var statusCode string
+	if len(header["Bili-Status-Code"]) > 0 {
+		statusCode = header["Bili-Status-Code"][0]
+	}
+	switch statusCode {
+	case "-404":
+		log.Warn("[parse] 短链解析失败: ", statusCode, "  location: ", location)
+	}
+	return
+}
+
+// 根据config选择后端
+func chatModelSummary(input string) (output string, err error) {
+	log.Debug("[summary] backend: ", summaryBackend)
+	switch summaryBackend {
+	case "glm":
+		output, err = sendToChatGLMSingle(input)
+		output = "由" + selectedModelStr + "总结：\n" + output
+		if err != nil {
+			log.Error("[summary] ChatGLM2 err: ", err)
+		}
+	case "qianfan":
+		var overLen bool
+		if len([]rune(input)) > 1500 {
+			input = string([]rune(input)[:1499])
+			overLen = true
+		}
+		output, err = sendToWenxinSingle(input)
+		if !overLen {
+			output = "由" + selectedModelStr + "总结：\n" + output
+		} else {
+			output = "由" + selectedModelStr + "总结（原文长度超过1500字符，输入经过去尾）：\n" + output
+		}
+		if err != nil {
+			log.Error("[summary] qianfan err: ", err)
+		}
+	}
+	return
+}
+
+// 总结模板
+func getPrompt(kind string, title string, up string, seq string) string {
+	kindList := map[string]string{
+		"archive": "视频字幕",
+		"article": "专栏文章",
+		"dynamic": "空间动态",
+	}
+	//return "使用以下Markdown模板为我总结" + kindList[kind] + "，除非" + kindList[kind][6:] + "中的内容无意义，或者未提供" + kindList[kind][6:] + "内容，或者内容较少无法总结，或者无有效内容，你就不使用模板回复，只回复“无意义”。" +
+	return "使用以下Markdown模板为我总结" + kindList[kind] + "，除非内容较少无法总结，你就不使用模板回复，只回复“内容过少，无法总结”。" +
+		"\n## 概述" +
+		"\n{尽可能精简总结内容不要太详细}" +
+		"\n## 要点" +
+		"\n- {不换行、大于15字、可多项、条数与有效内容数量呈正比}" +
+		"\n不要随意翻译任何内容。仅使用中文总结。" +
+		"\n不说与总结无关的其他内容，你的回复仅限固定格式提供的“概述”和“要点”两项。" +
+		func() (s string) {
+			s += "\n" + kindList[kind][:6]
+			switch kind {
+			case "archive":
+				s += "标题为《" + title + "》，"
+			case "article":
+				s += "标题为《" + title + "》，发布者为" + up + "，"
+			case "dynamic":
+				s += "发布者为" + up + "，"
+			}
+			s += kindList[kind][6:] + "数据如下，立刻开始总结："
+			return
+		}() +
+		"\n" + seq
+}
+
+// 总结视频
+func (as *archiveSubtitle) summary() (output string) {
+	input := getPrompt("archive", as.Title, as.Up, as.seq)
+	output, err := chatModelSummary(input)
+	if err != nil {
+		output = "[NothingBot] [Error] [summary] " + err.Error()
+	}
+	return
+}
+
+// 总结文章
+func (at *articleText) summary() (output string) {
+	input := getPrompt("article", at.Title, at.Up, at.seq)
+	output, err := chatModelSummary(input)
+	if err != nil {
+		output = "[NothingBot] [Error] [summary] " + err.Error()
+	}
+	return
+}
+
+// 总结动态
+func (dc *dynamicContent) summary() (output string) {
+	input := getPrompt("dynamic", "", dc.up, dc.text)
+	output, err := chatModelSummary(input)
+	if err != nil {
+		output = "[NothingBot] [Error] [summary] " + err.Error()
+	}
+	return
 }
