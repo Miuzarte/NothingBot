@@ -52,7 +52,9 @@ type CQBot struct {
 	blackList *blackList //屏蔽列表 不执行由其触发的消息回调
 
 	MessageTablePrivate map[int]map[int]*CQMessage //私聊消息缓存 UserID:MessageID:*CQMessage
+	MTPMutex            sync.Mutex                 //私聊消息表锁
 	MessageTableGroup   map[int]map[int]*CQMessage //群聊消息缓存 GroupID:MessageID:*CQMessage
+	MTGMutex            sync.Mutex                 //群聊消息表锁
 	Log2SU              *log2SU                    //向管理员发送通知
 	Utils               *utilsFunc                 //小工具
 
@@ -123,6 +125,8 @@ type CQEvent struct {
 type CQMessage struct {
 	Bot   *CQBot
 	Event *CQEvent
+
+	Time int `json:"time"` //get_msg用的
 
 	//////// vvvv    GENERAL    vvvv
 
@@ -517,6 +521,7 @@ func New() *CQBot {
 	bot.Log2SU = &log2SU{
 		bot: bot,
 	}
+	bot.Heartbeat = make(chan struct{})
 	bot.ConnLost = make(chan struct{})
 	bot.ApiCallTimeOut = time.Second * 60
 	bot.ApiCallNotice = make(chan struct{})
@@ -935,7 +940,7 @@ func (bot *CQBot) recvLoop() {
 		bot.ConnLost = make(chan struct{})
 	}()
 	bot.HeartbeatWaitGroup.Add(1) //等待心跳包获取间隔
-	go bot.heatbeatLoop()
+	go bot.heartbeatLoop()
 	for {
 		dataReceived := &CQRecv{
 			Bot: bot,
@@ -948,16 +953,12 @@ func (bot *CQBot) recvLoop() {
 		if err == io.EOF {
 			if !bot.IsExpectedTermination {
 				bot.log.Error("[EasyBot] ws连接意外终止 err == io.EOF")
-			} else {
-				bot.log.Info("[EasyBot] ws连接已断开")
 			}
 			return
 		}
 		if err != nil {
 			if !bot.IsExpectedTermination {
 				bot.log.Error("[EasyBot] ws连接出错 err: ", err)
-			} else {
-				bot.log.Info("[EasyBot] ws连接已断开")
 			}
 			return
 		}
@@ -1428,32 +1429,40 @@ func (bot *CQBot) saveMsg(msg *CQMessage) {
 	msg.Extra.MessageWithReply = msg.entityReply()
 	switch msg.MessageType {
 	case "group":
+		bot.MTGMutex.Lock()
 		if bot.MessageTableGroup[msg.GroupID] == nil {
 			bot.MessageTableGroup[msg.GroupID] = make(map[int]*CQMessage)
 		}
 		bot.MessageTableGroup[msg.GroupID][msg.MessageID] = msg
+		bot.MTGMutex.Unlock()
 	case "private":
+		bot.MTPMutex.Lock()
 		if bot.MessageTablePrivate[msg.UserID] == nil {
 			bot.MessageTablePrivate[msg.UserID] = make(map[int]*CQMessage)
 		}
 		bot.MessageTablePrivate[msg.UserID][msg.MessageID] = msg
+		bot.MTPMutex.Unlock()
 	}
 }
 
 // @的人列表
 func (msg *CQMessage) collectAt() (atWho []int) {
-	matches := msg.RegexpMustCompile(`\[CQ:reply,id=(-?.*)]`) //回复也算@
+	matches := msg.RegexpMustCompile(`\[CQ:reply,id=(-?[0-9]*)]`) //回复也算@
 	if len(matches) > 0 {
 		replyid, _ := strconv.Atoi(matches[0][1])
 		switch msg.MessageType {
 		case "group":
+			msg.Bot.MTGMutex.Lock()
 			if replyMsg := msg.Bot.MessageTableGroup[msg.GroupID][replyid]; replyMsg != nil {
 				atWho = append(atWho, replyMsg.UserID)
 			}
+			msg.Bot.MTGMutex.Unlock()
 		case "private":
+			msg.Bot.MTPMutex.Lock()
 			if replyMsg := msg.Bot.MessageTablePrivate[msg.UserID][replyid]; replyMsg != nil {
 				atWho = append(atWho, replyMsg.UserID)
 			}
+			msg.Bot.MTPMutex.Unlock()
 		}
 	}
 	matches = msg.RegexpMustCompile(`\[CQ:at,qq=(\d+)]`)
@@ -1478,23 +1487,40 @@ func (msg *CQMessage) collectAt() (atWho []int) {
 // 具体化回复，go-cqhttp.extra-reply-data: true时不必要，但是开了那玩意又会导致回复带上原文又触发一遍机器人
 func (msg *CQMessage) entityReply() (message string) {
 	message = msg.GetRawMessageOrMessage()
-	match := msg.RegexpMustCompile(`\[CQ:reply,id=(-?.*)]`)
+	match := msg.RegexpMustCompile(`\[CQ:reply,id=(-?[0-9]*)]`)
 	if len(match) > 0 {
 		replyIdS := match[0][1]
 		replyId, _ := strconv.Atoi(replyIdS)
 		var replyMsg *CQMessage
 		switch msg.MessageType {
 		case "group":
-			replyMsg = msg.Bot.MessageTableGroup[msg.GroupID][replyId]
+			// replyMsg = msg.Bot.MessageTableGroup[msg.GroupID][replyId]
+			r, err := msg.Bot.FetchGroupMsg(msg.GroupID, replyId)
+			if err != nil {
+				msg.Bot.log.Error("[EasyBot] 获取群消息出错: ", err)
+				return
+			}
+			replyMsg = r
 		case "private":
-			replyMsg = msg.Bot.MessageTablePrivate[msg.UserID][replyId]
+			// replyMsg = msg.Bot.MessageTablePrivate[msg.UserID][replyId]
+			r, err := msg.Bot.FetchPrivateMsg(msg.UserID, replyId)
+			if err != nil {
+				msg.Bot.log.Error("[EasyBot] 获取私聊消息出错: ", err)
+				return
+			}
+			replyMsg = r
 		}
 		if replyMsg == nil {
-			msg.Bot.log.Warn("[main] 具体化回复遇到空指针")
+			msg.Bot.log.Warn("[EasyBot] 具体化回复遇到空指针")
 			return
 		}
-		replyCQ := fmt.Sprint("[CQ:reply,qq=", replyMsg.UserID, ",time=", replyMsg.Event.Time, ",text=", replyMsg.RawMessage, "]")
-		msg.Bot.log.Debug("[main] 具体化回复了这条消息, reply: ", replyCQ)
+		var replyCQ string
+		if replyMsg.Event != nil {
+			replyCQ = fmt.Sprint("[CQ:reply,qq=", replyMsg.UserID, ",time=", replyMsg.Event.Time, ",text=", replyMsg.RawMessage, "]")
+		} else {
+			replyCQ = fmt.Sprint("[CQ:reply,qq=", replyMsg.UserID, ",time=", replyMsg.Time, ",text=", replyMsg.RawMessage, "]")
+		}
+		msg.Bot.log.Debug("[EasyBot] 具体化回复了这条消息, reply: ", replyCQ)
 		return strings.ReplaceAll(msg.GetRawMessageOrMessage(), match[0][0], replyCQ)
 	}
 	return
@@ -1506,11 +1532,13 @@ func (bot *CQBot) frMark(fr *CQNoticeFriendRecall) {
 	recalledMsg := &CQMessage{
 		Bot: bot,
 	}
+	bot.MTGMutex.Lock()
 	if msgTable := bot.MessageTableGroup[fr.UserID]; msgTable != nil {
 		if msg := msgTable[fr.MessageID]; msg != nil {
 			recalledMsg = msg
 		}
 	}
+	bot.MTGMutex.Unlock()
 	if recalledMsg == nil { //获取不到就/get_msg
 		bot.log.Info("[EasyBot] 该消息 (", fr.MessageID, ") 未缓存, 尝试调用/get_msg")
 		recalledMsg, err = bot.GetMsg(fr.MessageID) //阻塞直到成功返回
@@ -1521,7 +1549,9 @@ func (bot *CQBot) frMark(fr *CQNoticeFriendRecall) {
 	}
 	recalledMsg.Extra.Recalled = true
 	recalledMsg.Extra.OperatorID = fr.UserID
+	bot.MTPMutex.Lock()
 	bot.MessageTablePrivate[fr.UserID][fr.MessageID] = recalledMsg
+	bot.MTPMutex.Unlock()
 }
 
 // 群消息标记撤回
@@ -1530,11 +1560,13 @@ func (bot *CQBot) grMark(gr *CQNoticeGroupRecall) {
 	recalledMsg := &CQMessage{
 		Bot: bot,
 	}
+	bot.MTGMutex.Lock()
 	if msgTable := bot.MessageTableGroup[gr.GroupID]; msgTable != nil {
 		if msg := msgTable[gr.MessageID]; msg != nil {
 			recalledMsg = msg
 		}
 	}
+	bot.MTGMutex.Unlock()
 	if recalledMsg == nil { //获取不到就/get_msg
 		bot.log.Info("[EasyBot] 该消息 (", gr.MessageID, ") 未缓存, 尝试调用/get_msg")
 		recalledMsg, err = bot.GetMsg(gr.MessageID) //阻塞直到成功返回
@@ -1545,7 +1577,9 @@ func (bot *CQBot) grMark(gr *CQNoticeGroupRecall) {
 	}
 	recalledMsg.Extra.Recalled = true
 	recalledMsg.Extra.OperatorID = gr.OperatorID
+	bot.MTGMutex.Lock()
 	bot.MessageTableGroup[gr.GroupID][gr.MessageID] = recalledMsg
+	bot.MTGMutex.Unlock()
 }
 
 // 心跳
@@ -1556,7 +1590,6 @@ func (bot *CQBot) handleHeartbeat(hb *CQMetaEventHeartbeat) {
 		bot.HeartbeatWaitGroup.Done()
 	}
 	bot.Heartbeat <- struct{}{}
-	bot.log.Debug("[EasyBot] 传入了一个心跳信号")
 }
 
 // 生命周期
@@ -1569,7 +1602,7 @@ func (bot *CQBot) handleLifecycle(lc *CQMetaEventLifecycle) {
 }
 
 // 心跳监听
-func (bot *CQBot) heatbeatLoop() {
+func (bot *CQBot) heartbeatLoop() {
 	if bot.IsHeartbeatChecking {
 		return
 	}
@@ -1591,10 +1624,13 @@ func (bot *CQBot) heatbeatLoop() {
 		select {
 		case <-bot.Heartbeat:
 			bot.HeartbeatCount++
-		case <-time.After(time.Second * time.Duration(bot.HeartbeatInterval+250)):
+			bot.log.Debug("[EasyBot] 心跳接收#", bot.HeartbeatCount)
+			continue
+		case <-time.After(time.Millisecond * time.Duration(bot.HeartbeatInterval+500)):
 			bot.HeartbeatLostCount++
 			if bot.HeartbeatLostCount > 2 {
 				bot.log.Error("[EasyBot] 心跳超时 ", bot.HeartbeatLostCount, " 次, 丢弃连接")
+				bot.HeartbeatLostCount = 0
 				bot.Conn.Close()
 				return
 			}
@@ -1679,6 +1715,8 @@ func (bot *CQBot) CallApiAndListenEcho(post *CQPost, echo string) (resp *CQApiRe
 
 // 优先从内存中读取缓存的私聊消息, 没有时调取/get_msg api
 func (bot *CQBot) FetchPrivateMsg(user_id, message_id int) (msg *CQMessage, err error) {
+	bot.MTPMutex.Lock()
+	defer bot.MTPMutex.Unlock()
 	table := bot.MessageTablePrivate[user_id]
 	if table != nil {
 		msg = table[message_id]
@@ -1691,6 +1729,8 @@ func (bot *CQBot) FetchPrivateMsg(user_id, message_id int) (msg *CQMessage, err 
 
 // 优先从内存中读取缓存的群消息, 没有时调取/get_msg api
 func (bot *CQBot) FetchGroupMsg(group_id, message_id int) (msg *CQMessage, err error) {
+	bot.MTGMutex.Lock()
+	defer bot.MTGMutex.Unlock()
 	table := bot.MessageTableGroup[group_id]
 	if table != nil {
 		msg = table[message_id]
@@ -2156,7 +2196,7 @@ func (ctx *CQMessage) GetCardOrNickname() string {
 
 // 获取回复的消息
 func (ctx *CQMessage) GetReplyedMsg() (replyedMsg *CQMessage, err error) {
-	matches := ctx.RegexpMustCompile(`\[CQ:reply,id=(-?.*)].*`)
+	matches := ctx.RegexpMustCompile(`\[CQ:reply,id=(-?[0-9]*)]`)
 	if len(matches) == 0 {
 		return nil, errors.New("NO REPLY MESSAGE")
 	}

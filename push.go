@@ -104,6 +104,9 @@ func checkCookieUpdate(ctx *EasyBot.CQMessage) {
 		} else {
 			ctx.SendMsg("[bilibili] buvid获取失败")
 		}
+		if !cookieValidity {
+			pushWait.Done()
+		}
 	}
 }
 
@@ -112,7 +115,7 @@ func initPush() {
 	dynamicCheckDuration = time.Millisecond * time.Duration(v.GetFloat64("push.settings.dynamicUpdateInterval")*1000)
 	if cookie = v.GetString("push.settings.cookie"); len(cookie) != 0 {
 		log.Trace("[bilibili] cookie:\n", cookie)
-		if validateCookie() {
+		if cookieValidity = validateCookie(); cookieValidity {
 			if cookieUid = extractUid(cookie); cookieUid != 0 {
 				log.Info("[bilibili] cookie所属uid: ", cookieUid)
 			} else {
@@ -279,7 +282,7 @@ func dynamicMonitor() {
 		switch update_num {
 		case "-1":
 			log.Error("[push] 获取update_num时出现错误    update_num = ", update_num, "  update_baseline = ", update_baseline)
-			if !validateCookie() {
+			if cookieValidity = validateCookie(); !cookieValidity {
 				pushWait.Add(1)
 				pushWait.Wait()
 				failureCount = 0

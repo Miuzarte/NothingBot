@@ -45,7 +45,7 @@ func initParse() {
 // 哔哩哔哩链接解析
 func checkParse(ctx *EasyBot.CQMessage) {
 	reg := regexp.MustCompile(everyBiliLinkRegexp)
-	matches := reg.FindAllStringSubmatch(ctx.GetCardOrNickname(), -1)
+	matches := reg.FindAllStringSubmatch(ctx.GetRawMessageOrMessage(), -1)
 	if len(matches) > 0 {
 		log.Debug("[parse] 识别到哔哩哔哩链接: ", matches[0][0])
 		id, kind, summary, tts, upload := extractBiliLink(matches[0][0])

@@ -316,9 +316,9 @@ func timeFormat(timestamp int64) string {
 	}
 }
 
-func checkDir(path string) {
+func checkDir(path string) (err error) {
 	if _, err := os.Stat(path); os.IsNotExist(err) {
-		err := os.Mkdir(path, 0755)
+		err = os.Mkdir(path, 0755)
 		if err != nil {
 			log.Error("无法创建文件夹: ", err)
 		} else {
@@ -327,6 +327,7 @@ func checkDir(path string) {
 	} else {
 		log.Debug("文件夹 ", path, " 已存在")
 	}
+	return
 }
 
 func handleFriendRecall(fr *EasyBot.CQNoticeFriendRecall) {
@@ -356,9 +357,9 @@ func handleGroupRecall(gr *EasyBot.CQNoticeGroupRecall) {
 // 群名片变更
 func handleGroupCard(gc *EasyBot.CQNoticeGroupCard) {
 	avatar := bot.Utils.Format.ImageUrl(fmt.Sprintf(
-		"[CQ:image,http://q.qlogo.cn/headimg_dl?dst_uin=%d&spec=640&img_type=jpg", gc.UserID))
+		"http://q.qlogo.cn/headimg_dl?dst_uin=%d&spec=640&img_type=jpg", gc.UserID))
 	bot.SendGroupMsg(gc.GroupID, fmt.Sprint(
-		avatar, gc.UserID, "变更了群名片：  ", gc.CardOld, " -> ", gc.CardNew))
+		avatar, gc.UserID, " 变更了群名片：\n", gc.CardOld, " -> ", gc.CardNew))
 }
 
 // 群文件上传

@@ -59,17 +59,7 @@ var (
 		SPACE:     `(让岁己)?(总结一下\s?)?.*space\.bilibili\.com\\?/([0-9]{1,16})`,                                               //新uid 16位
 		LIVE:      `(让岁己)?(总结一下\s?)?.*live\.bilibili\.com\\?/([0-9]{1,9})`,                                                 //8位 预留9
 	}
-	everyBiliLinkRegexp = func() (everyBiliLinkRegexp string) {
-		structValue := reflect.ValueOf(biliLinkRegexp)
-		for i := 0; i < structValue.NumField(); i++ {
-			field := structValue.Field(i)
-			if everyBiliLinkRegexp != "" {
-				everyBiliLinkRegexp += "|"
-			}
-			everyBiliLinkRegexp += field.Interface().(string)
-		}
-		return
-	}()
+
 	liveState = struct {
 		UNKNOWN int
 		OFFLINE int
@@ -88,6 +78,7 @@ var (
 	cookie               = ""
 	cookieUid            = 0
 	cookieBuvid          = ""
+	cookieValidity       = false
 	tempDir              = "./bilibili_temp/"
 	summaryBackend       = ""
 	dynamicCheckDuration time.Duration
@@ -100,6 +91,18 @@ var (
 	articleTextTable     = make(map[int]*articleText)     //cv:
 	groupParseHistory    = make(map[int]parseHistory)     //group:
 )
+
+var everyBiliLinkRegexp = func() (everyBiliLinkRegexp string) {
+	structValue := reflect.ValueOf(biliLinkRegexp)
+	for i := 0; i < structValue.NumField(); i++ {
+		field := structValue.Field(i)
+		if everyBiliLinkRegexp != "" {
+			everyBiliLinkRegexp += "|"
+		}
+		everyBiliLinkRegexp += field.Interface().(string)
+	}
+	return
+}()
 
 // bv转av
 func bv2av(bv string) (av int) {
@@ -420,6 +423,7 @@ func getArchiveJsonB(bvid string) (archiveJson gson.JSON, stateJson gson.JSON) {
 
 // 读取缓存
 func initCache() {
+	_ = checkDir(tempDir)
 	err := filepath.Walk(tempDir, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			log.Error("访问路径 ", path, " 时发生错误: ", err.Error())
