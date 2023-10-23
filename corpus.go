@@ -137,7 +137,7 @@ func initCorpus() {
 							eachReplyMapContentSlice, isSlice := eachReplyMap["content"].([]any)
 							if !isSlice {
 								forwardMsg = EasyBot.AppendForwardMsg(forwardMsg,
-									EasyBot.NewForwardNode(
+									EasyBot.NewCustomForwardNode(
 										name,
 										uin,
 										fmt.Sprint(eachReplyMap["content"]),
@@ -147,7 +147,7 @@ func initCorpus() {
 							if isSlice {
 								for _, eachEachReplyMapContentSlice := range eachReplyMapContentSlice {
 									forwardMsg = EasyBot.AppendForwardMsg(forwardMsg,
-										EasyBot.NewForwardNode(
+										EasyBot.NewCustomForwardNode(
 											name,
 											uin,
 											fmt.Sprint(eachEachReplyMapContentSlice),
@@ -160,7 +160,7 @@ func initCorpus() {
 
 							//使用bot信息
 							forwardMsg = EasyBot.AppendForwardMsg(forwardMsg,
-								EasyBot.NewForwardNode(
+								EasyBot.NewCustomForwardNode(
 									"NothingBot",
 									bot.GetSelfID(),
 									fmt.Sprint(eachReply),

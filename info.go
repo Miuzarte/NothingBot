@@ -13,7 +13,7 @@ import (
 
 // 运行状态
 func checkInfo(ctx *EasyBot.CQMessage) {
-	match := ctx.RegexpMustCompile(`检查身体|运行状态`)
+	match := ctx.RegexpFindAllStringSubmatch(`检查身体|运行状态`)
 	if len(match) > 0 && ctx.IsToMe() {
 		product, _ := ghw.Product()
 		cpuInfo, _ := cpu.Info()
@@ -42,7 +42,7 @@ func checkInfo(ctx *EasyBot.CQMessage) {
 				}
 				return
 			}(),
-			timeFormat(bot.GetRunningTime()))
+			formatTime(bot.GetRunningTime()))
 		ctx.SendMsg(s)
 	}
 }

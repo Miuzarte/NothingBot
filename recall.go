@@ -96,7 +96,7 @@ func (r *recall) format() (forwardMsg EasyBot.CQForwardMsg) {
 				return ""
 			}())
 		content := strings.ReplaceAll(rcMsg.Extra.MessageWithReply, "CQ:at,", "CQ:at,​") //插入零宽空格阻止CQ码解析
-		forwardMsg = EasyBot.AppendForwardMsg(forwardMsg, EasyBot.NewForwardNode(
+		forwardMsg = EasyBot.AppendForwardMsg(forwardMsg, EasyBot.NewCustomForwardNode(
 			name, rcMsg.UserID, content, 0, 0))
 	}
 	return
@@ -105,7 +105,7 @@ func (r *recall) format() (forwardMsg EasyBot.CQForwardMsg) {
 // 撤回消息记录
 func checkRecall(ctx *EasyBot.CQMessage) {
 	//开关
-	match := ctx.RegexpMustCompile(`(开启|启用|关闭|禁用)撤回记录`)
+	match := ctx.RegexpFindAllStringSubmatch(`(开启|启用|关闭|禁用)撤回记录`)
 	if len(match) > 0 && ctx.IsPrivateSU() {
 		switch match[0][1] {
 		case "开启", "启用":
@@ -121,7 +121,7 @@ func checkRecall(ctx *EasyBot.CQMessage) {
 		return
 	}
 	//发送
-	match = ctx.RegexpMustCompile(`^让我康康(\s*\[CQ:at,qq=)?([0-9]+)?(]\s*)?撤回了什么$`)
+	match = ctx.RegexpFindAllStringSubmatch(`^让我康康(\s*\[CQ:at,qq=)?([0-9]+)?(]\s*)?撤回了什么$`)
 	if len(match) > 0 {
 		r := recall{
 			kind: ctx.MessageType,

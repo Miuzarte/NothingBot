@@ -16,7 +16,7 @@ var (
 func checkBotInternal(ctx *EasyBot.CQMessage) {
 	var match [][]string
 	//连续at两次获取帮助, 带文字则视为喊话超级用户
-	match = ctx.RegexpMustCompile(fmt.Sprintf(`^\[CQ:at,qq=%d]\s*\[CQ:at,qq=%d]\s*(.*)$`, bot.GetSelfID(), bot.GetSelfID()))
+	match = ctx.RegexpFindAllStringSubmatch(fmt.Sprintf(`^\[CQ:at,qq=%d]\s*\[CQ:at,qq=%d]\s*(.*)$`, bot.GetSelfID(), bot.GetSelfID()))
 	if len(match) > 0 {
 		call := match[0][1]
 		if len(call) > 0 { //记录喊话
@@ -97,7 +97,7 @@ func checkBotInternal(ctx *EasyBot.CQMessage) {
 		}
 	}
 	//发送/清空收件箱
-	match = ctx.RegexpMustCompile(`^(清空)?(喊话列表|收件箱)$`)
+	match = ctx.RegexpFindAllStringSubmatch(`^(清空)?(喊话列表|收件箱)$`)
 	if len(match) > 0 && ctx.IsPrivateSU() {
 		callSUMsgUnread = 0    //清零未读
 		if match[0][1] == "" { //发送
@@ -121,7 +121,7 @@ func checkBotInternal(ctx *EasyBot.CQMessage) {
 					callSUMsg.GetCardOrNickname(),
 					callSUMsg.GroupID)
 				content := strings.ReplaceAll(callSUMsg.GetRawMessageOrMessage(), "CQ:at,", "CQ:at,​") //插入零宽空格阻止CQ码解析
-				forwardMsg = EasyBot.AppendForwardMsg(forwardMsg, EasyBot.NewForwardNode(
+				forwardMsg = EasyBot.AppendForwardMsg(forwardMsg, EasyBot.NewCustomForwardNode(
 					name, callSUMsg.UserID, content, int64(callSUMsg.Event.Time),
 					int64(callSUMsg.MessageSeq),
 				))
@@ -133,12 +133,12 @@ func checkBotInternal(ctx *EasyBot.CQMessage) {
 		}
 	}
 	//注入消息
-	match = ctx.Unescape().RegexpMustCompile(`run(.*)`)
+	match = ctx.Unescape().RegexpFindAllStringSubmatch(`run(.*)`)
 	if len(match) > 0 && ctx.IsToMe() {
 		ctx.SendMsg(match[0][1])
 	}
 	//回复我
-	match = ctx.Unescape().RegexpMustCompile(`回复我(.*)?`)
+	match = ctx.Unescape().RegexpFindAllStringSubmatch(`回复我(.*)?`)
 	if len(match) > 0 && ctx.IsToMe() {
 		if match[0][1] == "" {
 			ctx.SendMsgReply("回复你")

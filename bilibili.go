@@ -104,9 +104,11 @@ var everyBiliLinkRegexp = func() (everyBiliLinkRegexp string) {
 	return
 }()
 
+const standardLength = len("BV1vh4y1U71j")
+
 // bv转av
 func bv2av(bv string) (av int) {
-	if length, standard := len(bv), len("BV1vh4y1U71j"); length < standard {
+	if length := len(bv); length < standardLength {
 		log.Warn("[bv2av] 输入了错误的bv号: ", bv, " (len: ", length, ")")
 		return 0
 	}
@@ -161,7 +163,7 @@ func getVoteJson(voteid int) gson.JSON {
 func formatDynamic(g gson.JSON) string {
 	dynamic := g.Get("modules.module_dynamic")                //动态主体
 	id := g.Get("id_str").Str()                               //动态id
-	uid := g.Get("modules.module_author.name").Int()          //发布者uid
+	uid := g.Get("modules.module_author.mid").Int()           //发布者uid
 	name := g.Get("modules.module_author.name").Str()         //发布者用户名
 	action := g.Get("modules.module_author.pub_action").Str() //"投稿了视频"/"发布了动态视频"/"投稿了文章"/"直播了"
 	topic := func(exist bool) (topic string) {                //话题
@@ -369,6 +371,35 @@ func formatDynamic(g gson.JSON) string {
 	}
 }
 
+// 获取官方AI总结
+func getArchiveSummary(aid int) (summary string, err error) {
+	cid := getCid(aid)
+	signedUrl := SignURL(fmt.Sprintf("https://api.bilibili.com/x/web-interface/view/conclusion/get?aid=%d&cid=%d", aid, cid))
+	videoSummary, err := ihttp.New().WithUrl(signedUrl).WithHeaders(iheaders).Get().ToGson()
+	if err != nil {
+		return
+	}
+	// 大总结
+	summary = videoSummary.Get("data.model_result.summary").Str()
+	// 大纲
+	outlines := videoSummary.Get("data.model_result.outline").Arr()
+	if summary == "" && len(outlines) == 0 {
+		return "", nil
+	}
+	for _, outline := range outlines {
+		summary += "\n● " + outline.Get("title").Str()
+		// 小节
+		for _, partOutline := range outline.Get("part_outline").Arr() {
+			timestamp := partOutline.Get("timestamp").Int()
+			content := partOutline.Get("content").Str()
+			summary += fmt.Sprintf("\n%s: %s",
+				formatTimeSimple(int64(timestamp)), content,
+			)
+		}
+	}
+	return
+}
+
 // av号获取视频数据.Get("data"))
 func getArchiveJson(aid int) (archiveJson gson.JSON, stateJson gson.JSON) {
 	archiveJson, err := ihttp.New().WithUrl("https://api.bilibili.com/x/web-interface/view").
@@ -443,7 +474,9 @@ func initCache() {
 			as := &archiveSubtitle{}
 			err = json.Unmarshal(fileData, as)
 			if err != nil {
-				log.Error("[bilibili] as unmarshal cache err: ", err)
+				log.Error("[NothingBot] 反序列化出错(json.Unmarshal(fileData, as)), err: ", err,
+					"\n    respByte: ", string(fileData),
+					"\n    Unmarshal by gson: ", gson.New(fileData).JSON("", ""))
 				break
 			}
 			as.marshal()
@@ -463,7 +496,9 @@ func initCache() {
 			at := &articleText{}
 			err = json.Unmarshal(fileData, at)
 			if err != nil {
-				log.Error("[bilibili] at unmarshal cache err: ", err)
+				log.Error("[NothingBot] 反序列化出错(json.Unmarshal(fileData, at)), err: ", err,
+					"\n    respByte: ", string(fileData),
+					"\n    Unmarshal by gson: ", gson.New(fileData).JSON("", ""))
 				break
 			}
 			at.marshal()
@@ -515,10 +550,10 @@ var videoQual = struct {
 }
 
 type archiveVideo struct {
-	aid       int
-	cid       int
-	hasAudio  bool //是否带音频
-	localPath string
+	aid      int
+	cid      int
+	hasAudio bool //是否带音频
+	path     string
 }
 
 // 获取视频流(mp4)
@@ -529,23 +564,39 @@ func getVideoMp4(aid int, qual int) *archiveVideo {
 	checkDir(tempDir)
 	cid := getCid(aid)
 	url := getVideoUrlMp4(aid, cid, qual)
-	fileName := fmt.Sprint("av", aid, "_c", cid, "_qn", qual, ".mp4")
-	localPath := tempDir + fileName
-	videoByte, err := ihttp.New().WithUrl(url).
-		WithHeaders(iheaders).
-		Get().ToBytes()
-	if err != nil {
-		log.Error("[bilibili] 视频(mp4)下载失败 err: ", err)
-		return nil
-	} else {
-		log.Debug("[bilibili] len(videoByte): ", len(videoByte))
+	path := ""
+
+	if lor := gocqIsLocalOrRemote(); lor == "local" { //gocq在本地时通过bot下载
+		fileName := fmt.Sprint("av", aid, "_c", cid, "_qn", qual, ".mp4")
+		path := tempDir + fileName
+		videoByte, err := ihttp.New().WithUrl(url).
+			WithHeaders(iheaders).
+			Get().ToBytes()
+		if err != nil {
+			log.Error("[bilibili] 视频(mp4)下载失败 err: ", err)
+			return nil
+		}
+		err = os.WriteFile(path, videoByte, 0664)
+		if err != nil {
+			log.Error("[bilibili] 视频(mp4)写入本地失败 err: ", err)
+		}
+		log.Debug("[bilibili] local path: ", path, "  len(videoByte): ", len(videoByte))
+	} else if lor == "remote" { //否则调用远程下载
+		p, err := bot.DownloadFile(url, 1, iheaders)
+		path = p
+		if err != nil {
+			log.Error("[bilibili] 远程视频(mp4)下载失败 err: ", err)
+			return nil
+		} else {
+			log.Debug("[bilibili] remote path: ", path)
+		}
 	}
-	os.WriteFile(localPath, videoByte, 0664)
+
 	return &archiveVideo{
-		aid:       aid,
-		cid:       cid,
-		hasAudio:  true,
-		localPath: localPath,
+		aid:      aid,
+		cid:      cid,
+		hasAudio: true,
+		path:     path,
 	}
 }
 
@@ -1141,7 +1192,7 @@ au%d
 		cover,
 		sid,
 		title,
-		timeFormat(int64(duration)),
+		formatTime(int64(duration)),
 		stuffs,
 		tags,
 		intro,
@@ -1394,7 +1445,7 @@ type dynamicContent struct {
 }
 
 // 内容解析并格式化
-func parseAndFormatBiliLink(ctx *EasyBot.CQMessage, id string, kind string, summary bool, tts bool, upload bool) (content string) {
+func parseAndFormatBiliLink(ctx *EasyBot.CQMessage, id, kind string, summary, tts, upload bool) (content string) {
 	var op bool
 	if ctx != nil {
 		op = isBiliLinkOverParse(ctx, id, kind)
@@ -1426,7 +1477,7 @@ func parseAndFormatBiliLink(ctx *EasyBot.CQMessage, id string, kind string, summ
 					s := dc.summary()
 					ctx.SendMsg(s)
 					if tts {
-						sendVitsMsg(ctx, rmTitle.Replace(s)) //不念“概述”、“要点”
+						sendVitsMsg(ctx, rmTitle.Replace(s), "ZH") //不念“概述”、“要点”
 					}
 				}()
 			}
@@ -1438,6 +1489,12 @@ func parseAndFormatBiliLink(ctx *EasyBot.CQMessage, id string, kind string, summ
 			content = fmt.Sprintf("[NothingBot] [ERROR] [parse] 视频av%s信息获取错误: code%d", id, g.Get("code").Int())
 		} else {
 			content = formatArchive(g.Get("data"), h.Get("data"))
+			sum, err := getArchiveSummary(aid)
+			if err != nil {
+				log.Error("[NothingBot] 总结获取错误 err: ", err)
+			} else if sum != "" {
+				content += "\n\n哔哩哔哩AI总结：\n" + sum
+			}
 			if summary {
 				go func() {
 					var as *archiveSubtitle
@@ -1455,14 +1512,13 @@ func parseAndFormatBiliLink(ctx *EasyBot.CQMessage, id string, kind string, summ
 						s := as.summary()
 						ctx.SendMsg(s)
 						if tts {
-							sendVitsMsg(ctx, rmTitle.Replace(s)) //不念“概述”、“要点”
+							sendVitsMsg(ctx, rmTitle.Replace(s), "ZH") //不念“概述”、“要点”
 						}
 					} else {
 						ctx.SendMsgReply("[NothingBot] [Error] 字幕转录失败力")
 					}
 				}()
 			}
-			upload = false
 			if upload {
 				go func() {
 					var av *archiveVideo
@@ -1473,13 +1529,7 @@ func parseAndFormatBiliLink(ctx *EasyBot.CQMessage, id string, kind string, summ
 					}
 					if av != nil {
 						archiveVideoTable[aid] = av //缓存视频
-						videoData, err := os.ReadFile(av.localPath)
-						if err == nil {
-							_ = videoData
-							//ctx.sendVideo(videoData)
-						} else {
-							log.Error("[NothingBot] [Error] 视频读取失败")
-						}
+						ctx.SendMsg(bot.Utils.Format.Video(av.path))
 					} else {
 						ctx.SendMsgReply("[NothingBot] [Error] 视频获取失败力")
 					}
@@ -1506,7 +1556,7 @@ func parseAndFormatBiliLink(ctx *EasyBot.CQMessage, id string, kind string, summ
 						s := at.summary()
 						ctx.SendMsg(s)
 						if tts {
-							sendVitsMsg(ctx, rmTitle.Replace(s)) //不念“概述”、“要点”
+							sendVitsMsg(ctx, rmTitle.Replace(s), "ZH") //不念“概述”、“要点”
 						}
 					} else {
 						ctx.SendMsgReply("[NothingBot] 文章正文获取失败力")

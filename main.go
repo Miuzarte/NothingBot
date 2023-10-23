@@ -7,9 +7,11 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"reflect"
 	"strconv"
 	"syscall"
 	"time"
+	"unsafe"
 
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/viper"
@@ -217,9 +219,11 @@ func initConfig() {
 	if configUpdateCount == 0 {
 		before()
 		after()
+		_ = gocqIsLocalOrRemote()
 		v.WatchConfig()
 	} else {
 		after()
+		_ = gocqIsLocalOrRemote()
 	}
 }
 
@@ -239,7 +243,7 @@ func initModules() {
 func exitJobs() {
 	signal.Notify(mainBlock, syscall.SIGHUP, syscall.SIGINT, syscall.SIGQUIT, syscall.SIGTERM)
 	<-mainBlock
-	runTime := timeFormat(bot.GetRunningTime())
+	runTime := formatTime(bot.GetRunningTime())
 	err := bot.Log2SU.Info("[Exit]",
 		"\n此次运行时长：", runTime,
 		"\n心跳包接收计数：", bot.HeartbeatCount,
@@ -276,7 +280,17 @@ func handleMessage(msg *EasyBot.CQMessage) {
 		go checkPixiv(ctx)
 		go checkBertVITS2(ctx)
 		go checkInfo(ctx)
+		// go checkDoLua(ctx)
 	}(msg)
+}
+
+func gocqIsLocalOrRemote() string {
+	if lor := v.GetString("main.localOrRemote"); lor == "local" || lor == "remote" {
+		return lor
+	} else {
+		log.Fatal("[Init] config.main.localOrRemote: 错误的参数\"", lor, "\"")
+	}
+	return ""
 }
 
 // 测试接口调用
@@ -284,7 +298,7 @@ func checkApiCallingTesting(ctx *EasyBot.CQMessage) {
 	if !ctx.IsPrivateSU() {
 		return
 	}
-	get_msg := ctx.RegexpMustCompile(`get_msg\s?(.*)`)
+	get_msg := ctx.RegexpFindAllStringSubmatch(`get_msg\s?(.*)`)
 	if len(get_msg) > 0 {
 		msgId, _ := strconv.Atoi(get_msg[0][1])
 		msg, err := bot.GetMsg(msgId)
@@ -293,10 +307,33 @@ func checkApiCallingTesting(ctx *EasyBot.CQMessage) {
 		}
 		log.Debug(gson.New(msg).JSON("", ""))
 	}
+	download_file := ctx.RegexpFindAllStringSubmatch(`download_file\s?(.*)`)
+	if len(download_file) > 0 {
+		url := download_file[0][1]
+		file, err := bot.DownloadFile(url, 2, iheaders)
+		if err != nil {
+			log.Error("err: ", err)
+		}
+		log.Debug(file)
+	}
 }
 
-// 格式化时间戳至 x天x小时x分钟x秒
-func timeFormat(timestamp int64) string {
+// 格式化秒级时间戳至 时分秒 x:x:x
+func formatTimeSimple(timestamp int64) (format string) {
+	h := (timestamp / (60 * 60)) % 24
+	m := (timestamp / 60) % 60
+	s := timestamp % 60
+	if h > 0 {
+		return fmt.Sprintf("%02d:%02d:%02d", h, m, s)
+	}
+	return fmt.Sprintf("%02d:%02d", m, s)
+}
+
+// 格式化秒级时间戳至 x天x小时x分钟x秒
+func formatTime(timestamp int64) (format string) {
+	if timestamp == 0 {
+		return "0秒"
+	}
 	itoa := func(i int64) string {
 		return strconv.Itoa(int(i))
 	}
@@ -306,14 +343,82 @@ func timeFormat(timestamp int64) string {
 	seconds := timestamp % 60
 	switch {
 	case days > 0:
-		return itoa(days) + "天" + itoa(hours) + "小时" + itoa(minutes) + "分钟" + itoa(seconds) + "秒"
+		format += itoa(days) + "天"
+		fallthrough
 	case hours > 0:
-		return itoa(hours) + "小时" + itoa(minutes) + "分钟" + itoa(seconds) + "秒"
+		format += itoa(hours) + "小时"
+		fallthrough
 	case minutes > 0:
-		return itoa(minutes) + "分钟" + itoa(seconds) + "秒"
+		format += itoa(minutes) + "分钟"
+		fallthrough
 	default:
-		return itoa(timestamp) + "秒"
+		if seconds != 0 {
+			format += itoa(seconds) + "秒"
+		}
 	}
+	return format
+}
+
+// 格式化毫秒级时间戳至 x天x小时x分钟x秒x毫秒
+func formatTimeMs(timestamp int64) (format string) {
+	if timestamp == 0 {
+		return "0毫秒"
+	}
+	itoa := func(i int64) string {
+		return strconv.Itoa(int(i))
+	}
+	milliseconds := timestamp % 1000
+	seconds := (timestamp / 1000) % 60
+	minutes := (timestamp / (1000 * 60)) % 60
+	hours := (timestamp / (1000 * 60 * 60)) % 24
+	days := timestamp / (1000 * 60 * 60 * 24)
+	switch {
+	case days > 0:
+		format += itoa(days) + "天"
+		fallthrough
+	case hours > 0:
+		format += itoa(hours) + "小时"
+		fallthrough
+	case minutes > 0:
+		format += itoa(minutes) + "分钟"
+		fallthrough
+	case seconds > 0:
+		format += itoa(seconds) + "秒"
+		fallthrough
+	default:
+		if milliseconds != 0 {
+			format += itoa(milliseconds) + "毫秒"
+		}
+	}
+	return format
+}
+
+func toCsv(items ...any) (outputWithNewLine string) {
+	count := len(items)
+	for i := 0; i < count; i++ {
+		outputWithNewLine += fmt.Sprint(items[i])
+		if i < count-1 {
+			outputWithNewLine += ","
+		}
+	}
+	return outputWithNewLine + "\n"
+}
+
+// BytesToString 没有内存开销的转换
+// https://github.com/wdvxdr1123/ZeroBot/blob/main/utils/helper/helper.go
+func BytesToString(b []byte) string {
+	return *(*string)(unsafe.Pointer(&b))
+}
+
+// StringToBytes 没有内存开销的转换
+// https://github.com/wdvxdr1123/ZeroBot/blob/main/utils/helper/helper.go
+func StringToBytes(s string) (b []byte) {
+	bh := (*reflect.SliceHeader)(unsafe.Pointer(&b))
+	sh := (*reflect.StringHeader)(unsafe.Pointer(&s))
+	bh.Data = sh.Data
+	bh.Len = sh.Len
+	bh.Cap = sh.Len
+	return b
 }
 
 func checkDir(path string) (err error) {
@@ -356,6 +461,9 @@ func handleGroupRecall(gr *EasyBot.CQNoticeGroupRecall) {
 
 // 群名片变更
 func handleGroupCard(gc *EasyBot.CQNoticeGroupCard) {
+	if gc.CardOld == "" {
+		return
+	}
 	avatar := bot.Utils.Format.ImageUrl(fmt.Sprintf(
 		"http://q.qlogo.cn/headimg_dl?dst_uin=%d&spec=640&img_type=jpg", gc.UserID))
 	bot.SendGroupMsg(gc.GroupID, fmt.Sprint(

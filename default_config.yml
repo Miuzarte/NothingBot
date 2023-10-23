@@ -1,18 +1,19 @@
 EasyBot:
   wsUrl: "ws://" #go-cqhttp
+  localOrRemote: "remote" #"local" / "remote", gocq与bot是否在同一台机器上 (更严格的来说: 是否可以访问到同一路径的文件, 否则都为"remote", 用于决定上传视频前通过gocq下载还是bot下载)
   superUsers: #int / []int
     - 
   nickName: #机器人别称(用于判断是否提到了机器人)
     - "rurudo"
     - "ruru"
   #控制台日志等级，越大输出越多
-  #PanicLevel = 0
-  #FatalLevel = 1
-  #ErrorLevel = 2
-  #WarnLevel  = 3
-  #InfoLevel  = 4
-  #DebugLevel = 5
-  #TraceLevel = 6
+  #PanicLevel = iota
+  #FatalLevel
+  #ErrorLevel
+  #WarnLevel
+  #InfoLevel
+  #DebugLevel
+  #TraceLevel
   logLevel: 4
   ban:
     private:
@@ -25,10 +26,6 @@ setu: #热更新
   enable: true
 pixiv: #热更新
   enable: true
-bertVits: #热更新
-  whiteList:
-    private:
-    group:
 qianfan: #热更新
   #https://cloud.baidu.com/doc/WENXINWORKSHOP/s/Nlks5zkzu
   #留空fallback至glm
@@ -41,7 +38,7 @@ qianfan: #热更新
 parse: #热更新
   settings:
     #"glm", "qianfan"
-    summaryBackend: "qianfan"
+    summaryBackend: "glm"
     #同一会话重复解析同一链接的间隔（秒）
     sameParseInterval: 60
     #过长的视频/投票简介保留长度（中英字符）

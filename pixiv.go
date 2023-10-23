@@ -28,7 +28,7 @@ func initPixiv() {
 
 func checkPixiv(ctx *EasyBot.CQMessage) {
 	//开关控制
-	matches := ctx.RegexpMustCompile(`(开启|启用|关闭|禁用)pixiv`)
+	matches := ctx.RegexpFindAllStringSubmatch(`(开启|启用|关闭|禁用)pixiv`)
 	if len(matches) > 0 && ctx.IsPrivateSU() {
 		switch matches[0][1] {
 		case "开启", "启用":
@@ -43,7 +43,7 @@ func checkPixiv(ctx *EasyBot.CQMessage) {
 	if !pixivEnable {
 		return
 	}
-	match := ctx.RegexpMustCompile(`[看康k]{2}([Pp]|[Pp]站|[Pp][Ii][Dd]|[Pp][Ii][Xx][Ii][Vv])([0-9]+)`)
+	match := ctx.RegexpFindAllStringSubmatch(`[看康k]{2}([Pp]|[Pp]站|[Pp][Ii][Dd]|[Pp][Ii][Xx][Ii][Vv])([0-9]+)`)
 	if len(match) > 0 && ctx.IsToMe() {
 		pid, _ := strconv.Atoi(match[0][2])
 		p := &pixiv{

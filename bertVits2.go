@@ -5,20 +5,19 @@ import (
 	"bufio"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"os"
 	"strings"
 	"time"
 
 	"github.com/moxcomic/ihttp"
 	log "github.com/sirupsen/logrus"
-	"github.com/spf13/viper"
 )
 
 type bertVitsPost struct {
 	Command string  `json:"command"`
 	Text    string  `json:"text"`
 	Speaker string  `json:"speaker"`
+	Lang    string  `json:"language"`
 	SDP     float32 `json:"sdp_ratio,omitempty"`
 	NS      float32 `json:"noise_scale,omitempty"`
 	NSW     float32 `json:"noise_scale_w,omitempty"`
@@ -27,7 +26,7 @@ type bertVitsPost struct {
 
 type bertVitsResp struct {
 	Code   int    `json:"code"`
-	Output string `json:"output"`
+	Output string `json:"output"` // 音频base64, 直接发
 	Error  string `json:"error"`
 }
 
@@ -40,7 +39,7 @@ func (p *bertVitsPost) post() (*bertVitsResp, error) {
 		Post().ToString()
 	if err != nil {
 		log.Error("[BertVITS2] ihttp error: ", err)
-		return nil, errors.New("[BertVITS2] BertVITS2后端未运行")
+		return nil, errors.New("BertVITS2后端未运行")
 	}
 	log.Debug("[BertVITS2] resp: ", resp)
 	r := &bertVitsResp{}
@@ -48,44 +47,50 @@ func (p *bertVitsPost) post() (*bertVitsResp, error) {
 	return r, nil
 }
 
-func bertVits2TTS(intput string) (output string, err error) {
-	speaker := "suijiSUI"
-	p := &bertVitsPost{
-		Text:    intput,
-		Speaker: speaker,
+func bertVits2TTS(ctx *EasyBot.CQMessage, text, speaker, lang string) (outputB64 string, err error) {
+	if text == "" {
+		return "", errors.New("empty text")
 	}
-	nowTime := time.Now().Format(timeLayout.L24)
-	recordHist := func(stat string) { // 记录历史
-		if err = appendToFile("./tts_history.txt",
-			fmt.Sprintf("%s  (%s)\n%s: %s\n\n",
-				nowTime, stat,
-				speaker, intput)); err != nil {
-			log.Warn("[BertVITS2] 历史写入失败")
-		}
+	if speaker == "" {
+		speaker = "suijiSUI"
+	}
+	if lang == "" {
+		lang = "ZH"
+	}
+	p := &bertVitsPost{
+		Text:    text,
+		Speaker: speaker,
+		Lang:    lang,
 	}
 	resp, err := p.post()
-	if err != nil {
-		s := "后端未运行"
-		recordHist("Failed: " + s)
-		return "", errors.New(s)
+	var state string
+	switch {
+	case err != nil:
+		state = "后端未运行"
+	case resp.Error != "":
+		state = "Failed: " + resp.Error
+		err = errors.New(state)
+	case resp.Code != 0:
+		state = "Code 0 failed"
+		err = errors.New(state)
+	case resp.Output == "":
+		state = "Empty output"
+		err = errors.New(state)
+	default:
+		state = "Success"
 	}
-	if resp.Error != "" {
-		recordHist("Failed: " + resp.Error)
-		return "", errors.New(resp.Error)
-	}
-	if resp.Code != 0 {
-		s := "TTS FAILED"
-		recordHist("Failed: " + s)
-		return "", errors.New(s)
-	}
-	if resp.Output == "" {
-		s := "OUTPUT IS EMPTY"
-		recordHist("Failed: " + s)
-		return "", errors.New(s)
-	}
+	p.recordHist(ctx.GroupID, ctx.UserID, ctx.GetCardOrNickname(), state)
+	return resp.Output, err
+}
 
-	recordHist("Success")
-	return resp.Output, nil
+// 记录历史
+func (p *bertVitsPost) recordHist(groupId, userId int, userName, state string) {
+	nowTime := time.Now().Format(timeLayout.L24)
+	if err := appendToFile("tts_history.csv",
+		toCsv(nowTime, groupId, userId, userName, state, p.Speaker, p.Lang, p.Text),
+	); err != nil {
+		log.Warn("[BertVITS2] 历史写入失败")
+	}
 }
 
 // 追加文本
@@ -109,9 +114,20 @@ func appendToFile(filePath, content string) error {
 	return nil
 }
 
+var (
+	langMap = map[string]string{
+		"中文": "ZH",
+		"汉语": "ZH",
+		"ZH": "ZH",
+		"日文": "JP",
+		"日语": "JP",
+		"JP": "JP",
+	}
+)
+
 func checkBertVITS2(ctx *EasyBot.CQMessage) {
 	//后端控制
-	matches := ctx.RegexpMustCompile(`^(unload|refresh|exit|卸载|清理|退出).*(模型|model)$`)
+	matches := ctx.RegexpFindAllStringSubmatch(`^(unload|refresh|exit|卸载|清理|退出).*(模型|model)$`)
 	if len(matches) > 0 && ctx.IsPrivateSU() {
 		p := &bertVitsPost{}
 		switch matches[0][1] {
@@ -128,74 +144,71 @@ func checkBertVITS2(ctx *EasyBot.CQMessage) {
 		}
 		return
 	}
-	matches = ctx.RegexpMustCompile(`(?s)让岁己(说|复述)\s*(.*)`)
+	matches = ctx.RegexpFindAllStringSubmatch(`(?s)让岁己(用(中文|汉语|ZH|日文|日语|JP))?(说|复述)\s*(.+)`)
 	if len(matches) > 0 {
-		isInWhite := func() (is bool) {
-
-			var v *viper.Viper
-
-			for i := 0; i < len(v.GetStringSlice("bertVits.whiteList.group")); i++ { //群聊黑名单
-				if ctx.GroupID == v.GetInt(fmt.Sprint("bertVits.whiteList.group.", i)) {
-					return true
-				}
-			}
-			for i := 0; i < len(v.GetStringSlice("bertVits.whiteList.private")); i++ { //私聊黑名单
-				if ctx.UserID == v.GetInt(fmt.Sprint("bertVits.whiteList.private.", i)) {
-					return true
-				}
-			}
-			return false
-		}()
-		if !ctx.IsSU() && !isInWhite {
-			ctx.SendMsg("[BertVITS2] Permission Denied")
-			return
+		// isInWhite := func() (is bool) {
+		// 	var v *viper.Viper
+		// 	for i := 0; i < len(v.GetStringSlice("bertVits.whiteList.group")); i++ { //群聊白名单
+		// 		if ctx.GroupID == v.GetInt(fmt.Sprint("bertVits.whiteList.group.", i)) {
+		// 			return true
+		// 		}
+		// 	}
+		// 	for i := 0; i < len(v.GetStringSlice("bertVits.whiteList.private")); i++ { //私聊白名单
+		// 		if ctx.UserID == v.GetInt(fmt.Sprint("bertVits.whiteList.private.", i)) {
+		// 			return true
+		// 		}
+		// 	}
+		// 	return false
+		// }()
+		// if !ctx.IsSU() && !isInWhite {
+		// 	ctx.SendMsg("[BertVITS2] Permission Denied")
+		// 	return
+		// }
+		lang := "ZH"
+		if l, ok := langMap[matches[0][2]]; ok {
+			lang = l
 		}
-		text := trimOuterQuotes(matches[0][2])
+		text := trimOuterQuotes(matches[0][4])
 		replyMsg, err := ctx.GetReplyedMsg()
 		if replyMsg != nil && err == nil { //复述回复时无视内容
 			text = trimOuterQuotes(replyMsg.RawMessage)
 		}
-		sendVitsMsg(ctx, text)
+		sendVitsMsg(ctx, text, lang)
 	}
 }
 
-func sendVitsMsg(ctx *EasyBot.CQMessage, text string) {
-	log.Debug("text: ", text)
+// 发送vits消息
+func sendVitsMsg(ctx *EasyBot.CQMessage, text, lang string) {
+	log.Debug("[BertVITS2] Vits text: ", text)
 	if len(strings.TrimSpace(text)) == 0 {
 		ctx.SendMsgReply("[BertVITS2] 文本输入不可为空！")
 		return
 	}
-	output, err := bertVits2TTS(text)
+	outputB64, err := bertVits2TTS(ctx, text, "", lang)
 	if err != nil {
-		log.Error("[BertVITS2] 出现错误(1): ", err)
-		ctx.SendMsgReply("[BertVITS2] 出现错误(1)：", err.Error())
+		log.Error("[BertVITS2] 发生错误: ", err)
+		ctx.SendMsgReply("[BertVITS2] 发生错误：", err.Error())
 		return
 	}
-	wavData, err := os.ReadFile(output)
-	if err != nil {
-		log.Error("[BertVITS2] 出现错误(2): ", err)
-		ctx.SendMsgReply("[BertVITS2] 出现错误(2)：", err.Error())
-		return
-	}
-	ctx.SendMsg(bot.Utils.Format.Vocal(wavData, false))
+	ctx.SendMsg(bot.Utils.Format.VocalBase64(outputB64, false))
 }
 
 // 去除最外层一对互相匹配的引号
 func trimOuterQuotes(s string) string {
-	r := []rune(s)
-	if len(r) < 2 {
+	runeArr := []rune(s)
+	if len(runeArr) < 2 {
 		return s
 	}
 
-	f := r[0]
-	l := r[(len(r) - 1)]
+	left := runeArr[0]
+	right := runeArr[(len(runeArr) - 1)]
 
-	if (f == '\'' && l == '\'') ||
-		(f == '`' && l == '`') ||
-		(f == '"' && l == '"') ||
-		(f == '“' && l == '”') ||
-		(f == '”' && l == '“') {
-		r = r[1 : len(r)-1]
+	if (left == '\'' && right == '\'') ||
+		(left == '`' && right == '`') ||
+		(left == '"' && right == '"') ||
+		(left == '“' && right == '”') ||
+		(left == '”' && right == '“') {
+		runeArr = runeArr[1 : len(runeArr)-1]
 	}
-	return string(r)
+	return string(runeArr)
 }

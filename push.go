@@ -86,7 +86,7 @@ func checkCookieUpdate(ctx *EasyBot.CQMessage) {
 	if !ctx.IsPrivateSU() {
 		return
 	}
-	match := ctx.RegexpMustCompile(`(设置|set)\s*(饼干|cookie)\s*(.*)`)
+	match := ctx.RegexpFindAllStringSubmatch(`(设置|set)\s*(饼干|cookie)\s*(.*)`)
 	if len(match) > 0 {
 		if c := match[0][3]; len(c) != 0 {
 			cookie = c
@@ -456,7 +456,7 @@ live.bilibili.com/%d`,
 					title := roomJson.Get("title").Str()
 					duration := func() string {
 						if liveList[roomid].time != 0 {
-							return "本次直播持续了" + timeFormat(time.Now().Unix()-liveList[roomid].time)
+							return "本次直播持续了" + formatTime(time.Now().Unix()-liveList[roomid].time)
 						} else {
 							return "未记录本次开播时间"
 						}

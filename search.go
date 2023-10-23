@@ -90,7 +90,7 @@ func formatBiliSearch(KIND string, keyword string) (forwardMsg EasyBot.CQForward
 			favor := g.Get("favorites").Int()                    //收藏
 			bvid := g.Get("bvid").Str()                          //bv号
 
-			forwardMsg = EasyBot.AppendForwardMsg(forwardMsg, EasyBot.NewForwardNode(
+			forwardMsg = EasyBot.AppendForwardMsg(forwardMsg, EasyBot.NewCustomForwardNode(
 				"NothingBot", bot.GetSelfID(), fmt.Sprintf(
 					`[CQ:image,file=https:%s]
 av%d
@@ -132,7 +132,7 @@ www.bilibili.com/video/%s`,
 			}(g.Gets("badges", 0, "text"))
 			url := g.Get("url").Str() //链接
 
-			forwardMsg = EasyBot.AppendForwardMsg(forwardMsg, EasyBot.NewForwardNode(
+			forwardMsg = EasyBot.AppendForwardMsg(forwardMsg, EasyBot.NewCustomForwardNode(
 				"NothingBot", bot.GetSelfID(), fmt.Sprintf(
 					`[CQ:image,file=%s]
 %s
@@ -172,7 +172,7 @@ CV：
 			roomid := g.Get("roomid").Int()                         //房间号
 			uid := g.Get("uid").Int()                               //uid
 
-			forwardMsg = EasyBot.AppendForwardMsg(forwardMsg, EasyBot.NewForwardNode(
+			forwardMsg = EasyBot.AppendForwardMsg(forwardMsg, EasyBot.NewCustomForwardNode(
 				"NothingBot", bot.GetSelfID(), fmt.Sprintf(
 					`[CQ:image,file=https:%s][CQ:image,file=https:%s]
 %s的直播间%s
@@ -204,7 +204,7 @@ space.bilibili.com/%d`,
 			uid := g.Get("uid").Int()                            //uid
 
 			if live_status == 0 { //未开播直接使用搜索返回的数据
-				forwardMsg = EasyBot.AppendForwardMsg(forwardMsg, EasyBot.NewForwardNode(
+				forwardMsg = EasyBot.AppendForwardMsg(forwardMsg, EasyBot.NewCustomForwardNode(
 					"NothingBot", bot.GetSelfID(), fmt.Sprintf(
 						`[CQ:image,file=https:%s]
 %s
@@ -225,10 +225,10 @@ space.bilibili.com/%d`,
 			} else { //开播则调用getRoomJson和formatLive
 				roomJson, ok := getRoomJsonUID(uid).Gets("data", uid)
 				if ok {
-					forwardMsg = EasyBot.AppendForwardMsg(forwardMsg, EasyBot.NewForwardNode(
+					forwardMsg = EasyBot.AppendForwardMsg(forwardMsg, EasyBot.NewCustomForwardNode(
 						"NothingBot", bot.GetSelfID(), formatLive(roomJson), 0, 0))
 				} else { //fallback
-					forwardMsg = EasyBot.AppendForwardMsg(forwardMsg, EasyBot.NewForwardNode(
+					forwardMsg = EasyBot.AppendForwardMsg(forwardMsg, EasyBot.NewCustomForwardNode(
 						"NothingBot", bot.GetSelfID(), fmt.Sprintf(
 							`[CQ:image,file=https:%s]
 %s
@@ -261,7 +261,7 @@ space.bilibili.com/%d`,
 			cvid := g.Get("id").Int()                            //cv号数字
 			mid := g.Get("mid").Int()                            //uid
 
-			forwardMsg = EasyBot.AppendForwardMsg(forwardMsg, EasyBot.NewForwardNode(
+			forwardMsg = EasyBot.AppendForwardMsg(forwardMsg, EasyBot.NewCustomForwardNode(
 				"NothingBot", bot.GetSelfID(), fmt.Sprintf(
 					`[CQ:image,file=https:%s]
 cv%d
@@ -294,7 +294,7 @@ space.bilibili.com/%d`,
 				}
 				return ""
 			}()
-			forwardMsg = EasyBot.AppendForwardMsg(forwardMsg, EasyBot.NewForwardNode(
+			forwardMsg = EasyBot.AppendForwardMsg(forwardMsg, EasyBot.NewCustomForwardNode(
 				"NothingBot", bot.GetSelfID(), fmt.Sprintf(
 					`[CQ:image,file=https:%s]
 %s（LV%d）
@@ -311,7 +311,7 @@ space.bilibili.com/%d
 
 // 哔哩哔哩快捷搜索
 func checkSearch(ctx *EasyBot.CQMessage) {
-	match := ctx.RegexpMustCompile(biliSearchRegexp)
+	match := ctx.RegexpFindAllStringSubmatch(biliSearchRegexp)
 	if len(match) > 0 {
 		ctx.SendForwardMsg(formatBiliSearch(match[0][1], match[0][2]))
 	}

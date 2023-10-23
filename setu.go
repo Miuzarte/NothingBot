@@ -50,7 +50,7 @@ func initSetu() {
 
 func checkSetu(ctx *EasyBot.CQMessage) {
 	//开关控制
-	matches := ctx.RegexpMustCompile(`(开启|启用|关闭|禁用)setu`)
+	matches := ctx.RegexpFindAllStringSubmatch(`(开启|启用|关闭|禁用)setu`)
 	if len(matches) > 0 && ctx.IsPrivateSU() {
 		switch matches[0][1] {
 		case "开启", "启用":
@@ -65,7 +65,7 @@ func checkSetu(ctx *EasyBot.CQMessage) {
 	if !setuEnable {
 		return
 	}
-	matches = ctx.Unescape().RegexpMustCompile(`(来(?P<num>点|一点|几张|几份|.*张|.*份)?(?P<r18>[Rr]18)?的?(?P<tag>.*)?的?[色瑟涩铯][图圖])|((?P<r18>[Rr]18)?的?(?P<tag>.*)?的?[色瑟涩铯][图圖]来(?P<num>点|一点|几张|几份|.*张|.*份)?)`)
+	matches = ctx.Unescape().RegexpFindAllStringSubmatch(`(来(?P<num>点|一点|几张|几份|.*张|.*份)?(?P<r18>[Rr]18)?的?(?P<tag>.*)?的?[色瑟涩铯][图圖])|((?P<r18>[Rr]18)?的?(?P<tag>.*)?的?[色瑟涩铯][图圖]来(?P<num>点|一点|几张|几份|.*张|.*份)?)`)
 	// 一条正则多个同名捕获组只会索引到第一个, 所以下面直接把对应的捕获组全加起来
 	if len(matches) > 0 && ctx.IsToMe() {
 		var numOK bool

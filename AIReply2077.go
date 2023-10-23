@@ -6,11 +6,11 @@ import (
 )
 
 var (
-	replacer = strings.NewReplacer("吗", "", "你", "我", "？", "！", "?", "!")
+	SuperAiReplacer = strings.NewReplacer("吗", "", "你", "我", "是不是", "是", "？", "！", "?", "!")
 )
 
 func checkAIReply2077(ctx *EasyBot.CQMessage) {
-	if matches := ctx.RegexpMustCompile(`[吗？\?]\s*$`); ctx.IsToMe() && len(matches) > 0 {
-		ctx.SendMsgReply(replacer.Replace(ctx.GetRawMessageOrMessage()))
+	if matches := ctx.RegexpFindAllStringSubmatch(`[吗？\?]\s*$|是不是`); ctx.IsToMe() && len(matches) > 0 {
+		ctx.SendMsgReply(ctx.StringsReplace(SuperAiReplacer))
 	}
 }

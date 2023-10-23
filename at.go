@@ -54,7 +54,7 @@ func (w *whoAtMe) format() (forwardMsg EasyBot.CQForwardMsg) {
 	if atListLen > 99 { //超过100条合并转发放不下, 标题占1条
 		atListLen = 99
 	}
-	forwardMsg = EasyBot.AppendForwardMsg(forwardMsg, EasyBot.NewForwardNode( //标题
+	forwardMsg = EasyBot.AppendForwardMsg(forwardMsg, EasyBot.NewCustomForwardNode( //标题
 		"NothingBot",
 		bot.GetSelfID(),
 		func() string {
@@ -96,7 +96,7 @@ func (w *whoAtMe) format() (forwardMsg EasyBot.CQForwardMsg) {
 			return bot.GetSelfID()
 		}()
 		content := strings.ReplaceAll(atMsg.Extra.MessageWithReply, "CQ:at,", "CQ:at,​") //插入零宽空格阻止CQ码解析
-		forwardMsg = EasyBot.AppendForwardMsg(forwardMsg, EasyBot.NewForwardNode(
+		forwardMsg = EasyBot.AppendForwardMsg(forwardMsg, EasyBot.NewCustomForwardNode(
 			name, uin, content, 0, 0))
 	}
 	return
@@ -104,7 +104,7 @@ func (w *whoAtMe) format() (forwardMsg EasyBot.CQForwardMsg) {
 
 // 谁at我
 func checkWhoAtMe(ctx *EasyBot.CQMessage) {
-	match := ctx.RegexpMustCompile(`^谁(@|[aA艾][tT特])(我|(\s*\[CQ:at,qq=)?([0-9]{1,11})?(]\s*))$`)
+	match := ctx.RegexpFindAllStringSubmatch(`^谁(@|[aA艾][tT特])(我|(\s*\[CQ:at,qq=)?([0-9]{1,11})?(]\s*))$`)
 	if len(match) > 0 {
 		var atId int
 		if match[0][2] == "我" {
