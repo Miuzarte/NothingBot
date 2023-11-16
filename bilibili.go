@@ -21,6 +21,13 @@ import (
 	"github.com/ysmood/gson"
 )
 
+type BiliApiResp struct {
+	Code    int            `json:"code"`
+	Message string         `json:"message"`
+	Ttl     int            `json:"ttl"`
+	Data    map[string]any `json:"data"`
+}
+
 type liveInfo struct {
 	live   *danmaku
 	uid    int
@@ -75,9 +82,9 @@ var (
 	rmTitle = strings.NewReplacer("概述", "", "要点", "", "由", "", "总结：", "", "总结（原文长度超过1500字符，输入经过去尾）：", "",
 		"ChatGLM2-6B", "", "ERNIE_Bot", "", "ERNIE_Bot_turbo", "", "BLOOMZ_7B", "", "Llama_2_7b", "", "Llama_2_13b", "", "Llama_2_70b", "")
 
-	cookie               = ""
+	// cookie               = ""
 	cookieUid            = 0
-	cookieBuvid          = ""
+	cookieBuvid          = "91F87C44-8B65-64C4-296C-B102F459941CF05635infoc" //扫码拿不到 先写着
 	cookieValidity       = false
 	tempDir              = "./bilibili_temp/"
 	summaryBackend       = ""
@@ -108,7 +115,7 @@ const standardLength = len("BV1vh4y1U71j")
 
 // bv转av
 func bv2av(bv string) (av int) {
-	if length := len(bv); length < standardLength {
+	if length := len(bv); length != standardLength {
 		log.Warn("[bv2av] 输入了错误的bv号: ", bv, " (len: ", length, ")")
 		return 0
 	}
@@ -125,14 +132,42 @@ func bv2av(bv string) (av int) {
 		r += tr[bv[s[i]]] * int(math.Pow(58, float64(i)))
 	}
 	av = (r - add) ^ xor
-	log.Debug("[bilibili] ", bv, " 转换到 av", av)
+	log.Debug("[Bilibili] ", bv, " 转换到 av", av)
+	return
+}
+
+func CallBiliApi(url string, querys map[string]any) (resp *BiliApiResp, headers map[string]string, err error) {
+	resp = &BiliApiResp{}
+	i := ihttp.New().WithUrl(url).
+		WithHeaders(iheaders).WithAddQuerys(querys).Get()
+	body, err := i.ToBytes()
+	if err != nil {
+		log.Error("[Bilibili] CallBiliApi() ihttp ToBytes error: ", err)
+		return
+	}
+	header, err := i.ToHeader()
+	if err != nil {
+		log.Error("[Bilibili] CallBiliApi() ihttp ToHeader error: ", err)
+		return
+	}
+	err = json.Unmarshal(body, resp)
+	if err != nil {
+		log.Error("[Bilibili] CallBiliApi() unmarshal error: ", err,
+			"\n    data: ", string(body),
+			"\n    using gson: ", gson.New(body).JSON("", ""))
+		return
+	}
+	headers = make(map[string]string)
+	for k, v := range header {
+		headers[k] = strings.Join(v, " ")
+	}
 	return
 }
 
 // 获取动态数据.Get("data.item")
 func getDynamicJson(dynamicID string) gson.JSON {
 	dynamicJson, err := ihttp.New().WithUrl("https://api.bilibili.com/x/polymer/web-dynamic/v1/detail").
-		WithAddQuery("id", dynamicID).WithHeaders(iheaders).WithCookie(cookie).
+		WithAddQuery("id", dynamicID).WithHeaders(iheaders).WithCookie(biliIdentity.Cookie).
 		Get().ToGson()
 	if err != nil {
 		log.Error("[bilibili] getDynamicJson().ihttp请求错误: ", err)
@@ -147,7 +182,7 @@ func getDynamicJson(dynamicID string) gson.JSON {
 // 获取投票数据.Get("data.info")
 func getVoteJson(voteid int) gson.JSON {
 	voteJson, err := ihttp.New().WithUrl("https://api.vc.bilibili.com/vote_svr/v1/vote_svr/vote_info").
-		WithAddQuerys(map[string]any{"vote_id": voteid}).WithHeaders(iheaders).WithCookie(cookie).
+		WithAddQuerys(map[string]any{"vote_id": voteid}).WithHeaders(iheaders).WithCookie(biliIdentity.Cookie).
 		Get().ToGson()
 	if err != nil {
 		log.Error("[bilibili] getVoteJson().ihttp请求错误: ", err)
@@ -392,7 +427,7 @@ func getArchiveSummary(aid int) (summary string, err error) {
 		for _, partOutline := range outline.Get("part_outline").Arr() {
 			timestamp := partOutline.Get("timestamp").Int()
 			content := partOutline.Get("content").Str()
-			summary += fmt.Sprintf("\n%s: %s",
+			summary += fmt.Sprintf("\n[%s] %s",
 				formatTimeSimple(int64(timestamp)), content,
 			)
 		}
@@ -605,7 +640,7 @@ type videoUrls map[int]map[int]string //qual:codec:
 // 获取视频流(dash)链接
 func getVideoUrlDash(aid int, cid int) (urls videoUrls) {
 	g, err := ihttp.New().WithUrl(`https://api.bilibili.com/x/player/playurl`).
-		WithHeaders(iheaders).WithCookie(cookie).
+		WithHeaders(iheaders).WithCookie(biliIdentity.Cookie).
 		WithAddQuerys(map[string]any{
 			"avid":  aid,
 			"cid":   cid,
@@ -634,7 +669,7 @@ func getVideoUrlDash(aid int, cid int) (urls videoUrls) {
 // 获取视频流(mp4)链接, avc only
 func getVideoUrlMp4(aid int, cid int, qual int) (url string) {
 	g, err := ihttp.New().WithUrl(`https://api.bilibili.com/x/player/playurl`).
-		WithHeaders(iheaders).WithCookie(cookie).
+		WithHeaders(iheaders).WithCookie(biliIdentity.Cookie).
 		WithAddQuerys(map[string]any{
 			"avid":  aid,
 			"cid":   cid,
@@ -709,7 +744,7 @@ type audioUrls map[int]string
 // 获取音频流链接
 func getAudioUrl(aid int, cid int) (urls audioUrls) {
 	g, err := ihttp.New().WithUrl(`https://api.bilibili.com/x/player/playurl`).
-		WithHeaders(iheaders).WithCookie(cookie).
+		WithHeaders(iheaders).WithCookie(biliIdentity.Cookie).
 		WithAddQuerys(map[string]any{
 			"avid":  aid,
 			"cid":   cid,
@@ -898,7 +933,7 @@ func getCid(aid int) (cid int) {
 // 获取视频字幕链接
 func getSubtitleUrl(aid int, cid int) (url string) {
 	player, err := ihttp.New().WithUrl("https://api.bilibili.com/x/player/v2").
-		WithAddQuerys(map[string]any{"aid": aid, "cid": cid}).WithHeaders(iheaders).WithCookie(cookie).
+		WithAddQuerys(map[string]any{"aid": aid, "cid": cid}).WithHeaders(iheaders).WithCookie(biliIdentity.Cookie).
 		Get().ToGson()
 	if err == nil || player.Get("code").Int() == 0 {
 		subtitles := player.Get("data.subtitle.subtitles").Arr()
@@ -941,6 +976,30 @@ func descTrunc(desc string) string {
 	return ""
 }
 
+const (
+	_ = iota
+	numA
+	numB = numA * 10
+	numC = numB * 10
+	numD = numC * 10
+	numE = numD * 10
+	numF = numE * 10
+	numG = numF * 10
+	numH = numG * 10
+	numI = numH * 10
+)
+
+func formatView[T int | float32 | float64](num T) string {
+	switch {
+	case num > numI: // 1亿
+		return fmt.Sprintf("%.3g亿", float64(num)/numI)
+	case num > numE: // 1万
+		return fmt.Sprintf("%.3g万", float64(num)/numE)
+	default:
+		return strconv.Itoa(int(num))
+	}
+}
+
 // 格式化视频.Get("data"))
 func formatArchive(g gson.JSON, h gson.JSON) string {
 	pic := g.Get("pic").Str()              //封面
@@ -972,15 +1031,15 @@ func formatArchive(g gson.JSON, h gson.JSON) string {
 av%d
 %s
 UP：%s%s%s
-%d播放  %d弹幕  %d评论
-%d点赞  %d投币  %d收藏
+%s播放  %s弹幕  %s评论
+%s点赞  %s投币  %s收藏
 www.bilibili.com/video/%s`,
 		pic,
 		aid,
 		title,
 		up, desc, total,
-		view, danmaku, reply,
-		like, coin, favor,
+		formatView(view), formatView(danmaku), formatView(reply),
+		formatView(like), formatView(coin), formatView(favor),
 		bvid)
 }
 
@@ -1249,7 +1308,7 @@ space.bilibili.com/%s`,
 // uid获取直播间数据.Gets("data", strconv.Itoa(uid))
 func getRoomJsonUID(uid int) (liveJson gson.JSON) {
 	liveJson, err := ihttp.New().WithUrl("https://api.live.bilibili.com/room/v1/Room/get_status_info_by_uids").
-		WithAddQuerys(map[string]any{"uids[]": uid}).WithHeaders(iheaders).WithCookie(cookie).
+		WithAddQuerys(map[string]any{"uids[]": uid}).WithHeaders(iheaders).WithCookie(biliIdentity.Cookie).
 		Get().ToGson()
 	if err != nil {
 		log.Error("[bilibili] getRoomJsonUID().ihttp请求错误: ", err)
@@ -1264,7 +1323,7 @@ func getRoomJsonUID(uid int) (liveJson gson.JSON) {
 // 房间号获取直播间数据.Get("data")（拿不到UP用户名）
 func getRoomJsonRoomid(roomid int) (liveJson gson.JSON) {
 	liveJson, err := ihttp.New().WithUrl("https://api.live.bilibili.com/room/v1/Room/get_info").
-		WithAddQuerys(map[string]any{"room_id": roomid}).WithHeaders(iheaders).WithCookie(cookie).
+		WithAddQuerys(map[string]any{"room_id": roomid}).WithHeaders(iheaders).WithCookie(biliIdentity.Cookie).
 		Get().ToGson()
 	if err != nil {
 		log.Error("[bilibili] getRoomJsonRoomID().ihttp请求错误: ", err)

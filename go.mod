@@ -9,7 +9,7 @@ require (
 	github.com/gorilla/websocket v1.5.0
 	github.com/jaypipes/ghw v0.12.0
 	github.com/moxcomic/bcutasr v0.0.1
-	github.com/moxcomic/ihttp v0.0.14
+	github.com/moxcomic/ihttp v0.0.15
 	github.com/shirou/gopsutil/v3 v3.23.9
 	github.com/sirupsen/logrus v1.9.3
 	github.com/spf13/viper v1.17.0
@@ -22,6 +22,8 @@ require (
 require (
 	github.com/StackExchange/wmi v1.2.1 // indirect
 	github.com/andybalholm/cascadia v1.3.2 // indirect
+	github.com/boombuler/barcode v1.0.1 // indirect
+	github.com/fumiama/go-base16384 v1.7.0 // indirect
 	github.com/ghodss/yaml v1.0.0 // indirect
 	github.com/go-ole/go-ole v1.3.0 // indirect
 	github.com/hashicorp/hcl v1.0.0 // indirect

@@ -54,7 +54,7 @@ func (w *whoAtMe) format() (forwardMsg EasyBot.CQForwardMsg) {
 	if atListLen > 99 { //超过100条合并转发放不下, 标题占1条
 		atListLen = 99
 	}
-	forwardMsg = EasyBot.AppendForwardMsg(forwardMsg, EasyBot.NewCustomForwardNode( //标题
+	forwardMsg = EasyBot.NewForwardMsg(EasyBot.NewCustomForwardNode( //标题
 		"NothingBot",
 		bot.GetSelfID(),
 		func() string {
@@ -68,7 +68,7 @@ func (w *whoAtMe) format() (forwardMsg EasyBot.CQForwardMsg) {
 	))
 	for i := 0; i < atListLen; i++ {
 		atMsg := w.atList[i]
-		name := fmt.Sprintf(`(%s)%s%s%s`,
+		name := fmt.Sprintf(`[%s]%s%s%s`,
 			atMsg.Extra.TimeFormat,
 			atMsg.GetCardOrNickname(),
 			func() string {

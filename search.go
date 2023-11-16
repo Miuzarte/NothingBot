@@ -63,7 +63,7 @@ func formatBiliSearch(KIND string, keyword string) (forwardMsg EasyBot.CQForward
 	}()
 	log.Debug("[search] 开始搜索: ", KIND, "(", kind, ") ", keyword)
 	g, err := ihttp.New().WithUrl("https://api.bilibili.com/x/web-interface/search/type").
-		WithAddQuerys(map[string]any{"search_type": kind, "keyword": keyword}).WithHeaders(iheaders).WithCookie(cookie).
+		WithAddQuerys(map[string]any{"search_type": kind, "keyword": keyword}).WithHeaders(iheaders).WithCookie(biliIdentity.Cookie).
 		Get().ToGson()
 	if err != nil {
 		log.Error("[ihttp] biliSearch().ihttp请求错误: ", err)

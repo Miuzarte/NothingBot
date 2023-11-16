@@ -80,16 +80,21 @@ func bertVits2TTS(ctx *EasyBot.CQMessage, text, speaker, lang string) (outputB64
 		state = "Success"
 	}
 	p.recordHist(ctx.GroupID, ctx.UserID, ctx.GetCardOrNickname(), state)
-	return resp.Output, err
+	if resp != nil {
+		return resp.Output, err
+	}
+	return "", err
 }
 
 // 记录历史
 func (p *bertVitsPost) recordHist(groupId, userId int, userName, state string) {
 	nowTime := time.Now().Format(timeLayout.L24)
-	if err := appendToFile("tts_history.csv",
-		toCsv(nowTime, groupId, userId, userName, state, p.Speaker, p.Lang, p.Text),
+	content := toCsv(nowTime, groupId, userId, userName, state, p.Speaker, p.Lang, p.Text)
+	if err := appendToFile(
+		"tts_history.csv", content,
 	); err != nil {
-		log.Warn("[BertVITS2] 历史写入失败")
+		log.Error("[BertVITS2] 历史写入失败")
+		bot.Log2SU.Error("[BertVITS2] 历史记录写入失败\n", content)
 	}
 }
 
@@ -144,7 +149,7 @@ func checkBertVITS2(ctx *EasyBot.CQMessage) {
 		}
 		return
 	}
-	matches = ctx.RegexpFindAllStringSubmatch(`(?s)让岁己(用(中文|汉语|ZH|日文|日语|JP))?(说|复述)\s*(.+)`)
+	matches = ctx.RegexpFindAllStringSubmatch(`(?s)让岁己(用(中文|汉语|ZH|日文|日语|JP))?(说|复述)\s*(.*)`)
 	if len(matches) > 0 {
 		// isInWhite := func() (is bool) {
 		// 	var v *viper.Viper
@@ -187,10 +192,10 @@ func sendVitsMsg(ctx *EasyBot.CQMessage, text, lang string) {
 	outputB64, err := bertVits2TTS(ctx, text, "", lang)
 	if err != nil {
 		log.Error("[BertVITS2] 发生错误: ", err)
-		ctx.SendMsgReply("[BertVITS2] 发生错误：", err.Error())
+		ctx.SendMsgReply("[BertVITS2] 发生错误：", err.Error(), "\n可能是某人在臭打游戏没有运行后端捏")
 		return
 	}
-	ctx.SendMsg(bot.Utils.Format.VocalBase64(outputB64, false))
+	ctx.SendMsg(bot.Utils.Format.VocalBase64(outputB64, true))
 }
 
 // 去除最外层一对互相匹配的引号

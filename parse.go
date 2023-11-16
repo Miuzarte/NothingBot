@@ -47,6 +47,18 @@ func checkParse(ctx *EasyBot.CQMessage) {
 	reg := regexp.MustCompile(everyBiliLinkRegexp)
 	matches := reg.FindAllStringSubmatch(ctx.GetRawMessageOrMessage(), -1)
 	if len(matches) > 0 {
+
+		if ctx.IsCardMsg() { // 屏蔽合并转发
+			log.Debug("ctx.IsCardMsg()")
+			cardMsg, err := ctx.ToCardMsg()
+			if err == nil {
+				if cardMsg.App == "com.tencent.multimsg" {
+					log.Debug("cardMsg.App == \"com.tencent.multimsg\"")
+					return
+				}
+			}
+		}
+
 		log.Debug("[parse] 识别到哔哩哔哩链接: ", matches[0][0])
 		id, kind, summary, tts, upload := extractBiliLink(matches[0][0])
 		if kind == "SHORT" { //短链先解析提取再往下, 保证parseHistory里没有短链

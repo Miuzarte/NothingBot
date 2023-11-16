@@ -9,6 +9,7 @@ import (
 	"os/signal"
 	"reflect"
 	"strconv"
+	"strings"
 	"syscall"
 	"time"
 	"unsafe"
@@ -21,10 +22,6 @@ import (
 
 //go:embed default_config.yml
 var defaultConfig string
-
-type Message struct {
-	CQMessage *EasyBot.CQMessage
-}
 
 type Config struct {
 	Main struct {
@@ -183,7 +180,7 @@ func initConfig() {
 
 		if nickName := v.GetStringSlice("main.nickName"); len(nickName) > 0 {
 			bot.AddNickName(nickName...)
-			log.Info("[Init] 机器人别称: ", bot.GetNickName())
+			log.Info("[Init] 机器人别称: ", bot.GetBotNickName())
 		}
 
 		if privateBanList := v.GetStringSlice("main.ban.private"); len(privateBanList) > 0 {
@@ -228,6 +225,7 @@ func initConfig() {
 }
 
 func initModules() {
+	initLogin()
 	initRecall()
 	initPixiv()
 	initSetu()
@@ -243,7 +241,7 @@ func initModules() {
 func exitJobs() {
 	signal.Notify(mainBlock, syscall.SIGHUP, syscall.SIGINT, syscall.SIGQUIT, syscall.SIGTERM)
 	<-mainBlock
-	runTime := formatTime(bot.GetRunningTime())
+	runTime := formatTime(int64(bot.GetRunningTime().Seconds()))
 	err := bot.Log2SU.Info("[Exit]",
 		"\n此次运行时长：", runTime,
 		"\n心跳包接收计数：", bot.HeartbeatCount,
@@ -271,7 +269,8 @@ func handleMessage(msg *EasyBot.CQMessage) {
 		go checkBotInternal(ctx)
 		go checkCardParse(ctx)
 		go checkCorpus(ctx)
-		go checkCookieUpdate(ctx)
+		go checkBiliLogin(ctx)
+		// go checkCookieUpdate(ctx)
 		go checkParse(ctx)
 		go checkSearch(ctx)
 		go checkWhoAtMe(ctx)
@@ -280,6 +279,7 @@ func handleMessage(msg *EasyBot.CQMessage) {
 		go checkPixiv(ctx)
 		go checkBertVITS2(ctx)
 		go checkInfo(ctx)
+		go checkQRCode(ctx)
 		// go checkDoLua(ctx)
 	}(msg)
 }
@@ -393,6 +393,15 @@ func formatTimeMs(timestamp int64) (format string) {
 	return format
 }
 
+func formatNumber(number float64, decimalSave int, trimTailZeros bool) string {
+	symbol := fmt.Sprint("%." + strconv.Itoa(decimalSave) + "f")
+	s := fmt.Sprintf(symbol, number)
+	if trimTailZeros {
+		s = strings.TrimRight(s, "0")
+	}
+	return s
+}
+
 func toCsv(items ...any) (outputWithNewLine string) {
 	count := len(items)
 	for i := 0; i < count; i++ {
@@ -406,7 +415,7 @@ func toCsv(items ...any) (outputWithNewLine string) {
 
 // BytesToString 没有内存开销的转换
 // https://github.com/wdvxdr1123/ZeroBot/blob/main/utils/helper/helper.go
-func BytesToString(b []byte) string {
+func BytesToString(b []byte) (s string) {
 	return *(*string)(unsafe.Pointer(&b))
 }
 
@@ -465,18 +474,14 @@ func handleGroupCard(gc *EasyBot.CQNoticeGroupCard) {
 		return
 	}
 	avatar := bot.Utils.Format.ImageUrl(fmt.Sprintf(
-		"http://q.qlogo.cn/headimg_dl?dst_uin=%d&spec=640&img_type=jpg", gc.UserID))
+		"http://q.qlogo.cn/headimg_dl?dst_uin=%d&spec=640&img_type=jpg", gc.UserID), "cache=0")
 	bot.SendGroupMsg(gc.GroupID, fmt.Sprint(
 		avatar, gc.UserID, " 变更了群名片：\n", gc.CardOld, " -> ", gc.CardNew))
 }
 
 // 群文件上传
 func handleGroupUpload(gu *EasyBot.CQNoticeGroupUpload) {
-	bot.SendGroupMsg(gu.GroupID, fmt.Sprintf(
-		"%d上传了新的群文件！\n%s（%.2fMB）\n%s",
-		gu.UserID,
-		gu.File.Name, float64(gu.File.Size)/1024.0/1024.0,
-		gu.File.Url))
+	GroupUploadParse(gu)
 }
 
 // 离线文件上传

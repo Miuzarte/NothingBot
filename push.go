@@ -1,7 +1,6 @@
 package main
 
 import (
-	"NothinBot/EasyBot"
 	"fmt"
 	"regexp"
 	"strconv"
@@ -70,9 +69,9 @@ func extractUid(c string) (uid int) {
 	return
 }
 
-// _uuid=91F87C44-8B65-64C4-296C-B102F459941CF05635infoc;
 func extractBuvid(c string) (bvuid string) {
-	match := regexp.MustCompile(`_uuid=(.+);`).FindAllStringSubmatch(c, -1)
+	// _uuid=91F87C44-8B65-64C4-296C-B102F459941CF05635infoc;
+	match := regexp.MustCompile(`_uuid=(.+?);`).FindAllStringSubmatch(c, -1)
 	if len(match) > 0 {
 		if b := match[0][1]; len(b) != 0 {
 			bvuid = b
@@ -81,54 +80,59 @@ func extractBuvid(c string) (bvuid string) {
 	return
 }
 
-// 管理员私聊更新cookie
-func checkCookieUpdate(ctx *EasyBot.CQMessage) {
-	if !ctx.IsPrivateSU() {
-		return
-	}
-	match := ctx.RegexpFindAllStringSubmatch(`(设置|set)\s*(饼干|cookie)\s*(.*)`)
-	if len(match) > 0 {
-		if c := match[0][3]; len(c) != 0 {
-			cookie = c
-			ctx.SendMsg("[bilibili] 设置cookie成功\ncookie: ", cookie)
-		} else {
-			ctx.SendMsg("[bilibili] 设置cookie失败\nmatch: ", match)
-		}
-		if cookieUid = extractUid(cookie); cookieUid != 0 {
-			ctx.SendMsg("[bilibili] uid获取成功\nuid: ", cookieUid)
-		} else {
-			ctx.SendMsg("[bilibili] uid获取失败")
-		}
-		if cookieBuvid = extractBuvid(cookie); cookieBuvid != "" {
-			ctx.SendMsg("[bilibili] buvid获取成功\nbuvid: ", cookieBuvid)
-		} else {
-			ctx.SendMsg("[bilibili] buvid获取失败")
-		}
-		if !cookieValidity {
-			pushWait.Done()
-		}
-	}
-}
+// // 管理员私聊更新cookie
+// func checkCookieUpdate(ctx *EasyBot.CQMessage) {
+// 	if !ctx.IsPrivateSU() {
+// 		return
+// 	}
+// 	match := ctx.RegexpFindAllStringSubmatch(`(查看|check|view)\s*(饼干|cookie)`)
+// 	if len(match) > 0 {
+// 		ctx.SendMsg(biliIdentity.Cookie, "\n\n", biliIdentity.RefreshToken)
+// 	}
+// 	match = ctx.RegexpFindAllStringSubmatch(`(设置|set)\s*(饼干|cookie)\s*(.*)`)
+// 	if len(match) > 0 {
+// 		if c := match[0][3]; len(c) != 0 {
+// 			cookie = c
+// 			ctx.SendMsg("[bilibili] 设置cookie成功")
+// 		} else {
+// 			ctx.SendMsg("[bilibili] 设置cookie失败\nmatch: ", match)
+// 		}
+// 		if cookieUid = extractUid(cookie); cookieUid != 0 {
+// 			ctx.SendMsg("[bilibili] uid获取成功\n", cookieUid)
+// 		} else {
+// 			ctx.SendMsg("[bilibili] uid获取失败")
+// 		}
+// 		if cookieBuvid = extractBuvid(cookie); cookieBuvid != "" {
+// 			ctx.SendMsg("[bilibili] buvid获取成功\n", cookieBuvid)
+// 		} else {
+// 			ctx.SendMsg("[bilibili] buvid获取失败")
+// 		}
+// 		if !cookieValidity {
+// 			pushWait.Done()
+// 		}
+// 	}
+// }
 
 // 初始化推送
 func initPush() {
 	dynamicCheckDuration = time.Millisecond * time.Duration(v.GetFloat64("push.settings.dynamicUpdateInterval")*1000)
-	if cookie = v.GetString("push.settings.cookie"); len(cookie) != 0 {
-		log.Trace("[bilibili] cookie:\n", cookie)
-		if cookieValidity = validateCookie(); cookieValidity {
-			if cookieUid = extractUid(cookie); cookieUid != 0 {
+	if len(biliIdentity.Cookie) != 0 {
+		log.Trace("[bilibili] cookie:\n", biliIdentity.Cookie)
+		if cookieValidity = validateCookie(biliIdentity.Cookie); cookieValidity {
+			if cookieUid = extractUid(biliIdentity.Cookie); cookieUid != 0 {
 				log.Info("[bilibili] cookie所属uid: ", cookieUid)
 			} else {
 				log.Warn("[bilibili] uid识别失败! 请确保cookie完整")
 			}
-			if cookieBuvid = extractBuvid(cookie); cookieBuvid != "" {
-				log.Info("[bilibili] cookie buvid: ", cookieBuvid)
-				if configUpdateCount == 0 {
-					go initLive() //弹幕监听需要buvid
-				}
-			} else {
-				log.Warn("[bilibili] buvid识别失败! 将不监听直播推送")
-			}
+			go initLive()
+			// if cookieBuvid = extractBuvid(biliIdentity.Cookie); cookieBuvid != "" {
+			// 	log.Info("[bilibili] cookie buvid: ", cookieBuvid)
+			// 	if configUpdateCount == 0 {
+			// 		go initLive() //弹幕监听需要buvid
+			// 	}
+			// } else {
+			// 	log.Warn("[bilibili] buvid识别失败! 将不监听直播推送")
+			// }
 			if configUpdateCount == 0 {
 				go dynamicMonitor()
 			}
@@ -214,7 +218,7 @@ func initLive() {
 // 初始化baseline用于监听更新
 func getBaseline() (update_baseline string) {
 	g, err := ihttp.New().WithUrl("https://api.bilibili.com/x/polymer/web-dynamic/v1/feed/all").
-		WithHeaders(iheaders).WithCookie(cookie).
+		WithHeaders(iheaders).WithCookie(biliIdentity.Cookie).
 		Get().ToGson()
 	if err != nil {
 		log.Error("[bilibili] getBaseline().ihttp请求错误: ", err)
@@ -230,7 +234,7 @@ func getBaseline() (update_baseline string) {
 // 是否有新动态
 func getUpdate(update_baseline string) (update_num string) {
 	g, err := ihttp.New().WithUrl("https://api.bilibili.com/x/polymer/web-dynamic/v1/feed/all/update").
-		WithAddQuery("update_baseline", update_baseline).WithHeaders(iheaders).WithCookie(cookie).
+		WithAddQuery("update_baseline", update_baseline).WithHeaders(iheaders).WithCookie(biliIdentity.Cookie).
 		Get().ToGson()
 	if err != nil {
 		log.Error("[bilibili] getUpdate().ihttp请求错误: ", err)
@@ -241,28 +245,6 @@ func getUpdate(update_baseline string) (update_num string) {
 		return "-1"
 	}
 	return
-}
-
-// 检测cookie有效性
-func validateCookie() bool {
-	g, err := ihttp.New().WithUrl("https://passport.bilibili.com/x/passport-login/web/cookie/info").
-		WithHeaders(iheaders).WithCookie(cookie).
-		Get().ToGson()
-	if err != nil {
-		log.Error("[bilibili] cookieChecker().ihttp请求错误: ", err)
-	}
-	switch g.Get("code").Int() {
-	case 0:
-		return true
-	case -101:
-		log.Error("[push] cookie已过期")
-		bot.Log2SU.Error("[push] cookie已过期")
-		return false
-	default:
-		log.Error("[push] 非正常cookie状态: ", g.JSON("", ""))
-		bot.Log2SU.Error(fmt.Sprint("[push] 非正常cookie状态：", g.JSON("", "")))
-		return false
-	}
 }
 
 // 监听动态流
@@ -282,7 +264,7 @@ func dynamicMonitor() {
 		switch update_num {
 		case "-1":
 			log.Error("[push] 获取update_num时出现错误    update_num = ", update_num, "  update_baseline = ", update_baseline)
-			if cookieValidity = validateCookie(); !cookieValidity {
+			if cookieValidity = validateCookie(biliIdentity.Cookie); !cookieValidity {
 				pushWait.Add(1)
 				pushWait.Wait()
 				failureCount = 0

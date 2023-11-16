@@ -42,7 +42,7 @@ func checkInfo(ctx *EasyBot.CQMessage) {
 				}
 				return
 			}(),
-			formatTime(bot.GetRunningTime()))
+			formatTime(int64(bot.GetRunningTime().Seconds())))
 		ctx.SendMsg(s)
 	}
 }
