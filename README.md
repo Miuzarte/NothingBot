@@ -119,13 +119,7 @@ GLM2在int4量化的情况下也足以用于总结内容
 
 ### BertVITS2
 
-简单写了个[Bert-VITS2](https://github.com/Stardust-minus/Bert-VITS2)的接口[api.py](./apiForBertVITS2/api.py)
-
-需要PATH存在ffmpeg，用于wav转amr
-
-因为手上的模型几乎是项目初版的，所以这个接口也是在旧版的基础上写的
-
-~~还把触发正则写死成了 让岁己说xxx~~
+[api.py](./apiForBertVITS2/api.py)
 
 ### 启动参数
 
@@ -140,3 +134,9 @@ GLM2在int4量化的情况下也足以用于总结内容
 [@moxcomic](https://github.com/moxcomic) :
 
 ![💩⛰️](https://github.com/Miuzarte/NothingBot/assets/66856838/98eb9a3e-c27c-4d08-8182-2332cf956198)
+
+---
+
+大学学费换来的最有价值的东西应该就是这个 `edu.cn` 结尾的教育邮箱
+
+[![JetBrains](https://resources.jetbrains.com/storage/products/company/brand/logos/jb_beam.svg)](https://www.jetbrains.com) [![GoLand](https://resources.jetbrains.com/storage/products/company/brand/logos/GoLand_icon.svg)](https://www.jetbrains.com/zh-cn/go/)

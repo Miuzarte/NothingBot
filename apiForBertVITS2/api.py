@@ -162,13 +162,13 @@ async def tts_endpoint(request: Request):
   with torch.no_grad():
     audio = infer(text, sdp_ratio, noise_scale, noise_scale_w, length_scale, speaker, language)
 
-  wav_byte = None
+  wavBytes = None
   with BytesIO() as wav:
     wavfile.write(wav, hps.data.sampling_rate, audio)
+    wavBytes = wav.getvalue()
     torch.cuda.empty_cache()
-    wav_byte = wav.getvalue()
 
-  return {"code": 0, "output": base64.b64encode(wav_byte).decode("utf-8"), "error": ""}
+  return {"code": 0, "output": base64.b64encode(wavBytes).decode("utf-8"), "error": ""}
 
 if __name__ == "__main__":
   uvicorn.run(app, host="0.0.0.0", port=9876, workers=1)
