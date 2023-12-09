@@ -1,6 +1,6 @@
 module NothinBot
 
-go 1.21.3
+go 1.21.5
 
 require (
 	github.com/Miuzarte/ANSIFmt v0.0.0-20231123092130-18719d4ecaaf
