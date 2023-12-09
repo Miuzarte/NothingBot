@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"encoding/base64"
 	"image/png"
+	"regexp"
 
 	"github.com/boombuler/barcode"
 	"github.com/boombuler/barcode/qr"
@@ -12,15 +13,15 @@ import (
 )
 
 func checkQRCode(ctx *EasyBot.CQMessage) {
-	matches := ctx.RegexpFindAllStringSubmatch(`(?s)制作二维码\s*(.*)`)
+	matches := ctx.RegFindAllStringSubmatch(regexp.MustCompile(`(?s)制作二维码\s*(.*)`))
 	if len(matches) > 0 {
 		s := trimOuterQuotes(matches[0][1])
 		replyMsg, err := ctx.GetReplyedMsg()
 		if replyMsg != nil && err == nil { //复述回复时无视内容
 			s = trimOuterQuotes(replyMsg.RawMessage)
 		}
-		qr, _ := NewQRcode().With(s, 512)
-		ctx.SendMsgReply(bot.Utils.Format.ImageBase64(qr.ToBase64()))
+		qrc, _ := NewQRcode().With(s, 512)
+		ctx.SendMsgReply(bot.Utils.Format.ImageBase64(qrc.ToBase64()))
 	}
 }
 
@@ -37,18 +38,18 @@ func (qrc QRcode) With(content string, size int) (QRcode, error) {
 
 	code, err := qr.Encode(content, qr.L, qr.Auto)
 	if err != nil {
-		log.Println("[QRcode] err1:", err)
+		log.Error("[QRcode] err1:", err)
 		return qrc, err
 	}
 	code, err = barcode.Scale(code, size, size)
 	if err != nil {
-		log.Println("[QRcode] err2:", err)
+		log.Error("[QRcode] err2:", err)
 		return qrc, err
 	}
 	buf := new(bytes.Buffer)
 	err = png.Encode(buf, code)
 	if err != nil {
-		log.Println("[QRcode] err3:", err)
+		log.Error("[QRcode] err3:", err)
 		return qrc, err
 	}
 	return buf.Bytes(), nil

@@ -32,7 +32,8 @@ type setu struct {
 var (
 	setuEnable     = false
 	useOriginalUrl = false
-	numberMap      = map[string]int{"两": 2,
+	numberMap      = map[string]int{
+		"两": 2,
 		"一": 1, "二": 2, "三": 3, "四": 4, "五": 5,
 		"壹": 1, "贰": 2, "叁": 3, "肆": 4, "伍": 5,
 		"六": 6, "七": 7, "八": 8, "九": 9, "十": 10,
@@ -50,7 +51,7 @@ func initSetu() {
 
 func checkSetu(ctx *EasyBot.CQMessage) {
 	//开关控制
-	matches := ctx.RegexpFindAllStringSubmatch(`(开启|启用|关闭|禁用)setu`)
+	matches := ctx.RegFindAllStringSubmatch(regexp.MustCompile(`(开启|启用|关闭|禁用)setu`))
 	if len(matches) > 0 && ctx.IsPrivateSU() {
 		switch matches[0][1] {
 		case "开启", "启用":
@@ -65,7 +66,11 @@ func checkSetu(ctx *EasyBot.CQMessage) {
 	if !setuEnable {
 		return
 	}
-	matches = ctx.Unescape().RegexpFindAllStringSubmatch(`(来(?P<num>点|一点|几张|几份|.*张|.*份)?(?P<r18>[Rr]18)?的?(?P<tag>.*)?的?[色瑟涩铯][图圖])|((?P<r18>[Rr]18)?的?(?P<tag>.*)?的?[色瑟涩铯][图圖]来(?P<num>点|一点|几张|几份|.*张|.*份)?)`)
+	matches = ctx.Unescape().RegFindAllStringSubmatch(
+		regexp.MustCompile(
+			`(来(点|一点|几张|几份|.*张|.*份)?([Rr]18)?的?(.*)?的?[色瑟涩铯][图圖])|(([Rr]18)?的?(.*)?的?[色瑟涩铯][图圖]来(点|一点|几张|几份|.*张|.*份)?)`,
+		),
+	)
 	// 一条正则多个同名捕获组只会索引到第一个, 所以下面直接把对应的捕获组全加起来
 	if len(matches) > 0 && ctx.IsToMe() {
 		var numOK bool
@@ -127,18 +132,27 @@ func checkSetu(ctx *EasyBot.CQMessage) {
 			results, err := setu.get()
 			if err == nil {
 				resultsCount := len(results)
-				content := []string{fmt.Sprintf("r18: %t\nnum: %d\ntag: %v", func() bool {
-					return reqR18 != 0
-				}(), reqNum, reqTag)}
-				content = append(content, func() (head string) {
-					head += fmt.Sprint("在 api.lolicon.app/setu/v2 根据以上条件搜索到了", resultsCount, "张setu")
-					if resultsCount < reqNum {
-						head += "\nあれれ？似乎没有那么多符合这个条件的setu呢"
-					}
-					return
-				}())
-				ctx.SendForwardMsg(EasyBot.FastNewForwardMsg(
-					"NothinBot", ctx.UserID, 0, 0, append(content, results...)...))
+				content := []string{
+					fmt.Sprintf(
+						"r18: %t\nnum: %d\ntag: %v", func() bool {
+							return reqR18 != 0
+						}(), reqNum, reqTag,
+					),
+				}
+				content = append(
+					content, func() (head string) {
+						head += fmt.Sprint("在 api.lolicon.app/setu/v2 根据以上条件搜索到了", resultsCount, "张setu")
+						if resultsCount < reqNum {
+							head += "\nあれれ？似乎没有那么多符合这个条件的setu呢"
+						}
+						return
+					}(),
+				)
+				ctx.SendForwardMsg(
+					EasyBot.FastNewForwardMsg(
+						"NothinBot", ctx.UserID, 0, 0, append(content, results...)...,
+					),
+				)
 			} else {
 				ctx.SendMsg(err.Error())
 			}
@@ -189,21 +203,24 @@ func (param setu) get() (results []string, err error) {
 		}(g.Get("tags").Arr())
 		pid := g.Get("pid").Int()
 		p := g.Get("p").Int()
-		results = append(results, fmt.Sprintf(
-			`[CQ:image,file=%s]
+		results = append(
+			results, fmt.Sprintf(
+				`[CQ:image,file=%s]
 %s    （P%d）
 %s
 作者：%s
 pixiv.net/u/%d
 pixiv.net/i/%d
 原图：%s`,
-			url,
-			title, p,
-			tag,
-			author,
-			uid,
-			pid,
-			urlOriginal))
+				url,
+				title, p,
+				tag,
+				author,
+				uid,
+				pid,
+				urlOriginal,
+			),
+		)
 	}
 	return
 }

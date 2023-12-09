@@ -2,6 +2,7 @@ package main
 
 import (
 	"NothinBot/EasyBot"
+	"regexp"
 	"strings"
 )
 
@@ -10,7 +11,7 @@ var (
 )
 
 func checkAIReply2077(ctx *EasyBot.CQMessage) {
-	if matches := ctx.RegexpFindAllStringSubmatch(`[吗？\?]\s*$|是不是`); ctx.IsToMe() && len(matches) > 0 {
+	if matches := ctx.RegFindAllStringSubmatch(regexp.MustCompile(`[吗？\?]\s*$|是不是`)); ctx.IsToMe() && len(matches) > 0 {
 		ctx.SendMsgReply(ctx.StringsReplace(SuperAiReplacer))
 	}
 }

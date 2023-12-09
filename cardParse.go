@@ -2,36 +2,42 @@ package main
 
 import (
 	"NothinBot/EasyBot"
+	"regexp"
 
 	log "github.com/sirupsen/logrus"
 	"github.com/ysmood/gson"
+)
+
+var (
+	urlPath = [...]string{
+		"meta.news.jumpUrl",
+		"meta.detail_1.qqdocurl",
+	}
 )
 
 // 卡片消息解析（拒绝小程序）
 func checkCardParse(ctx *EasyBot.CQMessage) {
 	if ctx.IsJsonMsg() {
 		log.Debug("isJsonMsg")
-		matches := ctx.Unescape().RegexpFindAllStringSubmatch(`\[CQ:json,data=(\{.*\})\]`)
+		matches := ctx.Unescape().RegFindAllStringSubmatch(regexp.MustCompile(`\[CQ:json,data=(\{.*})]`))
 		var g gson.JSON
 		if len(matches) > 0 {
 			log.Debug("matches[0][1]: ", matches[0][1])
 			g = gson.NewFrom(matches[0][1])
-			if url := g.Get("meta.news.jumpUrl").Str(); !g.Get("meta.news.jumpUrl").Nil() {
+			url := ""
+			for _, s := range urlPath {
+				if !g.Get(s).Nil() {
+					url = g.Get(s).Str()
+					break
+				}
+			}
+			if url != "" {
 				ctx.SendForwardMsg(
 					EasyBot.NewForwardMsg(
 						EasyBot.NewMsgForwardNode(ctx.MessageID),
-						EasyBot.NewCustomForwardNode(
-							"NotingBot_CardParse",
-							bot.GetSelfID(),
-							url, 0, 0)))
-			} else if url := g.Get("meta.detail_1.qqdocurl").Str(); !g.Get("meta.detail_1.qqdocurl").Nil() {
-				ctx.SendForwardMsg(
-					EasyBot.NewForwardMsg(
-						EasyBot.NewMsgForwardNode(ctx.MessageID),
-						EasyBot.NewCustomForwardNode(
-							"NotingBot_CardParse",
-							bot.GetSelfID(),
-							url, 0, 0)))
+						EasyBot.NewCustomForwardNodeOSR(url),
+					),
+				)
 			}
 		}
 	}

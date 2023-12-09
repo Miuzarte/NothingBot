@@ -1,6 +1,5 @@
 EasyBot:
   wsUrl: "ws://" #go-cqhttp
-  localOrRemote: "remote" #"local" / "remote", gocq与bot是否在同一台机器上 (更严格的来说: 是否可以访问到同一路径的文件, 否则都为"remote", 用于决定上传视频前通过gocq下载还是bot下载)
   superUsers: #int / []int
     - 
   nickName: #机器人别称(用于判断是否提到了机器人)
@@ -43,6 +42,15 @@ parse: #热更新
     sameParseInterval: 60
     #过长的视频/投票简介保留长度（中英字符）
     descTruncationLength: 32
+listen: #粉丝数监听
+  list:
+    - #岁己SUI
+      uid: 1954091502
+      target: 40000
+      group:
+        - 
+      user:
+        - 
 push: #热更新
   settings:
     livePushMinimumInterval: 300 #同一直播间多次开播推送的最小间隔（秒）  用于解决某些主播因网络问题频繁重新推流导致多次推送
@@ -50,7 +58,7 @@ push: #热更新
     resetCheckInterval: 15 #直播监听重连检测间隔（秒）
     roomChangeInfo: false #直播监控推送房间名更新（如果主播开播同时改房间名会导致推送两条）
     #通过拉取动态流进行推送，必须设置B站cookie，且需要关注想要推送的up
-    cookie: ""
+    cookie: "" #弃用，已实现扫码登录，且cookie过期时间足够长
   list:
   # - #模板
   # uid: #up的uid  int ONLY
@@ -63,3 +71,10 @@ push: #热更新
   #     - "DYNAMIC_TYPE_DRAW" #图文动态（包括投票/预约）
   #     - "DYNAMIC_TYPE_AV" #视频投稿（包括动态视频）
   #     - "DYNAMIC_TYPE_ARTICLE" #文章投稿
+    - #岁己SUI
+      uid: 1954091502
+      live: 25788785
+      group: 
+        - 
+      user:
+        - 

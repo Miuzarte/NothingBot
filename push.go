@@ -1,6 +1,7 @@
 package main
 
 import (
+	"NothinBot/TimeLayout"
 	"fmt"
 	"regexp"
 	"strconv"
@@ -85,11 +86,11 @@ func extractBuvid(c string) (bvuid string) {
 // 	if !ctx.IsPrivateSU() {
 // 		return
 // 	}
-// 	match := ctx.RegexpFindAllStringSubmatch(`(查看|check|view)\s*(饼干|cookie)`)
+// 	match := ctx.RegFindAllStringSubmatch(`(查看|check|view)\s*(饼干|cookie)`)
 // 	if len(match) > 0 {
 // 		ctx.SendMsg(biliIdentity.Cookie, "\n\n", biliIdentity.RefreshToken)
 // 	}
-// 	match = ctx.RegexpFindAllStringSubmatch(`(设置|set)\s*(饼干|cookie)\s*(.*)`)
+// 	match = ctx.RegFindAllStringSubmatch(`(设置|set)\s*(饼干|cookie)\s*(.*)`)
 // 	if len(match) > 0 {
 // 		if c := match[0][3]; len(c) != 0 {
 // 			cookie = c
@@ -156,15 +157,19 @@ func initLive() {
 			k++
 			uid := v.GetInt(fmt.Sprint("push.list.", i, ".uid"))
 			roomid := v.GetInt(fmt.Sprint("push.list.", i, ".live"))
-			live := NewDanmaku(uid, roomid).OnDanmakuRecv(func(recv gson.JSON, uid, roomid int) {
-				go checkLive(recv, uid, roomid)
-			})
+			live := NewDanmaku(uid, roomid).OnDanmakuRecv(
+				func(recv gson.JSON, uid, roomid int) {
+					go checkLive(recv, uid, roomid)
+				},
+			)
 			g, _ := getRoomJsonUID(uid).Gets("data", strconv.Itoa(uid))
 			state := g.Get("live_status").Int()
 			var timeS int64
 			if g.Get("live_time").Int() != 0 { //开播状态可以获取开播时间
 				timeS = int64(g.Get("live_time").Int())
-				log.Debug("[push] 直播间 ", roomid, "(uid: ", uid, ") 此次开播时间: ", time.Unix(timeS, 0).Format(timeLayout.S24C))
+				log.Debug(
+					"[push] 直播间 ", roomid, "(uid: ", uid, ") 此次开播时间: ", time.Unix(timeS, 0).Format(TimeLayout.S24C),
+				)
 			} else {
 				timeS = nowTime
 				log.Debug("[push] 直播间 ", roomid, "(uid: ", uid, ") 未开播")
@@ -216,14 +221,14 @@ func initLive() {
 }
 
 // 初始化baseline用于监听更新
-func getBaseline() (update_baseline string) {
+func getBaseline() (updateBaseline string) {
 	g, err := ihttp.New().WithUrl("https://api.bilibili.com/x/polymer/web-dynamic/v1/feed/all").
 		WithHeaders(iheaders).WithCookie(biliIdentity.Cookie).
 		Get().ToGson()
 	if err != nil {
 		log.Error("[bilibili] getBaseline().ihttp请求错误: ", err)
 	}
-	update_baseline = g.Get("data.update_baseline").Str()
+	updateBaseline = g.Get("data.update_baseline").Str()
 	if g.Get("code").Int() != 0 || g.Get("data.update_baseline").Nil() {
 		log.Error("[push] update_baseline获取错误: ", g.JSON("", ""))
 		return "-1"
@@ -232,14 +237,14 @@ func getBaseline() (update_baseline string) {
 }
 
 // 是否有新动态
-func getUpdate(update_baseline string) (update_num string) {
+func getUpdate(updateBaseline string) (updateNum string) {
 	g, err := ihttp.New().WithUrl("https://api.bilibili.com/x/polymer/web-dynamic/v1/feed/all/update").
-		WithAddQuery("update_baseline", update_baseline).WithHeaders(iheaders).WithCookie(biliIdentity.Cookie).
+		WithAddQuery("update_baseline", updateBaseline).WithHeaders(iheaders).WithCookie(biliIdentity.Cookie).
 		Get().ToGson()
 	if err != nil {
 		log.Error("[bilibili] getUpdate().ihttp请求错误: ", err)
 	}
-	update_num = g.Get("data.update_num").Str()
+	updateNum = g.Get("data.update_num").Str()
 	if g.Get("code").Int() != 0 || g.Get("data.update_num").Nil() {
 		log.Error("[push] getUpdate获取错误: ", g.JSON("", ""))
 		return "-1"
@@ -250,20 +255,20 @@ func getUpdate(update_baseline string) (update_num string) {
 // 监听动态流
 func dynamicMonitor() {
 	var (
-		update_num      = "0"
-		update_baseline = "0"
-		new_baseline    = "0"
-		failureCount    = 0
+		updateNum      = "0"
+		updateBaseline = "0"
+		newBaseline    = "0"
+		failureCount   = 0
 	)
-	update_baseline = getBaseline()
-	if update_baseline != "-1" {
-		log.Info("[push] update_baseline: ", update_baseline)
+	updateBaseline = getBaseline()
+	if updateBaseline != "-1" {
+		log.Info("[push] update_baseline: ", updateBaseline)
 	}
 	for {
-		update_num = getUpdate(update_baseline)
-		switch update_num {
+		updateNum = getUpdate(updateBaseline)
+		switch updateNum {
 		case "-1":
-			log.Error("[push] 获取update_num时出现错误    update_num = ", update_num, "  update_baseline = ", update_baseline)
+			log.Error("[push] 获取update_num时出现错误    update_num = ", updateNum, "  update_baseline = ", updateBaseline)
 			if cookieValidity = validateCookie(biliIdentity.Cookie); !cookieValidity {
 				pushWait.Add(1)
 				pushWait.Wait()
@@ -279,18 +284,21 @@ func dynamicMonitor() {
 				failureCount = 0
 				continue
 			}
-			duration := time.Duration(time.Second * time.Duration(failureCount) * 30)
+			duration := time.Second * time.Duration(failureCount) * 30
 			log.Error("[push] 获取更新失败 ", failureCount, " 次, 将在 ", duration, " 后重试")
 			time.Sleep(duration)
 		case "0":
-			log.Debug("[push] 没有新动态    update_num = ", update_num, "  update_baseline = ", update_baseline)
+			log.Trace("[push] 没有新动态    update_num = ", updateNum, "  update_baseline = ", updateBaseline)
 		default:
-			new_baseline = getBaseline()
-			if update_baseline == new_baseline { //重复动态
-				log.Debug("[push] 假新动态    update_num = ", update_num, "  update_baseline = ", update_baseline)
+			newBaseline = getBaseline()
+			if updateBaseline == newBaseline { //重复动态
+				log.Debug("[push] 假新动态    update_num = ", updateNum, "  update_baseline = ", updateBaseline)
 			} else { //非重复动态
-				log.Info("[push] 有新动态!    update_num = ", update_num, "  update_baseline = ", update_baseline, " => ", new_baseline)
-				update_baseline = new_baseline
+				log.Info(
+					"[push] 有新动态!    update_num = ", updateNum, "  update_baseline = ", updateBaseline, " => ",
+					newBaseline,
+				)
+				updateBaseline = newBaseline
 				go func(dynamicID string) { //检测推送
 					rawJson := getDynamicJson(dynamicID)
 					stateCode := rawJson.Get("code").Int()
@@ -300,13 +308,19 @@ func dynamicMonitor() {
 					case 4101131: //动态已删除，不推送
 						if dynamicHistrory[dynamicID] != "" {
 							log.Info("[push] 明确记录到一条来自 ", dynamicHistrory[dynamicID], " 的已删除动态 ", dynamicID)
-							bot.Log2SU.Info(fmt.Sprint("[push] 明确记录到一条来自 ", dynamicHistrory[dynamicID], " 的已删除动态 ", dynamicID))
+							bot.Log2SU.Info(
+								fmt.Sprint(
+									"[push] 明确记录到一条来自 ", dynamicHistrory[dynamicID], " 的已删除动态 ", dynamicID,
+								),
+							)
 						}
 					case 500: //加载错误，请稍后再试
 						if dynamicHistrory[dynamicID] == "" { //检测是否为重复动态
 							go func(dynamicID string) {
 								for i := 0; i < 3; i++ { //重试三次
-									log.Warn("[push] (RETRY_", i+1, ") 将在 ", dynamicCheckDuration*3, " 后重试动态 ", dynamicID)
+									log.Warn(
+										"[push] (RETRY_", i+1, ") 将在 ", dynamicCheckDuration*3, " 后重试动态 ", dynamicID,
+									)
 									time.Sleep(dynamicCheckDuration * 3)
 									rawJson := getDynamicJson(dynamicID)
 									stateCode := rawJson.Get("code").Int()
@@ -329,7 +343,7 @@ func dynamicMonitor() {
 					default:
 						log.Warn("[push] other code: ", stateCode)
 					}
-				}(new_baseline)
+				}(newBaseline)
 			}
 		}
 		time.Sleep(dynamicCheckDuration)
@@ -356,12 +370,12 @@ func dynamicChecker(mainJson gson.JSON) {
 				}
 			}
 			if uidMatch && filterMatch {
-				log.Info("[push] 处于推送列表: ", name, uid)
+				log.Info("[push] 处于推送列表: ", name, "(", uid, ")")
 				genPush(i).send(formatDynamic(mainJson))
 				return
 			}
 		}
-		log.Info("[push] 不处于推送列表: ", name, " ", uid)
+		log.Info("[push] 不处于推送列表: ", name, "(", uid, ")")
 	} else {
 		log.Error("[push] 动态信息获取错误: ", mainJson.JSON("", ""))
 	}
@@ -390,21 +404,24 @@ func checkLive(pktJson gson.JSON, uid int, roomid int) {
 				}
 				push := genPush(i)
 				log.Info("[push] 推送 ", uid, " 的直播间 ", roomid, " 开播")
-				log.Info("[push] 记录开播时间: ", time.Unix(liveList[roomid].time, 0).Format(timeLayout.L24))
+				log.Info("[push] 记录开播时间: ", time.Unix(liveList[roomid].time, 0).Format(TimeLayout.L24))
 				roomJson, ok := getRoomJsonUID(uid).Gets("data", strconv.Itoa(uid))
 				if ok {
 					name := roomJson.Get("uname").Str()
 					cover := roomJson.Get("cover_from_user").Str()
 					title := roomJson.Get("title").Str()
-					push.send(fmt.Sprintf(
-						`%s开播了！
+					push.send(
+						fmt.Sprintf(
+							`%s开播了！
 [CQ:image,file=%s]
 %s
 live.bilibili.com/%d`,
-						name,
-						cover,
-						title,
-						roomid))
+							name,
+							cover,
+							title,
+							roomid,
+						),
+					)
 				} else {
 					log.Error("[push] 获取 ", uid, " 的直播间 ", roomid, " 信息失败")
 					push.send("[NothingBot] [ERROR] [push] 推送 ", uid, " 的直播间 ", roomid, " 开播时无法获取直播间信息")
@@ -430,7 +447,7 @@ live.bilibili.com/%d`,
 				}
 				push := genPush(i)
 				log.Info("[push] 推送 ", uid, " 的直播间", roomid, " 下播")
-				log.Info("[push] 缓存的开播时间: ", time.Unix(int64(liveList[roomid].time), 0).Format(timeLayout.L24))
+				log.Info("[push] 缓存的开播时间: ", time.Unix(liveList[roomid].time, 0).Format(TimeLayout.L24))
 				roomJson, ok := getRoomJsonUID(uid).Gets("data", strconv.Itoa(uid))
 				if ok {
 					name := roomJson.Get("uname").Str()
@@ -443,15 +460,18 @@ live.bilibili.com/%d`,
 							return "未记录本次开播时间"
 						}
 					}()
-					push.send(fmt.Sprintf(
-						`%s下播了～
+					push.send(
+						fmt.Sprintf(
+							`%s下播了～
 [CQ:image,file=%s]
 %s
 %s`,
-						name,
-						cover,
-						title,
-						duration))
+							name,
+							cover,
+							title,
+							duration,
+						),
+					)
 				} else {
 					log.Error("[push] 获取 ", uid, " 的直播间 ", roomid, " 信息失败")
 					push.send("[NothingBot] [ERROR] [push] 推送 ", uid, " 的直播间 ", roomid, " 下播时无法获取直播间信息")
@@ -469,23 +489,30 @@ live.bilibili.com/%d`,
 				log.Info("[push] 推送 ", uid, " 的直播间 ", roomid, " 房间信息更新")
 				roomJson, ok := getRoomJsonUID(uid).Gets("data", strconv.Itoa(uid))
 				if ok {
-					area := fmt.Sprintf("%s - %s\n", //分区
+					area := fmt.Sprintf(
+						"%s - %s\n", //分区
 						roomJson.Get("area_v2_parent_name").Str(),
-						roomJson.Get("area_v2_name").Str())
+						roomJson.Get("area_v2_name").Str(),
+					)
 					name := roomJson.Get("uname").Str()
 					title := roomJson.Get("title").Str()
-					push.send(fmt.Sprintf(
-						`%s更改了房间信息
+					push.send(
+						fmt.Sprintf(
+							`%s更改了房间信息
 房间名：%s
 %s
 live.bilibili.com/%d`,
-						name,
-						title,
-						area,
-						roomid))
+							name,
+							title,
+							area,
+							roomid,
+						),
+					)
 				} else {
 					log.Error("[push] 获取直播间信息失败")
-					push.send("[NothingBot] [ERROR] [push] 推送 ", uid, " 的直播间 ", roomid, " 房间信息更新时无法获取直播间信息")
+					push.send(
+						"[NothingBot] [ERROR] [push] 推送 ", uid, " 的直播间 ", roomid, " 房间信息更新时无法获取直播间信息",
+					)
 				}
 				return
 			}

@@ -75,7 +75,10 @@ func initCorpus() {
 			case delayRaw == nil:
 				return 0
 			case (!isInt && !isFloat && !isString) || (isString && err != nil):
-				log.Error("[Init] corpus.", i, ".scene 延迟格式错误    isInt: ", isInt, "  isFloat: ", isFloat, "  isString: ", isString, "  err: ", err)
+				log.Error(
+					"[Init] corpus.", i, ".scene 延迟格式错误    isInt: ", isInt, "  isFloat: ", isFloat, "  isString: ",
+					isString, "  err: ", err,
+				)
 				return 0
 			default: // (isInt || isFloat || isString) && (!isString || err == nil)
 				switch {
@@ -115,7 +118,7 @@ func initCorpus() {
 										return uinInt
 									}
 								}
-								return bot.GetSelfID()
+								return bot.GetSelfId()
 							}()
 							timestamp := func() (timestamp int64) {
 								if tsAny := eachReplyMap["time"]; tsAny != nil {
@@ -136,36 +139,42 @@ func initCorpus() {
 
 							eachReplyMapContentSlice, isSlice := eachReplyMap["content"].([]any)
 							if !isSlice {
-								forwardMsg = EasyBot.AppendForwardMsg(forwardMsg,
+								forwardMsg = EasyBot.AppendForwardMsg(
+									forwardMsg,
 									EasyBot.NewCustomForwardNode(
 										name,
 										uin,
 										fmt.Sprint(eachReplyMap["content"]),
 										timestamp, seq,
-									))
+									),
+								)
 							}
 							if isSlice {
 								for _, eachEachReplyMapContentSlice := range eachReplyMapContentSlice {
-									forwardMsg = EasyBot.AppendForwardMsg(forwardMsg,
+									forwardMsg = EasyBot.AppendForwardMsg(
+										forwardMsg,
 										EasyBot.NewCustomForwardNode(
 											name,
 											uin,
 											fmt.Sprint(eachEachReplyMapContentSlice),
 											timestamp, seq,
-										))
+										),
+									)
 								}
 							}
 
 						} else { //未自定义名字、头像
 
 							//使用bot信息
-							forwardMsg = EasyBot.AppendForwardMsg(forwardMsg,
+							forwardMsg = EasyBot.AppendForwardMsg(
+								forwardMsg,
 								EasyBot.NewCustomForwardNode(
 									"NothingBot",
-									bot.GetSelfID(),
+									bot.GetSelfId(),
 									fmt.Sprint(eachReply),
 									0, 0,
-								))
+								),
+							)
 
 						}
 					}

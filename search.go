@@ -1,43 +1,21 @@
 package main
 
 import (
+	ST "NothinBot/Bilibili/SearchTypes"
 	"NothinBot/EasyBot"
 	"fmt"
-	"strings"
-	"time"
-
+	"github.com/Miuzarte/Wbi"
 	"github.com/moxcomic/ihttp"
 	log "github.com/sirupsen/logrus"
 	"github.com/ysmood/gson"
+	"regexp"
+	"strings"
+	"time"
 )
 
 const biliSearchRegexp = `[Bb]搜(视频|番剧|影视|直播间|直播|主播|专栏|用户)[\s:：]?(.*)`
 
 var keywordRemove = strings.NewReplacer(`<em class="keyword">`, "", `</em>`, "") //处理html标签
-
-var searchTypes = struct {
-	VIDEO     string //视频
-	BANGUMI   string //番剧
-	FT        string //影视
-	LIVE      string //直播(搜不到东西, 转为搜索直播间)
-	LIVE_ROOM string //直播间 -> 直播, 直播间
-	LIVE_USER string //主播
-	ARTICLE   string //专栏
-	TOPIC     string //话题(老东西, 搜不出啥)
-	USER      string //用户
-	PHOTO     string //相簿(搜不到东西)
-}{
-	VIDEO:     "video",         //视频
-	BANGUMI:   "media_bangumi", //番剧
-	FT:        "media_ft",      //影视
-	LIVE:      "live",          //直播(搜不到东西, 转为搜索直播间)
-	LIVE_ROOM: "live_room",     //直播间 -> 直播, 直播间
-	LIVE_USER: "live_user",     //主播
-	ARTICLE:   "article",       //专栏
-	TOPIC:     "topic",         //话题(老东西, 搜不出啥)
-	USER:      "bili_user",     //用户
-	PHOTO:     "photo",         //相簿(搜不到东西)
-}
 
 // 获取搜索并格式化
 func formatBiliSearch(KIND string, keyword string) (forwardMsg EasyBot.CQForwardMsg) {
@@ -45,38 +23,52 @@ func formatBiliSearch(KIND string, keyword string) (forwardMsg EasyBot.CQForward
 	kind := func() string {
 		switch KIND {
 		case "视频":
-			return searchTypes.VIDEO
+			return ST.VIDEO
 		case "番剧":
-			return searchTypes.BANGUMI
+			return ST.BANGUMI
 		case "影视":
-			return searchTypes.FT
+			return ST.FT
 		case "直播", "直播间":
-			return searchTypes.LIVE_ROOM
+			return ST.LIVE_ROOM
 		case "主播":
-			return searchTypes.LIVE_USER
+			return ST.LIVE_USER
 		case "专栏":
-			return searchTypes.ARTICLE
+			return ST.ARTICLE
 		case "用户":
-			return searchTypes.USER
+			return ST.USER
 		}
 		return ""
 	}()
-	log.Debug("[search] 开始搜索: ", KIND, "(", kind, ") ", keyword)
-	g, err := ihttp.New().WithUrl("https://api.bilibili.com/x/web-interface/search/type").
-		WithAddQuerys(map[string]any{"search_type": kind, "keyword": keyword}).WithHeaders(iheaders).WithCookie(biliIdentity.Cookie).
+	log.Debug("[Search] 开始搜索: ", KIND, "(", kind, ") ", keyword)
+	url, err := Wbi.Sign(
+		fmt.Sprintf(
+			"https://api.bilibili.com/x/web-interface/search/type?search_type=%s&keyword=%s", kind, keyword,
+		),
+	)
+	log.Debug("[Search] UrlWithWbi: ", url)
+	g, err := ihttp.New().WithUrl(url).
+		WithHeaders(iheaders).WithCookie(biliIdentity.Cookie).
 		Get().ToGson()
 	if err != nil {
 		log.Error("[ihttp] biliSearch().ihttp请求错误: ", err)
 	}
-	log.Trace("[search] body: ", g.JSON("", ""))
 	if g.Get("code").Int() != 0 {
-		return nil
+		errMsg := g.JSON("", "")
+		log.Error("[Search] 请求出错: ", errMsg)
+		return EasyBot.FastNewForwardMsg(
+			"NothingBot", bot.GetSelfId(), 0, 0, fmt.Sprintf("搜索失败：请通过<连续@Bot两次加文字>以通知管理员\n%s", errMsg),
+		)
+	} else {
+		log.Trace("[search] body: ", g.JSON("", ""))
 	}
 	results := g.Get("data.result").Arr()
 	resultCount := len(results)
-	forwardMsg = EasyBot.FastNewForwardMsg("NothingBot", bot.GetSelfID(), 0, 0, fmt.Sprint("快捷搜索", KIND, "(", kind, ") ：\n", keyword, "\n", "共", resultCount, "个结果"))
+	forwardMsg = EasyBot.FastNewForwardMsg(
+		"NothingBot", bot.GetSelfId(), 0, 0,
+		fmt.Sprint("快捷搜索", KIND, "(", kind, ") ：\n", keyword, "\n", "共", resultCount, "个结果"),
+	)
 	switch kind {
-	case searchTypes.VIDEO: //视频
+	case ST.VIDEO: //视频
 		for _, g := range results {
 			pic := g.Get("pic").Str()                            //封面
 			aid := g.Get("id").Int()                             //av号数字
@@ -90,25 +82,29 @@ func formatBiliSearch(KIND string, keyword string) (forwardMsg EasyBot.CQForward
 			favor := g.Get("favorites").Int()                    //收藏
 			bvid := g.Get("bvid").Str()                          //bv号
 
-			forwardMsg = EasyBot.AppendForwardMsg(forwardMsg, EasyBot.NewCustomForwardNode(
-				"NothingBot", bot.GetSelfID(), fmt.Sprintf(
-					`[CQ:image,file=https:%s]
+			forwardMsg = EasyBot.AppendForwardMsg(
+				forwardMsg, EasyBot.NewCustomForwardNode(
+					"NothingBot", bot.GetSelfId(), fmt.Sprintf(
+						`[CQ:image,file=https:%s]
 av%d
 %s
 UP：%s%s
 %d播放  %d弹幕  %d评论
 %d点赞  %d收藏
 www.bilibili.com/video/%s`,
-					pic,
-					aid,
-					title,
-					up, desc,
-					view, danmaku, review,
-					like, favor,
-					bvid), 0, 0))
+						pic,
+						aid,
+						title,
+						up, desc,
+						view, danmaku, review,
+						like, favor,
+						bvid,
+					), 0, 0,
+				),
+			)
 		}
 
-	case searchTypes.BANGUMI, searchTypes.FT: //番剧, 影视
+	case ST.BANGUMI, ST.FT: //番剧, 影视
 		for _, g := range results {
 			cover := g.Get("cover").Str()                                            //封面
 			title := keywordRemove.Replace(g.Get("title").Str())                     //汉化名
@@ -132,9 +128,10 @@ www.bilibili.com/video/%s`,
 			}(g.Gets("badges", 0, "text"))
 			url := g.Get("url").Str() //链接
 
-			forwardMsg = EasyBot.AppendForwardMsg(forwardMsg, EasyBot.NewCustomForwardNode(
-				"NothingBot", bot.GetSelfID(), fmt.Sprintf(
-					`[CQ:image,file=%s]
+			forwardMsg = EasyBot.AppendForwardMsg(
+				forwardMsg, EasyBot.NewCustomForwardNode(
+					"NothingBot", bot.GetSelfId(), fmt.Sprintf(
+						`[CQ:image,file=%s]
 %s
 %s
 
@@ -148,17 +145,20 @@ CV：
 简介：%s
 
 %s：%s`,
-					cover,
-					title,
-					titleOrg,
-					areas, styles,
-					season, pubt, index,
-					scoreU, score,
-					cv,
-					desc,
-					badges, url), 0, 0))
+						cover,
+						title,
+						titleOrg,
+						areas, styles,
+						season, pubt, index,
+						scoreU, score,
+						cv,
+						desc,
+						badges, url,
+					), 0, 0,
+				),
+			)
 		}
-	case searchTypes.LIVE_ROOM: //直播, 直播间
+	case ST.LIVE_ROOM: //直播, 直播间
 		for _, g := range results {
 			cover := g.Get("user_cover").Str()                      //封面
 			keyframe := g.Get("cover").Str()                        //关键帧
@@ -172,9 +172,10 @@ CV：
 			roomid := g.Get("roomid").Int()                         //房间号
 			uid := g.Get("uid").Int()                               //uid
 
-			forwardMsg = EasyBot.AppendForwardMsg(forwardMsg, EasyBot.NewCustomForwardNode(
-				"NothingBot", bot.GetSelfID(), fmt.Sprintf(
-					`[CQ:image,file=https:%s][CQ:image,file=https:%s]
+			forwardMsg = EasyBot.AppendForwardMsg(
+				forwardMsg, EasyBot.NewCustomForwardNode(
+					"NothingBot", bot.GetSelfId(), fmt.Sprintf(
+						`[CQ:image,file=https:%s][CQ:image,file=https:%s]
 %s的直播间%s
 分区：%s
 %s
@@ -182,18 +183,21 @@ CV：
 %d在线  %d粉丝
 live.bilibili.com/%d
 space.bilibili.com/%d`,
-					cover, keyframe,
-					uname, title,
-					cate,
-					tags,
-					liveT,
-					fans, online,
-					roomid,
-					uid), 0, 0))
+						cover, keyframe,
+						uname, title,
+						cate,
+						tags,
+						liveT,
+						fans, online,
+						roomid,
+						uid,
+					), 0, 0,
+				),
+			)
 		}
-	case searchTypes.LIVE_USER: //主播
+	case ST.LIVE_USER: //主播
 		for _, g := range results {
-			live_status := g.Get("live_status").Int()
+			liveStatus := g.Get("live_status").Int()
 			uface := g.Get("uface").Str()                        //头像
 			uname := keywordRemove.Replace(g.Get("uname").Str()) //主播
 			cate := g.Get("cate_name").Str()                     //分区
@@ -203,38 +207,15 @@ space.bilibili.com/%d`,
 			roomid := g.Get("roomid").Int()                      //房间号
 			uid := g.Get("uid").Int()                            //uid
 
-			if live_status == 0 { //未开播直接使用搜索返回的数据
-				forwardMsg = EasyBot.AppendForwardMsg(forwardMsg, EasyBot.NewCustomForwardNode(
-					"NothingBot", bot.GetSelfID(), fmt.Sprintf(
-						`[CQ:image,file=https:%s]
-%s
-%s
-%s
-上次直播结束于：%s
-%d粉丝
-live.bilibili.com/%d
-space.bilibili.com/%d`,
-						uface,
-						uname,
-						cate,
-						tags,
-						liveT,
-						fans,
-						roomid,
-						uid), 0, 0))
-			} else { //开播则调用getRoomJson和formatLive
-				roomJson, ok := getRoomJsonUID(uid).Gets("data", uid)
-				if ok {
-					forwardMsg = EasyBot.AppendForwardMsg(forwardMsg, EasyBot.NewCustomForwardNode(
-						"NothingBot", bot.GetSelfID(), formatLive(roomJson), 0, 0))
-				} else { //fallback
-					forwardMsg = EasyBot.AppendForwardMsg(forwardMsg, EasyBot.NewCustomForwardNode(
-						"NothingBot", bot.GetSelfID(), fmt.Sprintf(
+			if liveStatus == 0 { //未开播直接使用搜索返回的数据
+				forwardMsg = EasyBot.AppendForwardMsg(
+					forwardMsg, EasyBot.NewCustomForwardNode(
+						"NothingBot", bot.GetSelfId(), fmt.Sprintf(
 							`[CQ:image,file=https:%s]
 %s
 %s
 %s
-直播开始于：%s
+上次直播结束于：%s
 %d粉丝
 live.bilibili.com/%d
 space.bilibili.com/%d`,
@@ -245,11 +226,45 @@ space.bilibili.com/%d`,
 							liveT,
 							fans,
 							roomid,
-							uid), 0, 0))
+							uid,
+						), 0, 0,
+					),
+				)
+			} else { //开播则调用getRoomJson和formatLive
+				roomJson, ok := getRoomJsonUID(uid).Gets("data", uid)
+				if ok {
+					forwardMsg = EasyBot.AppendForwardMsg(
+						forwardMsg, EasyBot.NewCustomForwardNode(
+							"NothingBot", bot.GetSelfId(), formatLive(roomJson), 0, 0,
+						),
+					)
+				} else { //fallback
+					forwardMsg = EasyBot.AppendForwardMsg(
+						forwardMsg, EasyBot.NewCustomForwardNode(
+							"NothingBot", bot.GetSelfId(), fmt.Sprintf(
+								`[CQ:image,file=https:%s]
+%s
+%s
+%s
+直播开始于：%s
+%d粉丝
+live.bilibili.com/%d
+space.bilibili.com/%d`,
+								uface,
+								uname,
+								cate,
+								tags,
+								liveT,
+								fans,
+								roomid,
+								uid,
+							), 0, 0,
+						),
+					)
 				}
 			}
 		}
-	case searchTypes.ARTICLE: //专栏
+	case ST.ARTICLE: //专栏
 		for _, g := range results {
 			image := g.Get("image_urls").Arr()[0].Str()          //封面
 			title := keywordRemove.Replace(g.Get("title").Str()) //标题
@@ -261,9 +276,10 @@ space.bilibili.com/%d`,
 			cvid := g.Get("id").Int()                            //cv号数字
 			mid := g.Get("mid").Int()                            //uid
 
-			forwardMsg = EasyBot.AppendForwardMsg(forwardMsg, EasyBot.NewCustomForwardNode(
-				"NothingBot", bot.GetSelfID(), fmt.Sprintf(
-					`[CQ:image,file=https:%s]
+			forwardMsg = EasyBot.AppendForwardMsg(
+				forwardMsg, EasyBot.NewCustomForwardNode(
+					"NothingBot", bot.GetSelfId(), fmt.Sprintf(
+						`[CQ:image,file=https:%s]
 cv%d
 %s
 %s
@@ -271,16 +287,19 @@ cv%d
 %s......
 www.bilibili.com/read/cv%d
 space.bilibili.com/%d`,
-					image,
-					cvid,
-					title,
-					cate,
-					view, like, reply,
-					desc,
-					cvid,
-					mid), 0, 0))
+						image,
+						cvid,
+						title,
+						cate,
+						view, like, reply,
+						desc,
+						cvid,
+						mid,
+					), 0, 0,
+				),
+			)
 		}
-	case searchTypes.USER: //用户
+	case ST.USER: //用户
 		for _, g := range results {
 			upic := g.Get("upic").String()   //头像
 			uname := g.Get("uname").String() //昵称
@@ -288,22 +307,26 @@ space.bilibili.com/%d`,
 			mid := g.Get("mid").Int()        //uid
 			fans := g.Get("fans").Int()      //粉丝数
 			videos := g.Get("videos").Int()  //视频数
-			is_live := func() string {       //直播状态
+			isLive := func() string {        //直播状态
 				if g.Get("is_live").Int() != 0 {
 					return fmt.Sprint("\n直播中：live.bilibili.com/", g.Get("room_id").Int())
 				}
 				return ""
 			}()
-			forwardMsg = EasyBot.AppendForwardMsg(forwardMsg, EasyBot.NewCustomForwardNode(
-				"NothingBot", bot.GetSelfID(), fmt.Sprintf(
-					`[CQ:image,file=https:%s]
+			forwardMsg = EasyBot.AppendForwardMsg(
+				forwardMsg, EasyBot.NewCustomForwardNode(
+					"NothingBot", bot.GetSelfId(), fmt.Sprintf(
+						`[CQ:image,file=https:%s]
 %s（LV%d）
 space.bilibili.com/%d
 %d粉丝  %d投稿%s`,
-					upic,
-					uname, level,
-					mid,
-					fans, videos, is_live), 0, 0))
+						upic,
+						uname, level,
+						mid,
+						fans, videos, isLive,
+					), 0, 0,
+				),
+			)
 		}
 	}
 	return
@@ -311,8 +334,13 @@ space.bilibili.com/%d
 
 // 哔哩哔哩快捷搜索
 func checkSearch(ctx *EasyBot.CQMessage) {
-	match := ctx.RegexpFindAllStringSubmatch(biliSearchRegexp)
+	match := ctx.RegFindAllStringSubmatch(regexp.MustCompile(biliSearchRegexp))
 	if len(match) > 0 {
-		ctx.SendForwardMsg(formatBiliSearch(match[0][1], match[0][2]))
+		msg := formatBiliSearch(match[0][1], match[0][2])
+		if msg != nil {
+			ctx.SendForwardMsg(msg)
+		} else {
+			log.Error("[Search] ")
+		}
 	}
 }

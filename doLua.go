@@ -4,6 +4,7 @@ import (
 	"NothinBot/EasyBot"
 	"bytes"
 	"errors"
+	"regexp"
 	"time"
 
 	log "github.com/sirupsen/logrus"
@@ -12,9 +13,11 @@ import (
 
 var (
 	// Bot用的VM, 不需要重定向print
-	globalLuaVM = lua.NewState(lua.Options{
-		MinimizeStackMemory: true,
-	})
+	globalLuaVM = lua.NewState(
+		lua.Options{
+			MinimizeStackMemory: true,
+		},
+	)
 )
 
 var (
@@ -30,23 +33,29 @@ func resetDoLuaVM() {
 	if doLuaVM != nil {
 		doLuaVM.Close()
 	}
-	doLuaVM = lua.NewState(lua.Options{
-		MinimizeStackMemory: true,
-	})
+	doLuaVM = lua.NewState(
+		lua.Options{
+			MinimizeStackMemory: true,
+		},
+	)
 	// alias
 	doLuaVM.SetGlobal("stdPrint", doLuaVM.GetGlobal("print"))
 	// print重定向
-	doLuaVM.SetGlobal("print", doLuaVM.NewFunction(func(L *lua.LState) int {
-		top := L.GetTop()
-		for i := 1; i <= top; i++ {
-			if i > 1 {
-				printBuffer.WriteString("\t")
-			}
-			printBuffer.WriteString(L.Get(i).String())
-		}
-		// printBuffer.WriteString("\n")
-		return 0
-	}))
+	doLuaVM.SetGlobal(
+		"print", doLuaVM.NewFunction(
+			func(L *lua.LState) int {
+				top := L.GetTop()
+				for i := 1; i <= top; i++ {
+					if i > 1 {
+						printBuffer.WriteString("\t")
+					}
+					printBuffer.WriteString(L.Get(i).String())
+				}
+				// printBuffer.WriteString("\n")
+				return 0
+			},
+		),
+	)
 	// add := func(a, b int) int { return a + b }
 	// doLuaVM.Register("add", add)
 }
@@ -78,7 +87,7 @@ func doLuaWithTimeout(l *lua.LState, source string, timeout time.Duration) (resu
 
 func checkDoLua(ctx *EasyBot.CQMessage) {
 	//开关控制
-	matches := ctx.RegexpFindAllStringSubmatch(`(开启|启用|关闭|禁用)do[Ll]ua`)
+	matches := ctx.RegFindAllStringSubmatch(regexp.MustCompile(`(开启|启用|关闭|禁用)do[Ll]ua`))
 	if len(matches) > 0 && ctx.IsPrivateSU() {
 		switch matches[0][1] {
 		case "开启", "启用":
@@ -94,9 +103,9 @@ func checkDoLua(ctx *EasyBot.CQMessage) {
 		return
 	}
 
-	symbolMatches := ctx.RegexpFindAllStringSubmatch("do[Ll]ua\n")
+	symbolMatches := ctx.RegFindAllStringSubmatch(regexp.MustCompile("do[Ll]ua\n"))
 	if len(symbolMatches) > 0 {
-		luaScript := ctx.RegexpReplaceAll("do[Ll]ua\n", "")
+		luaScript := ctx.RegReplaceAll(regexp.MustCompile("do[Ll]ua\n"), "")
 		log.Debug("execute lua:\n", luaScript)
 		result, err := doLuaWithTimeout(doLuaVM, luaScript, doLuaTimeout)
 		if err == nil {

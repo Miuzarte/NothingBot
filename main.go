@@ -2,12 +2,18 @@ package main
 
 import (
 	"NothinBot/EasyBot"
+	"NothinBot/SimpleLogFormatter"
 	_ "embed"
+	"encoding/json"
 	"flag"
 	"fmt"
+	"github.com/fsnotify/fsnotify"
+	"golang.org/x/sys/windows"
+	"math/rand"
 	"os"
 	"os/signal"
 	"reflect"
+	"regexp"
 	"strconv"
 	"strings"
 	"syscall"
@@ -16,40 +22,13 @@ import (
 
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/viper"
-	easy "github.com/t-tomalak/logrus-easy-formatter"
 	"github.com/ysmood/gson"
 )
 
 //go:embed default_config.yml
 var defaultConfig string
 
-type Config struct {
-	Main struct {
-		WsUrl      string
-		SuperUsers []int
-	}
-}
-
 var (
-	timeLayout = struct {
-		L24  string
-		L24C string
-		M24  string
-		M24C string
-		S24  string
-		S24C string
-		T24  string
-		T24C string
-	}{
-		L24:  "2006/01/02 15:04:05",
-		L24C: "2006年01月02日15时04分05秒",
-		M24:  "01/02 15:04:05",
-		M24C: "01月02日15时04分05秒",
-		S24:  "02 15:04:05",
-		S24C: "02日15时04分05秒",
-		T24:  "15:04:05",
-		T24C: "15时04分05秒",
-	}
 	iheaders = map[string]string{
 		"Accept":             "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7",
 		"Accept-Language":    "zh-CN,zh;q=0.9,en;q=0.8,en-GB;q=0.7,en-US;q=0.6",
@@ -66,20 +45,41 @@ var (
 		"User-Agent":         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/116.0.0.0 Safari/537.36 Edg/116.0.1938.62",
 	}
 
-	startTime         = time.Now().Unix()
-	mainBlock         = make(chan os.Signal) //main阻塞
-	v                 = viper.New()          //配置体
-	customConfigPath  = ""                   //自定义配置文件路径
-	configUpdateCount = 0                    //
-	bot               = EasyBot.New()        //BOT
+	unescape = strings.NewReplacer(
+		"&amp;", "&", "&#44;", ",", "&#91;", "[", "&#93;", "]",
+	)
+	startTime            = time.Now().Unix()
+	mainBlock            = make(chan os.Signal) //main阻塞
+	v                    = viper.New()          //配置体
+	customConfigPath     = ""                   //自定义配置文件路径
+	configUpdateCount    = 0                    //config更新计数
+	lastConfigChangeTime = time.Now().Unix()    //上次config保存时间
+	bot                  = EasyBot.New()        //BOT
 )
+
+func loopTitle() {
+	titles := []string{"O.o", "o.O", "O.O", "o.o"}
+	previous := -1
+	for {
+		r := rand.Intn(4)
+		if r == previous {
+			continue
+		}
+		previous = r
+
+		err := setConsoleTitle(titles[r])
+		if err != nil {
+			log.Error("[main] 设置窗口标题失败: ", err)
+			return
+		}
+		time.Sleep(time.Second * 5)
+	}
+}
 
 func main() {
 	log.SetLevel(log.TraceLevel)
-	log.SetFormatter(&easy.Formatter{
-		TimestampFormat: timeLayout.M24,
-		LogFormat:       "[%time%] [%lvl%] %msg%\n",
-	})
+	log.SetFormatter(&SimpleLogFormatter.LogFormat{})
+	go loopTitle()
 
 	initFlag()
 	initConfig()
@@ -88,36 +88,60 @@ func main() {
 		SetLogLevel(log.TraceLevel).
 		EnableOnlineNotification(true).
 		EnableOfflineNotification(false).
-		OnData(func(data *EasyBot.CQRecv) {
-			// log.Debug("[NothingBot] gocq下发数据: ", string(data.Raw))
-		}).
-		OnTerminateUnexpectedly(func() {
-			bot.Connect(true)
-		}).
-		OnMessage(func(msg *EasyBot.CQMessage) {
-			handleMessage(msg)
-		}).
-		OnFriendRecall(func(fr *EasyBot.CQNoticeFriendRecall) {
-			handleFriendRecall(fr)
-		}).
-		OnGroupRecall(func(gr *EasyBot.CQNoticeGroupRecall) {
-			handleGroupRecall(gr)
-		}).
-		OnGroupCard(func(gc *EasyBot.CQNoticeGroupCard) {
-			handleGroupCard(gc)
-		}).
-		OnGroupUpload(func(gu *EasyBot.CQNoticeGroupUpload) {
-			handleGroupUpload(gu)
-		}).
-		OnOfflineFile(func(of *EasyBot.CQNoticeOfflineFile) {
-			handleOfflineFile(of)
-		}).
-		OnRequestGroup(func(rg *EasyBot.CQRequestGroup) {
-			handleRequestGroup(rg)
-		}).
-		OnPoke(func(pk *EasyBot.CQNoticeNotifyPoke) {
-			handlePoke(pk)
-		})
+		OnRecv(
+			func(data *EasyBot.CQRecv) {
+				// log.Debug("[NothingBot] gocq下发数据: ", string(data.Raw))
+			},
+		).
+		OnTerminateUnexpectedly(
+			func() {
+				err := bot.Connect(true)
+				if err != nil {
+					log.Error("[main] 建立ws连接失败")
+					return
+				}
+			},
+		).
+		OnMessage(
+			func(msg *EasyBot.CQMessage) {
+				handleMessage(msg)
+			},
+		).
+		OnFriendRecall(
+			func(fr *EasyBot.CQNoticeFriendRecall) {
+				handleFriendRecall(fr)
+			},
+		).
+		OnGroupRecall(
+			func(gr *EasyBot.CQNoticeGroupRecall) {
+				handleGroupRecall(gr)
+			},
+		).
+		OnGroupCard(
+			func(gc *EasyBot.CQNoticeGroupCard) {
+				handleGroupCard(gc)
+			},
+		).
+		OnGroupUpload(
+			func(gu *EasyBot.CQNoticeGroupUpload) {
+				handleGroupUpload(gu)
+			},
+		).
+		OnOfflineFile(
+			func(of *EasyBot.CQNoticeOfflineFile) {
+				handleOfflineFile(of)
+			},
+		).
+		OnRequestGroup(
+			func(rg *EasyBot.CQRequestGroup) {
+				handleRequestGroup(rg)
+			},
+		).
+		OnPoke(
+			func(pk *EasyBot.CQNoticeNotifyPoke) {
+				handlePoke(pk)
+			},
+		)
 
 	err := bot.Connect(true)
 	if err != nil {
@@ -131,7 +155,7 @@ func main() {
 
 // 初始化启动参数
 func initFlag() {
-	c := flag.String("c", "", "配置文件路径, 默认为./config.yaml")
+	c := flag.String("c", "./config.yml", "配置文件路径, 默认为./config.yaml")
 	flag.Parse()
 	if *c != "" {
 		customConfigPath = *c
@@ -142,19 +166,34 @@ func initFlag() {
 func initConfig() {
 	before := func() { //只执行一次
 		if customConfigPath == "" {
-			log.Info("[Init] 读取默认配置文件: ./config.yml")
-			v.SetConfigFile("./config.yml")
+			customConfigPath = "./config.yml"
+			log.Info("[Init] 读取默认配置文件: ", customConfigPath)
 		} else {
 			log.Info("[Init] 读取自定义配置文件: ", customConfigPath)
-			v.SetConfigFile(customConfigPath)
 		}
+		v.SetConfigFile(customConfigPath)
 		if err := v.ReadInConfig(); err != nil {
-			if err = os.WriteFile("./config.yml", []byte(defaultConfig), 0664); err != nil {
+			if err = os.WriteFile("./config.yml", []byte(defaultConfig), 0o664); err != nil {
 				log.Fatal("[Init] 尝试写入默认配置文件时发生错误: ", err)
 			}
 			log.Info("[Init] 缺失配置文件, 已生成默认配置, 请修改保存后重启程序")
 			os.Exit(0)
 		}
+
+		WatchFile(
+			customConfigPath,
+			func(event fsnotify.Event) {
+				nowTime := time.Now().Unix()
+				if nowTime-lastConfigChangeTime < 1 {
+					log.Info("[main] 无视一次配置文件更新")
+					return
+				}
+				lastConfigChangeTime = nowTime
+				//log.Info("[main] 更新了配置文件")
+				//configUpdateCount++
+				//initConfig()
+			},
+		)
 	}
 
 	after := func() { //热更新也执行
@@ -216,11 +255,9 @@ func initConfig() {
 	if configUpdateCount == 0 {
 		before()
 		after()
-		_ = gocqIsLocalOrRemote()
 		v.WatchConfig()
 	} else {
 		after()
-		_ = gocqIsLocalOrRemote()
 	}
 }
 
@@ -233,6 +270,7 @@ func initModules() {
 	initCache()
 	initParse()
 	initPush()
+	initListen()
 
 	initCorpus()
 }
@@ -242,15 +280,17 @@ func exitJobs() {
 	signal.Notify(mainBlock, syscall.SIGHUP, syscall.SIGINT, syscall.SIGQUIT, syscall.SIGTERM)
 	<-mainBlock
 	runTime := formatTime(int64(bot.GetRunningTime().Seconds()))
-	err := bot.Log2SU.Info("[Exit]",
+	err := bot.Log2SU.Info(
+		"[Exit]",
 		"\n此次运行时长：", runTime,
 		"\n心跳包接收计数：", bot.HeartbeatCount,
 		"\n心跳包丢失计数：", bot.HeartbeatLostCount,
-		"\ngo-cqhttp重连计数", bot.RetryCount)
+		"\nShamrock重连计数", bot.RetryCount,
+	)
 	log.Info("[Exit] 此次运行时长: ", runTime)
 	log.Info("[Exit] 心跳包接收计数: ", bot.HeartbeatCount)
 	log.Info("[Exit] 心跳包丢失计数: ", bot.HeartbeatLostCount)
-	log.Info("[Exit] go-cqhttp重连计数: ", bot.RetryCount)
+	log.Info("[Exit] Shamrock重连计数: ", bot.RetryCount)
 	if err != nil {
 		log.Error("[Exit] 下线消息发送失败, err: ", err)
 	}
@@ -264,6 +304,7 @@ func handleMessage(msg *EasyBot.CQMessage) {
 		// log.Info("[NothingBot] 在 ", msg.GroupID, " 收到 ", msg.Sender.CardName, "(", msg.Sender.NickName, " ", msg.UserID, ") 的群聊消息(", msg.MessageID, "): ", msg.RawMessage)
 	}
 	go func(ctx *EasyBot.CQMessage) {
+		go checkDebug(ctx)
 		go checkApiCallingTesting(ctx)
 		go checkAIReply2077(ctx)
 		go checkBotInternal(ctx)
@@ -284,7 +325,9 @@ func handleMessage(msg *EasyBot.CQMessage) {
 	}(msg)
 }
 
+// Deprecated
 func gocqIsLocalOrRemote() string {
+	return "remote"
 	if lor := v.GetString("main.localOrRemote"); lor == "local" || lor == "remote" {
 		return lor
 	} else {
@@ -293,32 +336,64 @@ func gocqIsLocalOrRemote() string {
 	return ""
 }
 
+func checkDebug(ctx *EasyBot.CQMessage) {
+	if !ctx.IsToMe() {
+		return
+	}
+	matches := ctx.RegFindAllStringSubmatch(regexp.MustCompile(`DEBUG`))
+	if len(matches) > 0 {
+		b, err := json.Marshal(ctx)
+		if err != nil {
+			ctx.SendMsgReply(err.Error())
+		}
+		ctx.SendMsgReply(BytesToString(b))
+	}
+}
+
 // 测试接口调用
 func checkApiCallingTesting(ctx *EasyBot.CQMessage) {
 	if !ctx.IsPrivateSU() {
 		return
 	}
-	get_msg := ctx.RegexpFindAllStringSubmatch(`get_msg\s?(.*)`)
-	if len(get_msg) > 0 {
-		msgId, _ := strconv.Atoi(get_msg[0][1])
+	post := ctx.RegFindAllStringSubmatch(regexp.MustCompile(`(?s)post\s*(.*)`))
+	if len(post) > 0 {
+		data := unescape.Replace(post[0][1])
+		n, err := bot.Conn.Write(StringToBytes(data))
+		if err != nil {
+			ctx.SendMsg("err: ", err)
+		} else {
+			ctx.SendMsg("n: ", n)
+		}
+	}
+	getMsg := ctx.RegFindAllStringSubmatch(regexp.MustCompile(`get_msg\s?(.*)`))
+	if len(getMsg) > 0 {
+		msgId, _ := strconv.Atoi(getMsg[0][1])
 		msg, err := bot.GetMsg(msgId)
 		if err != nil {
 			log.Error("err: ", err)
 		}
 		log.Debug(gson.New(msg).JSON("", ""))
 	}
-	download_file := ctx.RegexpFindAllStringSubmatch(`download_file\s?(.*)`)
-	if len(download_file) > 0 {
-		url := download_file[0][1]
+	downloadFile := ctx.RegFindAllStringSubmatch(regexp.MustCompile(`download_file\s?(.*)`))
+	if len(downloadFile) > 0 {
+		url := downloadFile[0][1]
 		file, err := bot.DownloadFile(url, 2, iheaders)
 		if err != nil {
 			log.Error("err: ", err)
 		}
 		log.Debug(file)
 	}
+	getLoginInfo := ctx.RegFindAllStringSubmatch(regexp.MustCompile(`get_login_info`))
+	if len(getLoginInfo) > 0 {
+		ctx.SendMsg(bot.GetLoginInfo())
+	}
+
+	//escapeTest1 := ctx.RegFindAllStringSubmatch(regexp.MustCompile(`转义测试`))
+	//if len(escapeTest1) > 0 {
+	//}
 }
 
-// 格式化秒级时间戳至 时分秒 x:x:x
+// formatTimeSimple 格式化秒级时间戳至 时分秒 x:x:x
 func formatTimeSimple(timestamp int64) (format string) {
 	h := (timestamp / (60 * 60)) % 24
 	m := (timestamp / 60) % 60
@@ -329,7 +404,7 @@ func formatTimeSimple(timestamp int64) (format string) {
 	return fmt.Sprintf("%02d:%02d", m, s)
 }
 
-// 格式化秒级时间戳至 x天x小时x分钟x秒
+// formatTime 格式化秒级时间戳至 x天x小时x分钟x秒
 func formatTime(timestamp int64) (format string) {
 	if timestamp == 0 {
 		return "0秒"
@@ -359,7 +434,7 @@ func formatTime(timestamp int64) (format string) {
 	return format
 }
 
-// 格式化毫秒级时间戳至 x天x小时x分钟x秒x毫秒
+// formatTimeMs 格式化毫秒级时间戳至 x天x小时x分钟x秒x毫秒
 func formatTimeMs(timestamp int64) (format string) {
 	if timestamp == 0 {
 		return "0毫秒"
@@ -402,7 +477,8 @@ func formatNumber(number float64, decimalSave int, trimTailZeros bool) string {
 	return s
 }
 
-func toCsv(items ...any) (outputWithNewLine string) {
+// ConvertToCSV 格式化至逗号分隔符格式，带换行
+func ConvertToCSV(items ...any) (outputWithNewLine string) {
 	count := len(items)
 	for i := 0; i < count; i++ {
 		outputWithNewLine += fmt.Sprint(items[i])
@@ -430,9 +506,31 @@ func StringToBytes(s string) (b []byte) {
 	return b
 }
 
+var (
+	//go:linkname modkernel32 golang.org/x/sys/windows.modkernel32
+	modkernel32         *windows.LazyDLL
+	procSetConsoleTitle = modkernel32.NewProc("SetConsoleTitleW")
+)
+
+//go:linkname errnoErr golang.org/x/sys/windows.errnoErr
+func errnoErr(e syscall.Errno) error
+
+func setConsoleTitle(title string) (err error) {
+	var p0 *uint16
+	p0, err = syscall.UTF16PtrFromString(title)
+	if err != nil {
+		return
+	}
+	r1, _, e1 := syscall.Syscall(procSetConsoleTitle.Addr(), 1, uintptr(unsafe.Pointer(p0)), 0, 0)
+	if r1 == 0 {
+		err = errnoErr(e1)
+	}
+	return
+}
+
 func checkDir(path string) (err error) {
 	if _, err := os.Stat(path); os.IsNotExist(err) {
-		err = os.Mkdir(path, 0755)
+		err = os.Mkdir(path, 0o755)
 		if err != nil {
 			log.Error("无法创建文件夹: ", err)
 		} else {
@@ -462,7 +560,9 @@ func handleGroupRecall(gr *EasyBot.CQNoticeGroupRecall) {
 		log.Warn("[NothingBot] 调用 bot.FetchGroupMsg() 时发生错误")
 	}
 	if msg != nil {
-		log.Info("[NothingBot] 群 ", gr.GroupID, " 中 ", gr.UserID, " 撤回了一条消息: ", msg.RawMessage, " (", gr.MessageID, ")")
+		log.Info(
+			"[NothingBot] 群 ", gr.GroupID, " 中 ", gr.UserID, " 撤回了一条消息: ", msg.RawMessage, " (", gr.MessageID, ")",
+		)
 	} else {
 		log.Info("[NothingBot] 群 ", gr.GroupID, " 中 ", gr.UserID, " 撤回了一条消息, ID: ", gr.MessageID, ")")
 	}
@@ -473,10 +573,20 @@ func handleGroupCard(gc *EasyBot.CQNoticeGroupCard) {
 	if gc.CardOld == "" {
 		return
 	}
-	avatar := bot.Utils.Format.ImageUrl(fmt.Sprintf(
-		"http://q.qlogo.cn/headimg_dl?dst_uin=%d&spec=640&img_type=jpg", gc.UserID), "cache=0")
-	bot.SendGroupMsg(gc.GroupID, fmt.Sprint(
-		avatar, gc.UserID, " 变更了群名片：\n", gc.CardOld, " -> ", gc.CardNew))
+	avatar := bot.Utils.Format.ImageUrl(
+		fmt.Sprintf(
+			"https://q.qlogo.cn/headimg_dl?dst_uin=%d&spec=640&img_type=jpg", gc.UserID,
+		), "cache=0",
+	)
+	err := bot.SendGroupMsg(
+		gc.GroupID, fmt.Sprint(
+			avatar, gc.UserID, " 变更了群名片：\n", gc.CardOld, " -> ", gc.CardNew,
+		),
+	)
+	if err != nil {
+		log.Error("[main] 消息发送失败: ", err)
+		return
+	}
 }
 
 // 群文件上传
@@ -486,25 +596,44 @@ func handleGroupUpload(gu *EasyBot.CQNoticeGroupUpload) {
 
 // 离线文件上传
 func handleOfflineFile(of *EasyBot.CQNoticeOfflineFile) {
-	bot.SendPrivateMsg(of.UserID, fmt.Sprintf(
-		"%s（%.2fMB）\n%s",
-		of.File.Name, float64(of.File.Size)/1024.0/1024.0,
-		of.File.Url))
+	err := bot.SendPrivateMsg(
+		of.UserID, fmt.Sprintf(
+			"%s（%.2fMB）\n%s",
+			of.File.Name, float64(of.File.Size)/1024.0/1024.0,
+			of.File.Url,
+		),
+	)
+	if err != nil {
+		log.Error("[main] 消息发送失败: ", err)
+		return
+	}
 }
 
 // 加群请求/邀请
 func handleRequestGroup(rg *EasyBot.CQRequestGroup) {
 	switch rg.SubType {
 	case "add":
-		bot.Log2SU.Info("[NothingBot] 群", rg.GroupID, "收到了来自", rg.UserID, "的加群申请：", rg.Comment)
+		err := bot.Log2SU.Info("[NothingBot] 群", rg.GroupID, "收到了来自", rg.UserID, "的加群申请：", rg.Comment)
+		if err != nil {
+			log.Error("[main] 消息发送失败: ", err)
+			return
+		}
 	case "invite":
-		bot.Log2SU.Info("[NothingBot] 被", rg.UserID, "邀请至群", rg.GroupID)
+		err := bot.Log2SU.Info("[NothingBot] 被", rg.UserID, "邀请至群", rg.GroupID)
+		if err != nil {
+			log.Error("[main] 消息发送失败: ", err)
+			return
+		}
 	}
 }
 
 // 戳一戳
 func handlePoke(pk *EasyBot.CQNoticeNotifyPoke) {
-	if pk.TargetID == bot.GetSelfID() && pk.SenderID != pk.TargetID && pk.GroupID != 0 {
-		bot.SendGroupMsg(pk.GroupID, "[NothingBot] 在一条消息内只at我两次可以获取帮助信息～")
+	if pk.TargetID == bot.GetSelfId() && pk.OperatorID != pk.TargetID && pk.GroupID != 0 {
+		err := bot.SendGroupMsg(pk.GroupID, "[NothingBot] 在一条消息内只at我两次可以获取帮助信息～")
+		if err != nil {
+			log.Error("[main] 消息发送失败: ", err)
+			return
+		}
 	}
 }

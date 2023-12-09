@@ -11,6 +11,7 @@ import (
 	"encoding/pem"
 	"fmt"
 	"os"
+	"regexp"
 	"time"
 
 	b16384 "github.com/fumiama/go-base16384"
@@ -63,14 +64,14 @@ func readBiliIdentity() {
 		log.Error("[Bilibili] readBiliIdentity unmarshal error: ", err)
 		return
 	}
-	log.Debug("[Bilibili] biliIdentity: ", biliIdentity)
+	log.Trace("[Bilibili] biliIdentity: ", biliIdentity)
 }
 
 func checkBiliLogin(ctx *EasyBot.CQMessage) {
 	if !ctx.IsPrivateSU() {
 		return
 	}
-	matches := ctx.RegexpFindAllStringSubmatch(`(查看|保存|check|view|save)\s*(饼干|cookie)`)
+	matches := ctx.RegFindAllStringSubmatch(regexp.MustCompile(`(查看|保存|check|view|save)\s*(饼干|cookie)`))
 	if len(matches) > 0 {
 		switch matches[0][1] {
 		case "查看", "check", "view":
@@ -79,7 +80,7 @@ func checkBiliLogin(ctx *EasyBot.CQMessage) {
 			saveBiliIdentity(biliIdentity)
 		}
 	}
-	matches = ctx.RegexpFindAllStringSubmatch("扫码登[录陆]")
+	matches = ctx.RegFindAllStringSubmatch(regexp.MustCompile("扫码登[录陆]"))
 	if len(matches) == 0 {
 		return
 	}
@@ -183,7 +184,7 @@ func getCorrespondPath() (encryptedHex string) {
 	// 将加密后的结果转换为十六进制字符串
 	encryptedHex = hex.EncodeToString(ciphertext)
 	if err != nil {
-		fmt.Println("Error encrypting:", err)
+		log.Error("Error encrypting:", err)
 		return
 	}
 	return
@@ -221,9 +222,11 @@ type LoginQRScan struct {
 }
 
 func PollQRScan(qrcodeKey string) (scanState *LoginQRScan, err error) {
-	resp, headers, err := CallBiliApi("https://passport.bilibili.com/x/passport-login/web/qrcode/poll", map[string]any{
-		"qrcode_key": qrcodeKey,
-	})
+	resp, headers, err := CallBiliApi(
+		"https://passport.bilibili.com/x/passport-login/web/qrcode/poll", map[string]any{
+			"qrcode_key": qrcodeKey,
+		},
+	)
 	if err != nil {
 		return nil, err
 	}

@@ -119,29 +119,31 @@ func checkCC() (ok bool, err error) {
 }
 
 // 更新凭据
-func (cc *clientCredentials) updateCredentials() (*clientCredentials, error) {
+func (cc *clientCredentials) updateCredentials() (ccNew *clientCredentials, err error) {
 	resp, err := ihttp.New().WithUrl(tokenUrl).
 		WithHeader("Content-Type", "application/json").
-		WithAddQuerys(map[string]any{
-			"grant_type":    "client_credentials",
-			"client_id":     apiKey,
-			"client_secret": secretKey,
-		}).Post().ToString()
+		WithAddQuerys(
+			map[string]any{
+				"grant_type":    "client_credentials",
+				"client_id":     apiKey,
+				"client_secret": secretKey,
+			},
+		).Post().ToString()
 	if err != nil {
 		log.Error("[qianfan] cc post err: ", err.Error())
 		return nil, err
 	}
 	log.Debug("[qianfan] get cc: ", resp)
-	cc = &clientCredentials{}
-	err = json.Unmarshal([]byte(resp), cc)
+	ccNew = &clientCredentials{}
+	err = json.Unmarshal([]byte(resp), ccNew)
 	if err != nil {
 		log.Warn("[qianfan] cc Unmarshal err: ", err.Error())
 	}
-	if cc.ExpiresIn == 0 || cc.AccessToken == "" {
+	if ccNew.ExpiresIn == 0 || ccNew.AccessToken == "" {
 		return nil, errors.New("failed to refresh token")
 	}
-	cc.ExpiredTime = cc.ExpiresIn + time.Now().Unix()
-	return cc, nil
+	ccNew.ExpiredTime = ccNew.ExpiresIn + time.Now().Unix()
+	return ccNew, nil
 }
 
 func (p *wenxinPost) post() (*wenxinResp, error) {

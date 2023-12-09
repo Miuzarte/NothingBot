@@ -73,15 +73,17 @@ func waitToSendGroupUpload(groupId int, userId int) {
 		case <-gfp.timer.C:
 			go func() {
 				userName := bot.GetCardName(groupId, userId)
-				forwardMsg := EasyBot.NewForwardMsg(EasyBot.NewCustomForwardNode(
-					fmt.Sprintf("%s（%d）", userName, userId), bot.GetSelfID(),
-					fmt.Sprintf("上传了 %d 个文件\nNothingbot_FileParse", len(gfp.files)),
-					0, 0))
+				forwardMsg := EasyBot.NewForwardMsg(
+					EasyBot.NewCustomForwardNodeOSR(
+						fmt.Sprintf("%s（%d）上传了 %d 个文件\nNothingbot_FileParse", userName, userId, len(gfp.files)),
+					),
+				)
 				for _, file := range gfp.files {
-					forwardMsg = EasyBot.AppendForwardMsg(forwardMsg, EasyBot.NewCustomForwardNode(
-						file.File.Name+"（"+formatFileSize(file.File.Size)+"）", file.UserID,
-						file.File.Url,
-						0, 0))
+					forwardMsg = EasyBot.AppendForwardMsg(
+						forwardMsg, EasyBot.NewCustomForwardNodeOSR(
+							fmt.Sprintf("%s(%s)\n%s", file.File.Name, formatFileSize(file.File.Size), file.File.Url),
+						),
+					)
 				}
 				bot.SendGroupForwardMsg(groupId, forwardMsg)
 			}()

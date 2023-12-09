@@ -1,7 +1,9 @@
 package main
 
 import (
+	"NothinBot/Bilibili/Wbi"
 	"NothinBot/EasyBot"
+	"NothinBot/TimeLayout"
 	"encoding/json"
 	"fmt"
 	"math"
@@ -79,8 +81,11 @@ var (
 		ROTATE:  2,
 	}
 
-	rmTitle = strings.NewReplacer("概述", "", "要点", "", "由", "", "总结：", "", "总结（原文长度超过1500字符，输入经过去尾）：", "",
-		"ChatGLM2-6B", "", "ERNIE_Bot", "", "ERNIE_Bot_turbo", "", "BLOOMZ_7B", "", "Llama_2_7b", "", "Llama_2_13b", "", "Llama_2_70b", "")
+	rmTitle = strings.NewReplacer(
+		"概述", "", "要点", "", "由", "", "总结：", "", "总结（原文长度超过1500字符，输入经过去尾）：", "",
+		"ChatGLM2-6B", "", "ERNIE_Bot", "", "ERNIE_Bot_turbo", "", "BLOOMZ_7B", "", "Llama_2_7b", "", "Llama_2_13b", "",
+		"Llama_2_70b", "",
+	)
 
 	// cookie               = ""
 	cookieUid            = 0
@@ -152,14 +157,16 @@ func CallBiliApi(url string, querys map[string]any) (resp *BiliApiResp, headers 
 	}
 	err = json.Unmarshal(body, resp)
 	if err != nil {
-		log.Error("[Bilibili] CallBiliApi() unmarshal error: ", err,
+		log.Error(
+			"[Bilibili] CallBiliApi() unmarshal error: ", err,
 			"\n    data: ", string(body),
-			"\n    using gson: ", gson.New(body).JSON("", ""))
+			"\n    using gson: ", gson.New(body).JSON("", ""),
+		)
 		return
 	}
 	headers = make(map[string]string)
 	for k, v := range header {
-		headers[k] = strings.Join(v, " ")
+		headers[k] = strings.Join(v, "; ")
 	}
 	return
 }
@@ -211,10 +218,12 @@ func formatDynamic(g gson.JSON) string {
 		switch additionalType {
 		case "ADDITIONAL_TYPE_RESERVE": //预约
 			reserveJson := dynamic.Get("additional.reserve")
-			addtion = fmt.Sprintf("\n%s\n%s\n%s",
+			addtion = fmt.Sprintf(
+				"\n%s\n%s\n%s",
 				reserveJson.Get("title").Str(),
 				reserveJson.Get("desc1.text").Str(), //"预计xxx发布"
-				reserveJson.Get("desc2.text").Str()) //"xx人预约"/"xx观看"
+				reserveJson.Get("desc2.text").Str(),
+			) //"xx人预约"/"xx观看"
 		case "ADDITIONAL_TYPE_VOTE": //投票
 			voteJson := getVoteJson(dynamic.Get("additional.vote.vote_id").Int()).Get("data.info")
 			name := voteJson.Get("name").Str()            //发起者
@@ -226,37 +235,43 @@ func formatDynamic(g gson.JSON) string {
 				timeNow := time.Unix(time.Now().Unix(), 0)
 				if time2.Format("2006") == timeNow.Format("2006") { //结束日期同年 不显示年份
 					if time2.Format("01") == timeNow.Format("01") { //结束日期同月 不显示月份
-						return time1.Format(timeLayout.M24), time2.Format(timeLayout.S24)
+						return time1.Format(TimeLayout.M24), time2.Format(TimeLayout.S24)
 					}
-					return time1.Format(timeLayout.M24), time2.Format(timeLayout.M24)
+					return time1.Format(TimeLayout.M24), time2.Format(TimeLayout.M24)
 				}
-				return time1.Format(timeLayout.L24), time2.Format(timeLayout.L24)
+				return time1.Format(TimeLayout.L24), time2.Format(TimeLayout.L24)
 			}(int64(voteJson.Get("starttime").Int()), int64(voteJson.Get("endtime").Int()))
 			c_cnt := voteJson.Get("choice_cnt").Int()             //最大选择数
 			cnt := voteJson.Get("cnt").Int()                      //参与数
 			option := func(options []gson.JSON) (option string) { //选项
 				for _, j := range options {
 					if !j.Get("cnt").Nil() {
-						option += fmt.Sprintf("\n%d. %s  %d人选择",
+						option += fmt.Sprintf(
+							"\n%d. %s  %d人选择",
 							j.Get("idx").Int(),  //序号
 							j.Get("desc").Str(), //描述
-							j.Get("cnt").Int())  //选择数
+							j.Get("cnt").Int(),
+						) //选择数
 					} else {
-						option += fmt.Sprintf("\n%d. %s",
-							j.Get("idx").Int(),  //序号
-							j.Get("desc").Str()) //描述
+						option += fmt.Sprintf(
+							"\n%d. %s",
+							j.Get("idx").Int(), //序号
+							j.Get("desc").Str(),
+						) //描述
 						//cookie失效时拿不到选择数
 					}
 				}
 				return
 			}(voteJson.Get("options").Arr())
-			addtion = fmt.Sprintf(`
+			addtion = fmt.Sprintf(
+				`
 %s发起的投票：%s%s
 %s  -  %s
 最多选%d项  %d人参与%s`,
 				name, title, desc,
 				startTime, endTime,
-				c_cnt, cnt, option)
+				c_cnt, cnt, option,
+			)
 		case "ADDITIONAL_TYPE_UGC": //评论同时转发
 			url := dynamic.Get("additional.ugc.jump_url").Str()
 			id, kind, _, _, _ := extractBiliLink(url)
@@ -279,7 +294,8 @@ func formatDynamic(g gson.JSON) string {
 			id,
 			name, topic,
 			text,
-			formatDynamic(g.Get("orig")))
+			formatDynamic(g.Get("orig")),
+		)
 	case "DYNAMIC_TYPE_NONE": //转发的动态已删除
 		return dynamic.Get("major.none.tips").Str() //错误提示: "源动态已被作者删除"
 	case "DYNAMIC_TYPE_WORD": //纯文字
@@ -290,7 +306,8 @@ func formatDynamic(g gson.JSON) string {
 %s%s`,
 			id,
 			name, topic,
-			text, addition)
+			text, addition,
+		)
 	case "DYNAMIC_TYPE_DRAW": //图文
 		draw := dynamic.Get("major.draw")
 		images := func(items []gson.JSON) (images string) { //图片
@@ -308,7 +325,8 @@ func formatDynamic(g gson.JSON) string {
 			id,
 			name, topic,
 			text,
-			images, addition)
+			images, addition,
+		)
 	case "DYNAMIC_TYPE_AV": //视频
 		archive := dynamic.Get("major.archive")
 		text := func(exist bool, text string) string { //正文
@@ -336,7 +354,8 @@ func formatDynamic(g gson.JSON) string {
 %s`,
 			id,
 			name, action, topic, text,
-			content)
+			content,
+		)
 	case "DYNAMIC_TYPE_ARTICLE": //文章
 		article := dynamic.Get("major.article")
 		cvid := article.Get("id").Int() //cv号数字
@@ -354,7 +373,8 @@ func formatDynamic(g gson.JSON) string {
 %s`,
 			id,
 			name, action, topic,
-			content)
+			content,
+		)
 	case "DYNAMIC_TYPE_MUSIC":
 		music := dynamic.Get("major.music")
 		sid := music.Get("id").Int()
@@ -372,7 +392,8 @@ func formatDynamic(g gson.JSON) string {
 %s`,
 			id,
 			name, action, topic,
-			content)
+			content,
+		)
 	case "DYNAMIC_TYPE_LIVE_RCMD": //直播（动态流拿不到更新）
 		return fmt.Sprintf(
 			`t.bilibili.com/%s
@@ -381,7 +402,8 @@ func formatDynamic(g gson.JSON) string {
 %s`,
 			id,
 			name, action,
-			formatLive(getRoomJsonUID(uid)))
+			formatLive(getRoomJsonUID(uid)),
+		)
 	case "DYNAMIC_TYPE_COMMON_SQUARE": //应用装扮同步动态
 		log.Info("[bilibili] 应用装扮同步动态: ", dynamic.JSON("", ""))
 		return fmt.Sprintf(
@@ -391,7 +413,8 @@ func formatDynamic(g gson.JSON) string {
 这是一条应用装扮同步动态：%s`,
 			id,
 			name, action, topic, addition,
-			dynamicType)
+			dynamicType,
+		)
 	default:
 		log.Error("[bilibili] 未知的动态类型: ", dynamicType, id)
 		bot.Log2SU.Error(fmt.Sprint("[bilibili] 未知的动态类型：", dynamicType, " (", id, ")"))
@@ -402,14 +425,19 @@ func formatDynamic(g gson.JSON) string {
 未知的动态类型：%s`,
 			id,
 			name,
-			dynamicType)
+			dynamicType,
+		)
 	}
 }
 
 // 获取官方AI总结
 func getArchiveSummary(aid int) (summary string, err error) {
 	cid := getCid(aid)
-	signedUrl := SignURL(fmt.Sprintf("https://api.bilibili.com/x/web-interface/view/conclusion/get?aid=%d&cid=%d", aid, cid))
+	signedUrl, _ := Wbi.Sign(
+		fmt.Sprintf(
+			"https://api.bilibili.com/x/web-interface/view/conclusion/get?aid=%d&cid=%d", aid, cid,
+		),
+	)
 	videoSummary, err := ihttp.New().WithUrl(signedUrl).WithHeaders(iheaders).Get().ToGson()
 	if err != nil {
 		return
@@ -427,7 +455,8 @@ func getArchiveSummary(aid int) (summary string, err error) {
 		for _, partOutline := range outline.Get("part_outline").Arr() {
 			timestamp := partOutline.Get("timestamp").Int()
 			content := partOutline.Get("content").Str()
-			summary += fmt.Sprintf("\n[%s] %s",
+			summary += fmt.Sprintf(
+				"\n[%s] %s",
 				formatTimeSimple(int64(timestamp)), content,
 			)
 		}
@@ -436,7 +465,7 @@ func getArchiveSummary(aid int) (summary string, err error) {
 }
 
 // av号获取视频数据.Get("data"))
-func getArchiveJson(aid int) (archiveJson gson.JSON, stateJson gson.JSON) {
+func getArchiveJson[T int | string](aid T) (archiveJson gson.JSON, stateJson gson.JSON) {
 	archiveJson, err := ihttp.New().WithUrl("https://api.bilibili.com/x/web-interface/view").
 		WithAddQuerys(map[string]any{"aid": aid}).WithHeaders(iheaders).
 		Get().ToGson()
@@ -490,57 +519,63 @@ func getArchiveJsonB(bvid string) (archiveJson gson.JSON, stateJson gson.JSON) {
 // 读取缓存
 func initCache() {
 	_ = checkDir(tempDir)
-	err := filepath.Walk(tempDir, func(path string, info os.FileInfo, err error) error {
-		if err != nil {
-			log.Error("访问路径 ", path, " 时发生错误: ", err.Error())
-			return err
-		}
-		if info.IsDir() {
-			return nil
-		}
-		fileDataRaw, err := os.ReadFile(path)
-		if err != nil {
-			log.Error("[bilibili] read cache err: ", err.Error())
-		}
-		g := gson.New(fileDataRaw)
-		fileData := []byte(g.JSON("", ""))
-		switch info.Name()[:2] { //文件名前两个字母
-		case "av":
-			as := &archiveSubtitle{}
-			err = json.Unmarshal(fileData, as)
+	err := filepath.Walk(
+		tempDir, func(path string, info os.FileInfo, err error) error {
 			if err != nil {
-				log.Error("[NothingBot] 反序列化出错(json.Unmarshal(fileData, as)), err: ", err,
-					"\n    respByte: ", string(fileData),
-					"\n    Unmarshal by gson: ", gson.New(fileData).JSON("", ""))
-				break
+				log.Error("访问路径 ", path, " 时发生错误: ", err.Error())
+				return err
 			}
-			as.marshal()
-			archiveSubtitleTable[as.Aid] = as
-			if !as.IsNative {
-				aacPath := fmt.Sprint("av", as.Aid, "_c", as.Cid, ".aac")
-				_, err := os.Stat(aacPath)
-				if err == nil { //存在已下载的音频文件
-					archiveAudioTable[as.Aid] = &archiveAudio{
-						aid:       as.Aid,
-						cid:       as.Cid,
-						localPath: aacPath,
+			if info.IsDir() {
+				return nil
+			}
+			fileDataRaw, err := os.ReadFile(path)
+			if err != nil {
+				log.Error("[bilibili] read cache err: ", err.Error())
+			}
+			g := gson.New(fileDataRaw)
+			fileData := []byte(g.JSON("", ""))
+			switch info.Name()[:2] { //文件名前两个字母
+			case "av":
+				as := &archiveSubtitle{}
+				err = json.Unmarshal(fileData, as)
+				if err != nil {
+					log.Error(
+						"[NothingBot] 反序列化出错(json.Unmarshal(fileData, as)), err: ", err,
+						"\n    respByte: ", string(fileData),
+						"\n    Unmarshal by gson: ", gson.New(fileData).JSON("", ""),
+					)
+					break
+				}
+				as.marshal()
+				archiveSubtitleTable[as.Aid] = as
+				if !as.IsNative {
+					aacPath := fmt.Sprint("av", as.Aid, "_c", as.Cid, ".aac")
+					_, err := os.Stat(aacPath)
+					if err == nil { //存在已下载的音频文件
+						archiveAudioTable[as.Aid] = &archiveAudio{
+							aid:       as.Aid,
+							cid:       as.Cid,
+							localPath: aacPath,
+						}
 					}
 				}
+			case "cv":
+				at := &articleText{}
+				err = json.Unmarshal(fileData, at)
+				if err != nil {
+					log.Error(
+						"[NothingBot] 反序列化出错(json.Unmarshal(fileData, at)), err: ", err,
+						"\n    respByte: ", string(fileData),
+						"\n    Unmarshal by gson: ", gson.New(fileData).JSON("", ""),
+					)
+					break
+				}
+				at.marshal()
+				articleTextTable[at.Cvid] = at
 			}
-		case "cv":
-			at := &articleText{}
-			err = json.Unmarshal(fileData, at)
-			if err != nil {
-				log.Error("[NothingBot] 反序列化出错(json.Unmarshal(fileData, at)), err: ", err,
-					"\n    respByte: ", string(fileData),
-					"\n    Unmarshal by gson: ", gson.New(fileData).JSON("", ""))
-				break
-			}
-			at.marshal()
-			articleTextTable[at.Cvid] = at
-		}
-		return nil
-	})
+			return nil
+		},
+	)
 	if err != nil {
 		log.Error("遍历缓存时发生错误: ", err.Error())
 	}
@@ -641,11 +676,13 @@ type videoUrls map[int]map[int]string //qual:codec:
 func getVideoUrlDash(aid int, cid int) (urls videoUrls) {
 	g, err := ihttp.New().WithUrl(`https://api.bilibili.com/x/player/playurl`).
 		WithHeaders(iheaders).WithCookie(biliIdentity.Cookie).
-		WithAddQuerys(map[string]any{
-			"avid":  aid,
-			"cid":   cid,
-			"fnval": 16, //dash
-		}).
+		WithAddQuerys(
+			map[string]any{
+				"avid":  aid,
+				"cid":   cid,
+				"fnval": 16, //dash
+			},
+		).
 		Get().ToGson()
 	if err != nil {
 		log.Error("[bilibili] 获取视频流(dash)链接失败 err: ", err)
@@ -670,12 +707,14 @@ func getVideoUrlDash(aid int, cid int) (urls videoUrls) {
 func getVideoUrlMp4(aid int, cid int, qual int) (url string) {
 	g, err := ihttp.New().WithUrl(`https://api.bilibili.com/x/player/playurl`).
 		WithHeaders(iheaders).WithCookie(biliIdentity.Cookie).
-		WithAddQuerys(map[string]any{
-			"avid":  aid,
-			"cid":   cid,
-			"qn":    qual,
-			"fnval": 1, //mp4
-		}).
+		WithAddQuerys(
+			map[string]any{
+				"avid":  aid,
+				"cid":   cid,
+				"qn":    qual,
+				"fnval": 1, //mp4
+			},
+		).
 		Get().ToGson()
 	if err != nil {
 		log.Error("[bilibili] 获取视频流(mp4)链接失败 err: ", err)
@@ -745,11 +784,13 @@ type audioUrls map[int]string
 func getAudioUrl(aid int, cid int) (urls audioUrls) {
 	g, err := ihttp.New().WithUrl(`https://api.bilibili.com/x/player/playurl`).
 		WithHeaders(iheaders).WithCookie(biliIdentity.Cookie).
-		WithAddQuerys(map[string]any{
-			"avid":  aid,
-			"cid":   cid,
-			"fnval": 16, //dash
-		}).
+		WithAddQuerys(
+			map[string]any{
+				"avid":  aid,
+				"cid":   cid,
+				"fnval": 16, //dash
+			},
+		).
 		Get().ToGson()
 	if err != nil {
 		log.Error("[bilibili] 获取音频流链接失败 err: ", err)
@@ -1040,11 +1081,12 @@ www.bilibili.com/video/%s`,
 		up, desc, total,
 		formatView(view), formatView(danmaku), formatView(reply),
 		formatView(like), formatView(coin), formatView(favor),
-		bvid)
+		bvid,
+	)
 }
 
 // 获取文章数据.Get("data")
-func getArticleJson(cvid int) gson.JSON {
+func getArticleJson[T int | string](cvid T) gson.JSON {
 	articleJson, err := ihttp.New().WithUrl("https://api.bilibili.com/x/article/viewinfo").
 		WithAddQuerys(map[string]any{"id": cvid}).WithHeaders(iheaders).
 		Get().ToGson()
@@ -1086,13 +1128,15 @@ func getArticleText(cvid int) *articleText {
 	title := strings.TrimSpace(doc.Find("h1.title").First().Text())
 	up := strings.TrimSpace(doc.Find("a.up-name").First().Text())
 	main := doc.Find("#read-article-holder")
-	text := []string{}
-	main.Find("p, h1, h2, h3, h4, h5, h6").Each(func(_ int, el *goquery.Selection) {
-		str := strings.TrimSpace(el.Text())
-		if str != "" {
-			text = append(text, str)
-		}
-	})
+	var text []string
+	main.Find("p, h1, h2, h3, h4, h5, h6").Each(
+		func(_ int, el *goquery.Selection) {
+			str := strings.TrimSpace(el.Text())
+			if str != "" {
+				text = append(text, str)
+			}
+		},
+	)
 	at := &articleText{
 		Cvid:  cvid,
 		Up:    up,
@@ -1155,7 +1199,8 @@ www.bilibili.com/read/cv%d`,
 		author,
 		view, reply, share,
 		like, coin, favor,
-		cvid)
+		cvid,
+	)
 }
 
 // 获取音频数据.Get("data"), .Get("data"), .Get("data")
@@ -1218,9 +1263,11 @@ func formatMusic(g gson.JSON, h gson.JSON, i gson.JSON) string {
 			if stuffs != "" {
 				stuffs += "\n"
 			}
-			stuffs += fmt.Sprintf("%s：%s",
+			stuffs += fmt.Sprintf(
+				"%s：%s",
 				stuffMap[a.Get("type").Int()],
-				a.Get("list.0.name").Str())
+				a.Get("list.0.name").Str(),
+			)
 		}
 		return
 	}()
@@ -1256,7 +1303,8 @@ au%d
 		tags,
 		intro,
 		play, coin,
-		reply, favor)
+		reply, favor,
+	)
 }
 
 // 获取用户空间数据.Get("data.card")
@@ -1302,7 +1350,8 @@ space.bilibili.com/%s`,
 		face,
 		name, level, pendant, sign,
 		fol, fans,
-		mid)
+		mid,
+	)
 }
 
 // uid获取直播间数据.Gets("data", strconv.Itoa(uid))
@@ -1359,11 +1408,15 @@ func formatLive(g gson.JSON) string {
 		if liveList[g.Get("room_id").Int()].time != 0 {
 			switch liveList[g.Get("room_id").Int()].state {
 			case liveState.ONLINE:
-				history = fmt.Sprintf("\n机器人缓存的上一次开播时间：\n%s",
-					time.Unix(liveList[g.Get("room_id").Int()].time, 0).Format(timeLayout.M24C))
+				history = fmt.Sprintf(
+					"\n机器人缓存的上一次开播时间：\n%s",
+					time.Unix(liveList[g.Get("room_id").Int()].time, 0).Format(TimeLayout.M24C),
+				)
 			case liveState.OFFLINE:
-				history = fmt.Sprintf("\n机器人缓存的上一次下播时间：\n%s",
-					time.Unix(liveList[g.Get("room_id").Int()].time, 0).Format(timeLayout.M24C))
+				history = fmt.Sprintf(
+					"\n机器人缓存的上一次下播时间：\n%s",
+					time.Unix(liveList[g.Get("room_id").Int()].time, 0).Format(TimeLayout.M24C),
+				)
 			}
 		}
 		return
@@ -1379,7 +1432,8 @@ live.bilibili.com/%d`,
 		uname, status,
 		title,
 		parea, sarea, history,
-		roomID)
+		roomID,
+	)
 }
 
 // 链接提取
@@ -1489,7 +1543,8 @@ func isBiliLinkOverParse(ctx *EasyBot.CQMessage, id string, kind string) bool {
 			return true
 		} else {
 			log.Debug("[parse] 记录了一次在 ", ctx.GroupID, " 的解析 ", id)
-			groupParseHistory[ctx.GroupID] = parseHistory{ //记录解析历史
+			groupParseHistory[ctx.GroupID] = parseHistory{
+				//记录解析历史
 				parse: id,
 				time:  time.Now().Unix(),
 			}
@@ -1627,7 +1682,10 @@ func parseAndFormatBiliLink(ctx *EasyBot.CQMessage, id, kind string, summary, tt
 		sid, _ := strconv.Atoi(id)
 		g, h, i := getMusicJson(sid)
 		if g.Get("code").Int() != 0 || h.Get("code").Int() != 0 || i.Get("code").Int() != 0 {
-			content = fmt.Sprintf("[NothingBot] [Error] [parse] 音频au%d信息获取错误: codes: %d, %d, %d", sid, g.Get("code").Int(), h.Get("code").Int(), i.Get("code").Int())
+			content = fmt.Sprintf(
+				"[NothingBot] [Error] [parse] 音频au%d信息获取错误: codes: %d, %d, %d", sid, g.Get("code").Int(),
+				h.Get("code").Int(), i.Get("code").Int(),
+			)
 		} else {
 			content = formatMusic(g.Get("data"), h.Get("data"), i.Get("data"))
 			if summary {
