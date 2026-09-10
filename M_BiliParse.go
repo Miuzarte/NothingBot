@@ -276,8 +276,8 @@ func biliParseWaitAck(ctx *EasyOnebot.Ctx, results []biligo.ParseResult) {
 			}
 		},
 		func() {
-			ctx.Std.DeleteMsg(resp.MessageId) // 撤回提示
-			if bpakMu.TryLock() {             // 失败时正在写入新 matcher, 不需要删除
+			ctx.DeleteMsg(resp.MessageID) // 撤回提示
+			if bpakMu.TryLock() {         // 失败时正在写入新 matcher, 不需要删除
 				delete(biliParseAckMap, mapKey)
 				bpakMu.Unlock()
 			}
@@ -422,7 +422,7 @@ func biliParseAndSend(ctx *EasyOnebot.Ctx, results []biligo.ParseResult) {
 		}
 	}
 
-	var sentMsgId int
+	var sentMsgId int64
 
 	if len(replys) > 1 { // 多条用合并转发
 		forward := message.SegmentArray{}
@@ -471,7 +471,7 @@ func biliParseAndSend(ctx *EasyOnebot.Ctx, results []biligo.ParseResult) {
 				Msg("failed to send forward msg")
 			return
 		}
-		sentMsgId = resp.MessageId
+		sentMsgId = resp.MessageID
 
 	} else { // 单条解析
 		resp, err := ctx.SendMsg(replys[0])
@@ -481,7 +481,7 @@ func biliParseAndSend(ctx *EasyOnebot.Ctx, results []biligo.ParseResult) {
 				Msg("failed to send msg")
 			return
 		}
-		sentMsgId = resp.MessageId
+		sentMsgId = resp.MessageID
 
 		result := results[0]
 
@@ -614,7 +614,7 @@ func biliParseAndSend(ctx *EasyOnebot.Ctx, results []biligo.ParseResult) {
 		}
 	}
 
-	biliParseTrackSet(ctx.Event.GroupId, sentMsgId, ctx.Event.MessageId)
+	biliParseTrackSet(ctx.Event.GroupId, sentMsgId, int64(ctx.Event.MessageId))
 }
 
 func biliDownloadAndSend(ctx *EasyOnebot.Ctx, result biligo.ParseResult, pForce bool) {
@@ -670,7 +670,7 @@ AGAIN:
 	defer bb.Close()
 
 	n, err := vd.Start(bb)
-	ctx.Std.DeleteMsg(dlResp.MessageId)
+	ctx.DeleteMsg(dlResp.MessageID)
 	if err != nil {
 		ctx.SendMsgf("(%s)(%s)下载失败：%v", result.Content, qnStr, err)
 		return
@@ -687,7 +687,7 @@ AGAIN:
 			Msg("failed to send msg")
 	}
 	_, err = ctx.SendMsg(message.Video(bb.String()))
-	ctx.Std.DeleteMsg(respSend.MessageId)
+	ctx.DeleteMsg(respSend.MessageID)
 	if err != nil {
 		ctx.SendMsgf("(%s)(%s)发送失败：%v", result.Content, qnStr, err)
 		return
@@ -741,7 +741,7 @@ func biliParseCleanResults(groupId int, results []biligo.ParseResult) []biligo.P
 	return cleaned
 }
 
-func biliParseTrackSet(group, msgId, origMsgId int) error {
+func biliParseTrackSet(group int, msgId, origMsgId int64) error {
 	key := "bili_parse_track:" + Itoa(group) + ":" + Itoa(msgId)
 	return redisClient.Set(key, Itoa(origMsgId), 24*time.Hour)
 }

@@ -142,7 +142,7 @@ func ctxJmComicSearch(ctx *EasyOnebot.Ctx) {
 
 	ts := time.Now()
 	respSendForward, err := ctx.SendForwardMsgAuto(forward)
-	ctx.Std.DeleteMsg(respSearch.MessageId)
+	ctx.DeleteMsg(respSearch.MessageID)
 	if err != nil {
 		ctx.SendMsg("[JmComic] 搜索结果发送失败")
 		return
@@ -150,9 +150,9 @@ func ctxJmComicSearch(ctx *EasyOnebot.Ctx) {
 	respRecallHint, _ := ctx.SendMsgReplyf("[JmComic] 请转发查收！一分钟后撤回\n(%s)", time.Since(ts))
 
 	if !pNoRecall {
-		registerTimerRecall(respSendForward.MessageId)
+		registerTimerRecall(respSendForward.MessageID)
 		if respRecallHint != nil {
-			registerTimerRecall(respRecallHint.MessageId)
+			registerTimerRecall(respRecallHint.MessageID)
 		}
 	}
 }
@@ -260,7 +260,7 @@ func ctxJmComicParse(ctx *EasyOnebot.Ctx) {
 	for i, jmId := range jp.JmIds {
 		respDownload, err := ctx.SendMsg(jp.DownloadingHint(i))
 		if i == 0 {
-			ctx.Std.DeleteMsg(respFetch.MessageId)
+			ctx.DeleteMsg(respFetch.MessageID)
 		}
 		if err != nil {
 			logJmComic.Error().
@@ -298,7 +298,7 @@ func ctxJmComicParse(ctx *EasyOnebot.Ctx) {
 			}
 
 			respSend, err := ctx.SendMsg(jp.SendingHint(i))
-			ctx.Std.DeleteMsg(respDownload.MessageId)
+			ctx.DeleteMsg(respDownload.MessageID)
 			if err != nil {
 				logJmComic.Error().
 					Err(err).
@@ -308,7 +308,7 @@ func ctxJmComicParse(ctx *EasyOnebot.Ctx) {
 
 			ts := time.Now()
 			respSendForward, err := ctx.SendForwardMsgAuto(append(forward, nodes...))
-			ctx.Std.DeleteMsg(respSend.MessageId)
+			ctx.DeleteMsg(respSend.MessageID)
 			if err != nil {
 				ctx.SendMsgf("[JmComic] JM%d 发送失败", jmId)
 				return
@@ -316,9 +316,9 @@ func ctxJmComicParse(ctx *EasyOnebot.Ctx) {
 			respRecallHint, _ := ctx.SendMsgReplyf("[JmComic] 请转发查收！一分钟后撤回\n(%s)", time.Since(ts))
 
 			if !pNoRecall {
-				registerTimerRecall(respSendForward.MessageId)
+				registerTimerRecall(respSendForward.MessageID)
 				if respRecallHint != nil {
-					registerTimerRecall(respRecallHint.MessageId)
+					registerTimerRecall(respRecallHint.MessageID)
 				}
 			}
 

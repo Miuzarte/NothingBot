@@ -59,7 +59,7 @@ func PushMsg(msg any, users, groups []int) (err error) {
 func PushForwardMsg(msg message.SegmentArray, users, groups []int) (err error) {
 	for _, group := range groups {
 		go func(group int) {
-			_, erro := onebot.Call().Lgr.SendGroupForwardMsg(group, msg)
+			_, erro := onebot.Call().Nc.SendGroupForwardMsg(group, msg)
 			if erro != nil {
 				err = erro
 				logPush.Error().
@@ -71,7 +71,7 @@ func PushForwardMsg(msg message.SegmentArray, users, groups []int) (err error) {
 	}
 	for _, user := range users {
 		go func(user int) {
-			_, erro := onebot.Call().Lgr.SendPrivateForwardMsg(user, msg)
+			_, erro := onebot.Call().Nc.SendPrivateForwardMsg(user, msg)
 			if erro != nil {
 				err = erro
 				logPush.Error().

@@ -217,7 +217,7 @@ func ctxEHentaiSearch(ctx *EasyOnebot.Ctx) {
 
 	ts := time.Now()
 	respSendForward, err := ctx.SendForwardMsgAuto(forward)
-	ctx.Std.DeleteMsg(respSearch.MessageId)
+	ctx.DeleteMsg(respSearch.MessageID)
 	if err != nil {
 		ctx.SendMsg("[EHentai] 搜索结果发送失败")
 		return
@@ -225,9 +225,9 @@ func ctxEHentaiSearch(ctx *EasyOnebot.Ctx) {
 	respRecallHint, _ := ctx.SendMsgReplyf("[EHentai] 请转发查收！一分钟后撤回\n(%s)", time.Since(ts))
 
 	if !pNoRecall {
-		registerTimerRecall(respSendForward.MessageId)
+		registerTimerRecall(respSendForward.MessageID)
 		if respRecallHint != nil {
-			registerTimerRecall(respRecallHint.MessageId)
+			registerTimerRecall(respRecallHint.MessageID)
 		}
 	}
 }
@@ -300,7 +300,7 @@ func ctxEHentaiGalleryParse(ctx *EasyOnebot.Ctx) {
 	for i, gId := range ep.GIds {
 		respDownload, err := ctx.SendMsg(ep.DownloadingHint(i))
 		if i == 0 {
-			ctx.Std.DeleteMsg(respFetch.MessageId)
+			ctx.DeleteMsg(respFetch.MessageID)
 		}
 		if err != nil {
 			logEHentai.Error().
@@ -332,7 +332,7 @@ func ctxEHentaiGalleryParse(ctx *EasyOnebot.Ctx) {
 			}
 
 			respSend, err := ctx.SendMsg(ep.SendingHint(i))
-			ctx.Std.DeleteMsg(respDownload.MessageId)
+			ctx.DeleteMsg(respDownload.MessageID)
 			if err != nil {
 				logEHentai.Error().
 					Err(err).
@@ -342,7 +342,7 @@ func ctxEHentaiGalleryParse(ctx *EasyOnebot.Ctx) {
 
 			ts := time.Now()
 			respSendForward, err := ctx.SendForwardMsgAuto(append(forward, nodes...))
-			ctx.Std.DeleteMsg(respSend.MessageId)
+			ctx.DeleteMsg(respSend.MessageID)
 			if err != nil {
 				ctx.SendMsgf("[EHentai] 画廊 %d 发送失败", gId)
 				return
@@ -350,9 +350,9 @@ func ctxEHentaiGalleryParse(ctx *EasyOnebot.Ctx) {
 			respRecallHint, _ := ctx.SendMsgReplyf("[EHentai] 请转发查收！一分钟后撤回\n(%s)", time.Since(ts))
 
 			if !pNoRecall {
-				registerTimerRecall(respSendForward.MessageId)
+				registerTimerRecall(respSendForward.MessageID)
 				if respRecallHint != nil {
-					registerTimerRecall(respRecallHint.MessageId)
+					registerTimerRecall(respRecallHint.MessageID)
 				}
 			}
 
@@ -474,7 +474,7 @@ func ctxEHentaiPageParse(ctx *EasyOnebot.Ctx) {
 	defer eHentaiLock.Unlock(ep.GIds)
 
 	respDownload, err := ctx.SendMsg("[EHentai] 下载中...")
-	ctx.Std.DeleteMsg(respFetching.MessageId)
+	ctx.DeleteMsg(respFetching.MessageID)
 	if err != nil {
 		logEHentai.Error().
 			Err(err).
@@ -517,7 +517,7 @@ func ctxEHentaiPageParse(ctx *EasyOnebot.Ctx) {
 	}
 
 	respSend, err := ctx.SendMsg("[EHentai] 发送中...")
-	ctx.Std.DeleteMsg(respDownload.MessageId)
+	ctx.DeleteMsg(respDownload.MessageID)
 	if err != nil {
 		logEHentai.Error().
 			Err(err).
@@ -527,7 +527,7 @@ func ctxEHentaiPageParse(ctx *EasyOnebot.Ctx) {
 
 	ts := time.Now()
 	respSendForward, err := ctx.SendForwardMsgAuto(forward)
-	ctx.Std.DeleteMsg(respSend.MessageId)
+	ctx.DeleteMsg(respSend.MessageID)
 	if err != nil {
 		logEHentai.Error().
 			Err(err).
@@ -538,9 +538,9 @@ func ctxEHentaiPageParse(ctx *EasyOnebot.Ctx) {
 	respRecallHint, _ := ctx.SendMsgReplyf("[EHentai] 请转发查收！一分钟后撤回\n%s", time.Since(ts))
 
 	if !pNoRecall {
-		registerTimerRecall(respSendForward.MessageId)
+		registerTimerRecall(respSendForward.MessageID)
 		if respRecallHint != nil {
-			registerTimerRecall(respRecallHint.MessageId)
+			registerTimerRecall(respRecallHint.MessageID)
 		}
 	}
 }

@@ -198,7 +198,7 @@ func ctxPixivParse(ctx *EasyOnebot.Ctx) {
 	for i, pId := range pp.PIds {
 		respDownload, err := ctx.SendMsg(pp.DownloadingHint(i))
 		if i == 0 {
-			ctx.Std.DeleteMsg(respFetch.MessageId)
+			ctx.DeleteMsg(respFetch.MessageID)
 		}
 		if err != nil {
 			logPixiv.Error().
@@ -232,7 +232,7 @@ func ctxPixivParse(ctx *EasyOnebot.Ctx) {
 			}
 
 			respSend, err := ctx.SendMsg(pp.SendingHint(i))
-			ctx.Std.DeleteMsg(respDownload.MessageId)
+			ctx.DeleteMsg(respDownload.MessageID)
 			if err != nil {
 				logPixiv.Error().
 					Err(err).
@@ -242,7 +242,7 @@ func ctxPixivParse(ctx *EasyOnebot.Ctx) {
 
 			ts := time.Now()
 			respSendForward, err := ctx.SendForwardMsgAuto(append(forward, nodes...))
-			ctx.Std.DeleteMsg(respSend.MessageId)
+			ctx.DeleteMsg(respSend.MessageID)
 			if err != nil {
 				ctx.SendMsgf("[Pixiv] 作品 %d 发送失败", pId)
 				return
@@ -250,9 +250,9 @@ func ctxPixivParse(ctx *EasyOnebot.Ctx) {
 			respRecallHint, _ := ctx.SendMsgReplyf("[Pixiv] 请转发查收！一分钟后撤回\n(%s)", time.Since(ts))
 
 			if !pNoRecall {
-				registerTimerRecall(respSendForward.MessageId)
+				registerTimerRecall(respSendForward.MessageID)
 				if respRecallHint != nil {
-					registerTimerRecall(respRecallHint.MessageId)
+					registerTimerRecall(respRecallHint.MessageID)
 				}
 			}
 

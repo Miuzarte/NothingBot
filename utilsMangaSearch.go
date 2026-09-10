@@ -452,10 +452,10 @@ pica://%s`,
 	)
 }
 
-func registerTimerRecall(msgId int) {
+func registerTimerRecall(msgId int64) {
 	go func() {
 		<-time.After(RECALL_DURATION)
-		onebot.Call().Std.DeleteMsg(msgId)
+		onebot.Call().Std.DeleteMsg(int(msgId))
 	}()
 }
 

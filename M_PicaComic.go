@@ -160,7 +160,7 @@ func ctxPicaComicSearch(ctx *EasyOnebot.Ctx) {
 
 	ts := time.Now()
 	respSendForward, err := ctx.SendForwardMsgAuto(forward)
-	ctx.Std.DeleteMsg(respSearch.MessageId)
+	ctx.DeleteMsg(respSearch.MessageID)
 	if err != nil {
 		ctx.SendMsg("[PicaComic] 搜索结果发送失败")
 		return
@@ -168,9 +168,9 @@ func ctxPicaComicSearch(ctx *EasyOnebot.Ctx) {
 	respRecallHint, _ := ctx.SendMsgReplyf("[PicaComic] 请转发查收！一分钟后撤回\n(%s)", time.Since(ts))
 
 	if !pNoRecall {
-		registerTimerRecall(respSendForward.MessageId)
+		registerTimerRecall(respSendForward.MessageID)
 		if respRecallHint != nil {
-			registerTimerRecall(respRecallHint.MessageId)
+			registerTimerRecall(respRecallHint.MessageID)
 		}
 	}
 }
@@ -260,7 +260,7 @@ func ctxPicaComicParse(ctx *EasyOnebot.Ctx) {
 	for i, pcs := range pp.Pcs {
 		respDownload, err := ctx.SendMsg(pp.DownloadingHint(i))
 		if i == 0 {
-			ctx.Std.DeleteMsg(respFetch.MessageId)
+			ctx.DeleteMsg(respFetch.MessageID)
 		}
 		if err != nil {
 			logPicaComic.Error().
@@ -298,7 +298,7 @@ func ctxPicaComicParse(ctx *EasyOnebot.Ctx) {
 			}
 
 			respSend, err := ctx.SendMsg(pp.SendingHint(i))
-			ctx.Std.DeleteMsg(respDownload.MessageId)
+			ctx.DeleteMsg(respDownload.MessageID)
 			if err != nil {
 				logPicaComic.Error().
 					Err(err).
@@ -308,7 +308,7 @@ func ctxPicaComicParse(ctx *EasyOnebot.Ctx) {
 
 			ts := time.Now()
 			respSendForward, err := ctx.SendForwardMsgAuto(append(forward, nodes...))
-			ctx.Std.DeleteMsg(respSend.MessageId)
+			ctx.DeleteMsg(respSend.MessageID)
 			if err != nil {
 				ctx.SendMsgf("[PicaComic] 漫画 %s/%d 发送失败", pcs.PcId, pcs.EpId)
 				return
@@ -316,9 +316,9 @@ func ctxPicaComicParse(ctx *EasyOnebot.Ctx) {
 			respRecallHint, _ := ctx.SendMsgReplyf("[PicaComic] 请转发查收！一分钟后撤回\n(%s)", time.Since(ts))
 
 			if !pNoRecall {
-				registerTimerRecall(respSendForward.MessageId)
+				registerTimerRecall(respSendForward.MessageID)
 				if respRecallHint != nil {
-					registerTimerRecall(respRecallHint.MessageId)
+					registerTimerRecall(respRecallHint.MessageID)
 				}
 			}
 

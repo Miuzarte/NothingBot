@@ -74,7 +74,7 @@ func ctxBiliSearch(ctx *EasyOnebot.Ctx) {
 			Msg("failed to send message")
 		return
 	}
-	defer ctx.Std.DeleteMsg(resp.MessageId)
+	defer ctx.DeleteMsg(resp.MessageID)
 
 	results, err := biligo.SearchFormatAuto(searchType, keyword)
 	if err != nil {

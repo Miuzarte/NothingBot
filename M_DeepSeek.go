@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"github.com/Miuzarte/EasyOnebot"
-	"github.com/Miuzarte/EasyOnebot/api"
 	"github.com/Miuzarte/EasyOnebot/event"
 	"github.com/Miuzarte/EasyOnebot/message"
 
@@ -122,7 +121,7 @@ func ctxDeepSeekChat(ctx *EasyOnebot.Ctx) {
 	}
 
 	var model string
-	var resp *api.SendAnyMsgResp
+	var resp *EasyOnebot.SendMsgResult
 	var err error
 	var reasoning string
 	var content string
@@ -170,7 +169,7 @@ func ctxDeepSeekChat(ctx *EasyOnebot.Ctx) {
 			Msg(errDeepSeekFailedToSendMsg.Error())
 		return
 	}
-	defer ctx.Std.DeleteMsg(resp.MessageId)
+	defer ctx.DeleteMsg(resp.MessageID)
 
 	var historys []*chatHistory
 	if ctx.ReplyId != 0 { // 有回复内容
@@ -208,7 +207,7 @@ func ctxDeepSeekChat(ctx *EasyOnebot.Ctx) {
 	deepSeekSaveHistory(chatHistory{
 		cu,
 		chatAssistant{
-			MessageId: resp.MessageId,
+			MessageId: resp.MessageID,
 			Response:  content,
 		},
 	})
@@ -220,7 +219,7 @@ type chatUser struct {
 	Prompt    string `json:"prompt" mapstructure:"prompt"`
 }
 type chatAssistant struct {
-	MessageId int    `json:"message_id" mapstructure:"message_id"`
+	MessageId int64  `json:"message_id" mapstructure:"message_id"`
 	Response  string `json:"response" mapstructure:"response"`
 }
 type chatHistory struct {
@@ -422,7 +421,7 @@ func deepSeekGetHistory(ctx *EasyOnebot.Ctx) (ch *chatHistory) {
 	ch = &chatHistory{}
 	if replyMsg.Sender.UserId == ctx.Event.SelfId {
 		ch.Assistant = chatAssistant{
-			MessageId: replyMsg.MessageId,
+			MessageId: int64(replyMsg.MessageId),
 			Response:  segChain.ToString(true),
 		}
 	} else {

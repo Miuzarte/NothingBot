@@ -22,15 +22,22 @@ func init() {
 		go handleGroupMemberChange(ngd)
 	})
 	onebot.OnNoticeNotifyPoke(func(nnp *event.NoticeNotifyPoke) {
+		// NapCat 的 poke: user_id 是发起方, target_id 是被戳方, sender_id 也是发起方
+		// (标准实现只有 user_id, Easyonebot 把 sender_id 补成 user_id)
+		// 这里排除 bot 自己发起的 poke: NapCat 对主动 poke 也会回推该事件
+		if nnp.SenderId == nnp.SelfId {
+			return
+		}
+		// 只回应戳向 bot 自己的
 		if nnp.TargetId != nnp.SelfId {
 			return
 		}
 		if nnp.GroupId != 0 {
-			onebot.Call().Lgr.GroupPoke(nnp.GroupId, nnp.UserId)
-			// onebot.Call().Std.SendGroupMsg(nnp.GroupId, message.Poke_Lgr("1", "-1"))
+			onebot.Call().Nc.GroupPoke(nnp.GroupId, nnp.UserId)
+			// onebot.Call().Std.SendGroupMsg(nnp.GroupId, message.Poke_Nc("1", "-1"))
 		} else {
-			onebot.Call().Lgr.FriendPoke(nnp.UserId)
-			// onebot.Call().Std.SendPrivateMsg(nnp.UserId, message.Poke_Lgr("1", "-1"))
+			onebot.Call().Nc.FriendPoke(nnp.UserId)
+			// onebot.Call().Std.SendPrivateMsg(nnp.UserId, message.Poke_Nc("1", "-1"))
 		}
 	})
 }

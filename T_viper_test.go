@@ -9,19 +9,6 @@ import (
 	"github.com/spf13/viper"
 )
 
-func TestToml(t *testing.T) {
-	v := viper.New()
-	v.SetConfigFile("defaultConfig.toml")
-	err := v.ReadInConfig()
-	if err != nil {
-		t.Error(err)
-	}
-	v.WriteConfigAs("defaultConfig.yaml")
-	v.WriteConfigAs("defaultConfig.json")
-	v.WriteConfigAs("defaultConfig.ini")
-	v.WriteConfigAs("defaultConfig.hcl")
-}
-
 func TestConfigRead(t *testing.T) {
 	v := viper.New()
 	v.SetConfigFile("defaultConfig.toml")

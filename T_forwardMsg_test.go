@@ -32,7 +32,7 @@ import (
 func TestForwardMsg(t *testing.T) {
 	InitBot()
 	onebot.Run()
-	onebot.Call().Lgr.SendGroupForwardMsg(
+	onebot.Call().Nc.SendGroupForwardMsg(
 		612645549, message.SegmentArray{
 			{
 				Type: "node",

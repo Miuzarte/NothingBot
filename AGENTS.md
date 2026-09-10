@@ -27,6 +27,17 @@ go test ./...
 go vet ./...
 ```
 
+外加两个分析器 (都不在 CI 里, 手动跑):
+
+```bash
+# staticcheck: 配置见仓库根的 staticcheck.conf (已按模块注册架构关掉 U1000)
+staticcheck ./...
+
+# modernize: gopls 的现代化检查, 独立命令行工具
+# 没装的话用 ~/.local/bin/build-modernize 构建
+modernize ./... | grep -v "_test.go"
+```
+
 测试注意事项: 
 
 - 根目录的 `T_*_test.go` 与源码同属 `package main`, `init()` 会照常执行 (`environment.Testing` 为 true 时读内置默认配置、大部分模块被 `Disable`) 
