@@ -7,11 +7,15 @@ import (
 	"time"
 
 	env "NothingBot_v4/environment"
+	"NothingBot_v4/logger"
 
 	"github.com/Miuzarte/EasyOnebot"
 	"github.com/Miuzarte/EasyOnebot/event"
 	"github.com/Miuzarte/EasyOnebot/message"
 )
+
+// 本文件的日志 scope
+var logCorpus = logger.New("Corpus")
 
 const (
 	CORPUS_SCENE_ALL     byte = 'a'
@@ -63,7 +67,9 @@ func initCorpus() {
 	var corpusConfigs []CorpusConfig
 	err := config.DecodeModule(corpusMId, &corpusConfigs)
 	if err != nil {
-		log.Error(err)
+		logCorpus.Error().
+			Err(err).
+			Msg("failed to decode config")
 		return
 	}
 
@@ -99,7 +105,9 @@ func ctxCorpus(ctx *EasyOnebot.Ctx) {
 func decodeCorpus(input []CorpusConfig) (output []Corpus) {
 	var err error
 	output = make([]Corpus, 0, len(input))
-	log.Debug("[Corpus] found configs: ", len(input))
+	logCorpus.Debug().
+		Int("configs", len(input)).
+		Msg("found configs")
 	for i, config := range input {
 		var corpus Corpus
 
@@ -117,7 +125,10 @@ func decodeCorpus(input []CorpusConfig) (output []Corpus) {
 		if config.Delay != "" {
 			corpus.Delay, err = time.ParseDuration(config.Delay)
 			if err != nil {
-				log.Warnf("[Corpus] invalid corpus config [%d] delay: %v", i, err)
+				logCorpus.Warn().
+					Err(err).
+					Int("index", i).
+					Msg("invalid corpus config")
 				continue
 			}
 		}
@@ -132,7 +143,10 @@ func decodeCorpus(input []CorpusConfig) (output []Corpus) {
 		var reg *regexp.Regexp
 		reg, err = regexp.Compile(config.Regexp)
 		if err != nil {
-			log.Warnf("[Corpus] invalid corpus config [%d] regexp: %v", i, err)
+			logCorpus.Warn().
+				Err(err).
+				Int("index", i).
+				Msg("invalid corpus config")
 			continue
 		}
 		corpus.Reg = reg
@@ -183,7 +197,9 @@ func parseForwardReply(v []any) (reply message.SegmentArray) {
 				uin = Itoa(u)
 			case nil:
 			default:
-				log.Warnf("[Corpus] invalid reply uin type: %T", u)
+				logCorpus.Warn().
+					Str("type", fmt.Sprintf("%T", u)).
+					Msg("invalid reply uin type")
 			}
 
 			switch c := v["content"].(type) {
@@ -200,10 +216,12 @@ func parseForwardReply(v []any) (reply message.SegmentArray) {
 				}
 
 			case nil:
-				log.Warnf("[Corpus] reply content is nil")
+				logCorpus.Warn().Msg("reply content is nil")
 				continue
 			default:
-				log.Warnf("[Corpus] invalid reply content type: %T", c)
+				logCorpus.Warn().
+					Str("type", fmt.Sprintf("%T", c)).
+					Msg("invalid reply content type")
 				continue
 			}
 		}

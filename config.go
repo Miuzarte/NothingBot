@@ -11,12 +11,16 @@ import (
 	"time"
 
 	env "NothingBot_v4/environment"
+	"NothingBot_v4/logger"
 
 	"github.com/Miuzarte/EasyOnebot"
 	"github.com/fsnotify/fsnotify"
 	"github.com/go-viper/mapstructure/v2"
 	"github.com/spf13/viper"
 )
+
+// 本文件的日志 scope
+var logConfig = logger.New("config")
 
 //go:embed defaultConfig.toml
 var configDataDefault []byte
@@ -25,11 +29,13 @@ func InitConfig() {
 	var err error
 	switch {
 	case env.Testing || env.Debugging:
-		log.Debug("[config] testing/debugging mode, using default")
+		logConfig.Debug().Msg("testing/debugging mode, using default")
 		config.SetConfigType("toml")
 		err = config.ReadConfig(bytes.NewReader(configDataDefault))
 		if err != nil {
-			log.Panic("[config] failed to read default: ", err)
+			logConfig.Panic().
+				Err(err).
+				Msg("failed to read default")
 		}
 
 	default:
@@ -39,7 +45,9 @@ func InitConfig() {
 		} else {
 			path = filepath.Join(env.XDir, "config.toml")
 		}
-		log.Info("[config] reading: ", path)
+		logConfig.Info().
+			Str("path", path).
+			Msg("reading config")
 		config.SetConfigFile(path)
 		err = config.ReadInConfig()
 		if err != nil {
@@ -47,18 +55,26 @@ func InitConfig() {
 			if !errors.As(err, &configFileNotFoundError) {
 				f, err := os.Create(path)
 				if err != nil {
-					log.Panic("[config] failed to create file: ", err)
+					logConfig.Panic().
+						Err(err).
+						Msg("failed to create file")
 				}
 				_, err = f.Write(configDataDefault)
 				if err != nil {
-					log.Panic("[config] failed to write default: ", err)
+					logConfig.Panic().
+						Err(err).
+						Msg("failed to write default")
 				}
 				err = f.Close()
 				if err != nil {
-					log.Panic("[config] failed to close file: ", err)
+					logConfig.Panic().
+						Err(err).
+						Msg("failed to close file")
 				}
-				log.Info("[config] default created: ", path)
-				log.Info("[config] edit the file then restart the bot")
+				logConfig.Info().
+					Str("path", path).
+					Msg("default config created")
+				logConfig.Info().Msg("edit the file then restart the bot")
 				os.Exit(0)
 			}
 		}
@@ -78,7 +94,7 @@ type Config struct {
 	UpdateCount         int
 
 	Log struct {
-		Level uint32
+		Level int
 		Dir   string
 	}
 	Global struct {
@@ -107,24 +123,32 @@ func (c *Config) Unmarshal() {
 	var err error
 	err = c.UnmarshalKey("log", &c.Log)
 	if err != nil {
-		log.Fatal("[config] failed to unmarshal 'log': ", err)
+		logConfig.Fatal().
+			Err(err).
+			Msg("failed to unmarshal 'log'")
 	}
-	// log.Trace("[config] log: ", c.Log)
+	// logConfig.Trace().Msgf("log: %v", c.Log)
 	err = c.UnmarshalKey("global", &c.Global)
 	if err != nil {
-		log.Fatal("[config] failed to unmarshal 'global': ", err)
+		logConfig.Fatal().
+			Err(err).
+			Msg("failed to unmarshal 'global'")
 	}
-	// log.Trace("[config] global: ", c.Global)
+	// logConfig.Trace().Msgf("global: %v", c.Global)
 	err = c.UnmarshalKey("onebot", &c.Onebot)
 	if err != nil {
-		log.Fatal("[config] failed to unmarshal 'onebot': ", err)
+		logConfig.Fatal().
+			Err(err).
+			Msg("failed to unmarshal 'onebot'")
 	}
-	// log.Trace("[config] onebot: ", c.Onebot)
+	// logConfig.Trace().Msgf("onebot: %v", c.Onebot)
 	err = c.UnmarshalKey("modules", &c.Modules)
 	if err != nil {
-		log.Fatal("[config] failed to unmarshal 'modules': ", err)
+		logConfig.Fatal().
+			Err(err).
+			Msg("failed to unmarshal 'modules'")
 	}
-	// log.Trace("[config] modules: ", c.Modules)
+	// logConfig.Trace().Msgf("modules: %v", c.Modules)
 
 	os.Setenv("HTTP_PROXY", c.Global.Proxy)
 	os.Setenv("HTTPS_PROXY", c.Global.Proxy)
@@ -170,7 +194,7 @@ func (l *List) White(ctx *EasyOnebot.Ctx) bool {
 	case "private":
 		return slices.Contains(l.Users, ctx.Event.UserId)
 	default:
-		log.FakePanic(ctx.Event.TypeL2)
+		logger.FakePanic(&logConfig, ctx.Event.TypeL2)
 		return false
 	}
 }

@@ -8,12 +8,16 @@ import (
 	"time"
 
 	env "NothingBot_v4/environment"
+	"NothingBot_v4/logger"
 	"NothingBot_v4/utils"
 
 	"github.com/Miuzarte/EasyOnebot"
 	"github.com/Miuzarte/EasyOnebot/event"
 	"github.com/Miuzarte/EasyOnebot/message"
 )
+
+// 本文件的日志 scope
+var logWhatsLink = logger.New("WhatsLink")
 
 // {"error":"quota_limited","type":"UNKNOWN","file_type":"","name":"您的請求過於頻繁，請聯繫 https://whatslink.info 獲取更高額度","size":0,"count":0,"screenshots":null}
 
@@ -54,11 +58,15 @@ func ctxWhatsLink(ctx *EasyOnebot.Ctx) {
 	link := ctx.Submatches.Get(moduleWhatsLink.Name.String())[0][0]
 	resp, err := whatsLinkGet(link)
 	if err != nil {
-		log.Warnf("[WhatsLink] failed to get api: %v", err)
+		logWhatsLink.Warn().
+			Err(err).
+			Msg("failed to get api")
 		return
 	}
 	if resp.Error != "" {
-		log.Warnf("[WhatsLink] error: %s", resp.Error)
+		logWhatsLink.Warn().
+			Str("error", resp.Error).
+			Msg("whatslink api returned error")
 		return
 	}
 
@@ -82,7 +90,9 @@ func ctxWhatsLink(ctx *EasyOnebot.Ctx) {
 
 	_, err = ctx.SendForwardMsgAuto(forward)
 	if err != nil {
-		log.Warnf("[WhatsLink] failed to send forward: %v", err)
+		logWhatsLink.Warn().
+			Err(err).
+			Msg("failed to send forward")
 		return
 	}
 }

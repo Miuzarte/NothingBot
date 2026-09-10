@@ -3,8 +3,12 @@ package main
 import (
 	"time"
 
+	"NothingBot_v4/logger"
 	"github.com/Miuzarte/EasyOnebot/message"
 )
+
+// 本文件的日志 scope
+var logPush = logger.New("PushMsg")
 
 func PushMsg(msg any, users, groups []int) (err error) {
 	for _, group := range groups {
@@ -17,7 +21,10 @@ func PushMsg(msg any, users, groups []int) (err error) {
 					break
 				}
 				tries++
-				log.Errorf("[PushMsg] failed to send group msg to %d: %v", group, erro)
+				logPush.Error().
+					Err(erro).
+					Int("group", group).
+					Msg("failed to send group msg")
 				time.Sleep(time.Duration(tries*10) * time.Second)
 			}
 			if erro != nil {
@@ -35,7 +42,10 @@ func PushMsg(msg any, users, groups []int) (err error) {
 					break
 				}
 				tries++
-				log.Errorf("[PushMsg] failed to send private msg to %d: %v", user, erro)
+				logPush.Error().
+					Err(erro).
+					Int("user", user).
+					Msg("failed to send private msg")
 				time.Sleep(time.Duration(tries*10) * time.Second)
 			}
 			if erro != nil {
@@ -52,7 +62,10 @@ func PushForwardMsg(msg message.SegmentArray, users, groups []int) (err error) {
 			_, erro := onebot.Call().Lgr.SendGroupForwardMsg(group, msg)
 			if erro != nil {
 				err = erro
-				log.Errorf("[PushMsg] failed to send group forward msg to %d: %v", group, erro)
+				logPush.Error().
+					Err(erro).
+					Int("group", group).
+					Msg("failed to send group forward msg")
 			}
 		}(group)
 	}
@@ -61,7 +74,10 @@ func PushForwardMsg(msg message.SegmentArray, users, groups []int) (err error) {
 			_, erro := onebot.Call().Lgr.SendPrivateForwardMsg(user, msg)
 			if erro != nil {
 				err = erro
-				log.Errorf("[PushMsg] failed to send private forward msg to %d: %v", user, erro)
+				logPush.Error().
+					Err(erro).
+					Int("user", user).
+					Msg("failed to send private forward msg")
 			}
 		}(user)
 	}

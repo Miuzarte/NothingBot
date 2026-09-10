@@ -7,11 +7,15 @@ import (
 	"NothingBot_v4/RSSHub/EpicFree"
 
 	env "NothingBot_v4/environment"
+	"NothingBot_v4/logger"
 
 	"github.com/Miuzarte/EasyOnebot/message"
 
 	"github.com/robfig/cron/v3"
 )
+
+// 本文件的日志 scope
+var logRssHub = logger.New("RssHub")
 
 type RssHubResource interface {
 	GetRouter() string
@@ -57,7 +61,9 @@ func initRH() {
 func initRssHub() {
 	cronId, err := rssCron.AddFunc(EpicFree.Resource.Crontab, pushRssEpicFree)
 	if err != nil {
-		log.Fatal(err)
+		logRssHub.Fatal().
+			Err(err).
+			Msg("failed to add cron")
 	}
 	cronIds[EpicFree.Resource] = cronId
 	// rssCron.Start() // TODO;
@@ -83,7 +89,9 @@ func pushRssEpicFree() {
 
 	li, err := onebot.Call().Std.GetLoginInfo()
 	if err != nil {
-		log.Fatal(err)
+		logRssHub.Fatal().
+			Err(err).
+			Msg("failed to get login info")
 	}
 	uid := li.UserId
 

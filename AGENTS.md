@@ -126,12 +126,48 @@ viper + TOML, `defaultConfig.toml` 通过 `go:embed` 内嵌
 
 `go.mod` 里绝大多数 `github.com/Miuzarte/*` 依赖都通过 `replace` 指向本地检出 `/home/miuzarte/git/<name>` (EasyOnebot、EHentai-go、JMComic-go、biligo、pixiv 等) 改这些库是日常工作流的一部分, 改动立即影响本项目的构建; 反之调试本项目问题时, 也可以直接去那些目录看实现
 
+源码一律 LF 行尾, 不要提交 CRLF
+
 ## 文档与注释风格
 
-- 注释中英文皆可, CJK 与拉丁字母/数字之间留一个空格 (Pangu), 不使用全角标点, 用半角 `, . ( ) / :` 等. 英文注释以句号结尾, 中文注释不加句号
+注释一律用中文, 但不使用任何中文标点, 一律半角:
+
+- 中英文混排时 CJK 与拉丁字母/数字之间留一个空格 (Pangu)
+- 句号: 不使用, 直接省略 (行尾不加 `.`)
+- 逗号/分号: 用英文 `,` `;`, 后面紧跟文本时加一个空格, 行尾不加
+- 冒号: 用英文 `: `, 行尾不加尾随空格
+- 引号/括号: 用英文 `"` `()`, 与外部文本隔一个空格, 如 `foo (bar)` `foo "bar", bar`; 引号/括号与逗号之间不加空格
+- 函数调用等代码引用保持紧贴, 如 `SleepCtx(ctx, d)`
+- 斜杠 `/`: 左右空格不强制
+
+其余:
+
 - 不用 `;` 把本该分行的语句挤到一行
 - 引用符号时先 `import` 再用短名, 不要写长全限定路径. 本仓库已有 `eh` / `jm` / `nh` / `pc` / `a2d` / `sn` / `stb` 等别名, 沿用即可
 - 多余 import 不必手动清理, 交给 gofmt / goimports
 - **仓库由人类开发者并行修改**: 改动前先 `git status` / `git diff` 确认工作区, 避免整文件重写、避免破坏既有排版; 宁可多改几次, 也不要用一次性大改动覆盖别人的修改
-- 日志统一走全局 `log` (SimpleLog, 等级由 `[log].level` 控制); 面向用户的消息文案直接写在代码里 (本仓库没有 Android 式的资源字符串文件)
 - 存量代码的注释大量使用全角标点 (`：` 124 处、`，` 66 处、`。` 7 处等), 上述半角规则**只对新增/修改的注释生效**, 不回头改存量文件
+
+## 日志风格
+
+日志走 `github.com/rs/zerolog`, 封装在 `NothingBot_v4/logger`: 每个文件声明一个静态 logger (`var logFoo = logger.New("Foo")`), scope 作为前缀打印; 等级由 `[log].level` 控制 (0..6, 值越大输出越少, 内部换算为 zerolog 等级); EasyOnebot 的 logger 由 `onebot.SetLogger(&logOnebot)` 注入; 面向用户的消息文案直接写在代码里 (本仓库没有 Android 式的资源字符串文件)
+
+**禁止 `Msgf`**, 一律用结构化字段, 链上有字段时必须换行, 每个字段与 `Msg(...)` / `Send()` 各占一行:
+
+```go
+logEHentai.Warn().
+    Err(err).
+    Msg("failed to init tag db")
+
+logEHentai.Info().
+    Dur("cost", time.Since(ts)).
+    Msg("tag db init done")
+```
+
+- 字段名用小写单词, 优先复用就近上下文的变量名 (如 `err` 用 `Err(err)`)
+- 按值的静态类型选字段方法: `error` 用 `Err`, `string` 用 `Str`, 整数用 `Int` / `Int64` / `Uint64`, 时长用 `Dur`, 时间用 `Time`, 其余用 `Any("x", x)`
+- 自定义 string 类型 (`ModuleId`)、`cron.EntryID` 这类定义类型要显式转换, 如 `Str("module", string(name))`
+- 每个字段都要有名字, 不保留原来嵌在文案里的 `%s` / `%d`; 补充上下文的短语可以留在文案里, `%T` 用 `Str("type", fmt.Sprintf("%T", x))`
+- 一个 logger 方法链一条语句, 不要写成 `logX.Info().Msg("...")` 之外的花样
+- 无字段的单行 `logFoo.Info().Msg("...")` 可以先保持单行, 逐步消化
+- 注释掉的旧日志代码不必回头改, 但新写的注释也别再示范 `Msgf`

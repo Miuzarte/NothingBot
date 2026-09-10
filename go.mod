@@ -14,7 +14,6 @@ require (
 	github.com/Miuzarte/PicaComic-go v0.0.0-20251107131246-25d20c875b69
 	github.com/Miuzarte/SauceNAO-go v0.0.0-20251218090849-f3b97941b330
 	github.com/Miuzarte/SiegeStatus v0.0.0-00010101000000-000000000000
-	github.com/Miuzarte/SimpleLog v0.0.0-20250219043509-00d060590f0d
 	github.com/Miuzarte/SoutuBot-go v0.0.0-20251218090920-1ee184327e92
 	github.com/Miuzarte/biligo v0.0.0-20251202030039-b354b57fca61
 	github.com/Miuzarte/openai-go/v3 v3.0.0-20251015112452-d28a15cbe905
@@ -26,6 +25,7 @@ require (
 	github.com/jinzhu/copier v0.4.0
 	github.com/redis/rueidis v1.0.69
 	github.com/robfig/cron/v3 v3.0.1
+	github.com/rs/zerolog v1.35.1
 	github.com/spf13/viper v1.21.0
 	github.com/tidwall/gjson v1.18.0
 	go.uber.org/goleak v1.3.0
@@ -34,6 +34,8 @@ require (
 
 require (
 	github.com/apapsch/go-jsonmerge/v2 v2.0.0 // indirect
+	github.com/mattn/go-colorable v0.1.14 // indirect
+	github.com/mattn/go-isatty v0.0.20 // indirect
 	github.com/oapi-codegen/runtime v1.4.2 // indirect
 )
 

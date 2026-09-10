@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 
+	"NothingBot_v4/logger"
 	"NothingBot_v4/utils"
 
 	"github.com/Miuzarte/EasyOnebot"
@@ -20,6 +21,9 @@ import (
 	stb "github.com/Miuzarte/SoutuBot-go"
 	"github.com/nfnt/resize"
 )
+
+// 本文件的日志 scope
+var logReverseSearch = logger.New("ReverseSearch")
 
 type ReverseSearchSite int
 
@@ -152,7 +156,10 @@ func saucenaoBuildNodes(resp *sn.Response) []message.SegmentArray {
 
 		v := reflect.ValueOf(data)
 		if v.Kind() == reflect.Pointer && v.IsNil() {
-			log.Warnf("[SauceNAO] todo response(%s): %s", header.IndexName, resp.RawBody)
+			logReverseSearch.Warn().
+				Str("indexName", header.IndexName).
+				Str("body", resp.RawBody).
+				Msg("todo response")
 			onebot.Log2Sus.Warnf("[SauceNAO] todo response(%s): %s", header.IndexName, resp.RawBody)
 		}
 
@@ -194,7 +201,9 @@ func ascii2dBuildNode(ctx context.Context, res a2d.Result) message.SegmentArray 
 
 	imgData, err := ascii2dClient.Download(ctx, res)
 	if err != nil {
-		log.Warnf("[Ascii2d] 下载缩略图失败,回退到 URL: %v", err)
+		logReverseSearch.Warn().
+			Err(err).
+			Msg("ascii2d failed to download thumbnail, fallback to url")
 		segChain.Append(message.Image(res.Thumbnail))
 	} else {
 		segChain.Append(message.Image(imgData))

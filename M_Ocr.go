@@ -11,11 +11,15 @@ import (
 	"NothingBot_v4/ocrspace"
 
 	env "NothingBot_v4/environment"
+	"NothingBot_v4/logger"
 
 	"github.com/Miuzarte/EasyOnebot"
 	"github.com/Miuzarte/EasyOnebot/event"
 	"github.com/Miuzarte/EasyOnebot/message"
 )
+
+// 本文件的日志 scope
+var logOcr = logger.New("OCR")
 
 type OcrConfig struct {
 	Ocrspace struct {
@@ -55,7 +59,9 @@ func init() {
 func initOcr() {
 	err := config.DecodeModule(ocrMId, &ocrConfig)
 	if err != nil {
-		log.Error(err)
+		logOcr.Error().
+			Err(err).
+			Msg("failed to decode config")
 		return
 	}
 
@@ -70,7 +76,9 @@ func initOcr() {
 		ocrspace.WithIsTable(ocrConfig.Ocrspace.IsTable),
 	)
 	if err != nil {
-		log.Fatal("[OCR] failed to init ocrspace config:", err)
+		logOcr.Fatal().
+			Err(err).
+			Msg("failed to init ocrspace config")
 	}
 
 	onebot.AddMatcher(moduleOcr.Name.String(), EasyOnebot.NewMatcher().

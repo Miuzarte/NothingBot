@@ -1,15 +1,19 @@
 package main
 
 import (
+	"fmt"
 	"strconv"
-	"time"
 
 	env "NothingBot_v4/environment"
+	"NothingBot_v4/logger"
 
 	"github.com/Miuzarte/EasyOnebot/message"
 
 	"github.com/robfig/cron/v3"
 )
+
+// 本文件的日志 scope
+var logCrontab = logger.New("Crontab")
 
 type CrontabConfig struct {
 	Crontab string
@@ -56,7 +60,9 @@ func initCrontab() {
 	var crontabConfigs []CrontabConfig
 	err := config.DecodeModule(crontabMId, &crontabConfigs)
 	if err != nil {
-		log.Error(err)
+		logCrontab.Error().
+			Err(err).
+			Msg("failed to decode config")
 		return
 	}
 
@@ -75,7 +81,11 @@ func initCrontab() {
 
 	crontabCron.Start()
 	for i, ent := range crontabCron.Entries() {
-		log.Debugf("[Crontab] crontab[%d](%d) next: %s", i, ent.ID, ent.Next.Format(time.DateTime))
+		logCrontab.Debug().
+			Int("crontab", i).
+			Int("entry", int(ent.ID)).
+			Time("next", ent.Next).
+			Msg("crontab next")
 	}
 }
 
@@ -92,7 +102,9 @@ func cronFuncWraper(cron *Crontab) func() {
 func decodeCrontab(input []CrontabConfig) (output []*Crontab) {
 	var err error
 	output = make([]*Crontab, 0, len(input))
-	log.Debug("[Crontab] found configs: ", len(input))
+	logCrontab.Debug().
+		Int("configs", len(input)).
+		Msg("found configs")
 	for i, config := range input {
 		crontab := &Crontab{}
 
@@ -112,10 +124,18 @@ func decodeCrontab(input []CrontabConfig) (output []*Crontab) {
 						if err == nil {
 							crontab.Groups = append(crontab.Groups, groupI)
 						} else {
-							log.Warnf("[Crontab] invalid crontab config [%d] groups [%d]: %v", i, j, err)
+							logCrontab.Warn().
+								Err(err).
+								Int("index", i).
+								Int("group", j).
+								Msg("invalid crontab config")
 						}
 					default:
-						log.Warnf("[Crontab] invalid crontab config [%d] groups [%d]: %T", i, j, group)
+						logCrontab.Warn().
+							Str("type", fmt.Sprintf("%T", group)).
+							Int("index", i).
+							Int("group", j).
+							Msg("invalid crontab config")
 					}
 				}
 
@@ -130,7 +150,10 @@ func decodeCrontab(input []CrontabConfig) (output []*Crontab) {
 				goto GROUP
 
 			default:
-				log.Warnf("[Crontab] invalid crontab config [%d] groups: %T", i, groups)
+				logCrontab.Warn().
+					Str("type", fmt.Sprintf("%T", groups)).
+					Int("index", i).
+					Msg("invalid crontab config")
 			}
 		}
 
@@ -150,10 +173,18 @@ func decodeCrontab(input []CrontabConfig) (output []*Crontab) {
 						if err == nil {
 							crontab.Users = append(crontab.Users, userI)
 						} else {
-							log.Warnf("[Crontab] invalid crontab config [%d] users [%d]: %v", i, j, err)
+							logCrontab.Warn().
+								Err(err).
+								Int("index", i).
+								Int("user", j).
+								Msg("invalid crontab config")
 						}
 					default:
-						log.Warnf("[Crontab] invalid crontab config [%d] users [%d]: %T", i, j, user)
+						logCrontab.Warn().
+							Str("type", fmt.Sprintf("%T", user)).
+							Int("index", i).
+							Int("user", j).
+							Msg("invalid crontab config")
 					}
 				}
 
@@ -168,7 +199,10 @@ func decodeCrontab(input []CrontabConfig) (output []*Crontab) {
 				goto USER
 
 			default:
-				log.Warnf("[Crontab] invalid crontab config [%d] users: %T", i, users)
+				logCrontab.Warn().
+					Str("type", fmt.Sprintf("%T", users)).
+					Int("index", i).
+					Msg("invalid crontab config")
 			}
 		}
 
@@ -181,7 +215,10 @@ func decodeCrontab(input []CrontabConfig) (output []*Crontab) {
 
 		crontab.CronID, err = crontabCron.AddFunc(config.Crontab, cronFuncWraper(crontab))
 		if err != nil {
-			log.Warnf("[Crontab] invalid crontab config [%d] crontab: %v", i, err)
+			logCrontab.Warn().
+				Err(err).
+				Int("index", i).
+				Msg("invalid crontab config")
 			continue
 		}
 

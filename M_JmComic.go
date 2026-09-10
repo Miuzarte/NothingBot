@@ -14,6 +14,7 @@ import (
 	"time"
 
 	env "NothingBot_v4/environment"
+	"NothingBot_v4/logger"
 	"NothingBot_v4/slicesyntax"
 	"NothingBot_v4/utils"
 
@@ -23,6 +24,9 @@ import (
 
 	jm "github.com/Miuzarte/JMComic-go"
 )
+
+// 本文件的日志 scope
+var logJmComic = logger.New("JmComic")
 
 const (
 	// [1]: site // unused
@@ -120,7 +124,9 @@ func ctxJmComicSearch(ctx *EasyOnebot.Ctx) {
 
 	respSearch, err := ctx.SendMsg("[JmComic] 搜索中...")
 	if err != nil {
-		log.Errorf("[JmComic] failed to send msg: %v", err)
+		logJmComic.Error().
+			Err(err).
+			Msg("failed to send msg")
 		return
 	}
 
@@ -215,7 +221,9 @@ func ctxJmComicParse(ctx *EasyOnebot.Ctx) {
 
 	respFetch, err := ctx.SendMsg("[JmComic] 获取中...")
 	if err != nil {
-		log.Error("[JmComic] failed to send msg: ", err)
+		logJmComic.Error().
+			Err(err).
+			Msg("failed to send msg")
 		return
 	}
 
@@ -255,7 +263,9 @@ func ctxJmComicParse(ctx *EasyOnebot.Ctx) {
 			ctx.Std.DeleteMsg(respFetch.MessageId)
 		}
 		if err != nil {
-			log.Error("[JmComic] failed to send msg: ", err)
+			logJmComic.Error().
+				Err(err).
+				Msg("failed to send msg")
 			return
 		}
 
@@ -280,7 +290,9 @@ func ctxJmComicParse(ctx *EasyOnebot.Ctx) {
 			if pDownload {
 				_, err := ctx.SendMsgReplyf("[JmComic] JM%d 下载完成 (%d)", jmId, n)
 				if err != nil {
-					log.Error("[JmComic] failed to send msg: ", err)
+					logJmComic.Error().
+						Err(err).
+						Msg("failed to send msg")
 				}
 				continue
 			}
@@ -288,7 +300,9 @@ func ctxJmComicParse(ctx *EasyOnebot.Ctx) {
 			respSend, err := ctx.SendMsg(jp.SendingHint(i))
 			ctx.Std.DeleteMsg(respDownload.MessageId)
 			if err != nil {
-				log.Error("[JmComic] failed to send msg: ", err)
+				logJmComic.Error().
+					Err(err).
+					Msg("failed to send msg")
 				return
 			}
 
@@ -320,14 +334,20 @@ func ctxJmComicParse(ctx *EasyOnebot.Ctx) {
 			// 发送漫画信息
 			_, err = ctx.SendForwardMsgAuto(forward)
 			if err != nil {
-				log.Errorf("[JmComic] JM%d failed to send msg: %v", jmId, err)
+				logJmComic.Error().
+					Err(err).
+					Int("jmId", jmId).
+					Msg("failed to send msg")
 				ctx.SendMsgf("[JmComic] JM%d 信息合并转发发送失败", jmId)
 			}
 
 			// 发送直链
 			_, err = ctx.SendMsgf("[JmComic] 直接查看：https://jmcomic.miuzarte.top/%s", filename)
 			if err != nil {
-				log.Errorf("[JmComic] JM%d failed to send msg: %v", jmId, err)
+				logJmComic.Error().
+					Err(err).
+					Int("jmId", jmId).
+					Msg("failed to send msg")
 				ctx.SendMsgf("[JmComic] JM%d 直链发送失败", jmId)
 			}
 
@@ -341,12 +361,17 @@ func ctxJmComicParse(ctx *EasyOnebot.Ctx) {
 				case event.TYPE_L2_MESSAGE_PRIVATE:
 					err = ctx.UploadPrivateFile(filepath, filename)
 				default:
-					log.Warnf("[JmComic] unsupported message type: %s", ctx.Event.MessageType)
+					logJmComic.Warn().
+						Str("type", ctx.Event.MessageType).
+						Msg("unsupported message type")
 					ctx.SendMsgf("[JmComic] 不支持的消息类型：%s", ctx.Event.MessageType)
 					return
 				}
 				if err != nil {
-					log.Errorf("[JmComic] JM%d failed to upload pdf: %v", jmId, err)
+					logJmComic.Error().
+						Err(err).
+						Int("jmId", jmId).
+						Msg("failed to upload pdf")
 					ctx.SendMsgf("[JmComic] JM%d pdf上传失败：%v", jmId, err)
 					return
 				}
@@ -664,7 +689,11 @@ func (jp *JmComicParse) BuildPdf(i int, filename, filepath string) (n int, err e
 		// 调用 qpdf 将 pdf 线性化
 		out, err := exec.Command("qpdf", filepath, "--linearize", "--replace-input").CombinedOutput()
 		if err != nil {
-			log.Warnf("[JmComic] JM%d failed to linearize pdf: %v, output: %s", jmId, err, out)
+			logJmComic.Warn().
+				Err(err).
+				Int("jmId", jmId).
+				Str("output", string(out)).
+				Msg("failed to linearize pdf")
 		}
 	}
 	return

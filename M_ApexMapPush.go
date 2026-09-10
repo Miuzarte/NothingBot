@@ -12,6 +12,7 @@ import (
 	"time"
 
 	env "NothingBot_v4/environment"
+	"NothingBot_v4/logger"
 
 	"github.com/Miuzarte/EasyOnebot"
 	"github.com/Miuzarte/EasyOnebot/event"
@@ -19,6 +20,9 @@ import (
 
 	"github.com/robfig/cron/v3"
 )
+
+// 本文件的日志 scope
+var logApexMapPush = logger.New("ApexMapPush")
 
 const APEX_MAP_PUSH_REGEXP = `(?i)(当前)?apex(当前)?地图`
 
@@ -77,14 +81,17 @@ func init() {
 			apexMapPushConfig.Stop()
 		}
 	}
-	modules.Add(&moduleApexMapPush)
+	// 上游接口已失效, 暂时不注册
+	// modules.Add(&moduleApexMapPush)
 }
 
 func initApexMapPush() {
 	newConfig := &ApexMapPushConfig{}
 	err := config.DecodeModule(apexMapPushMId, newConfig)
 	if err != nil {
-		log.Error(err)
+		logApexMapPush.Error().
+			Err(err).
+			Msg("failed to decode config")
 		return
 	}
 
@@ -98,7 +105,7 @@ func initApexMapPush() {
 	apexMapPushConfig = newConfig
 
 	if apexMapPushConfig.Authorization == "" {
-		log.Error("[ApexMapPush] Authorization is empty")
+		logApexMapPush.Error().Msg("Authorization is empty")
 		return
 	}
 
@@ -109,7 +116,9 @@ func initApexMapPush() {
 			func() { ctxApexMapPush(nil) },
 		)
 		if err != nil {
-			log.Error("[ApexMapPush] failed to add cron: ", err)
+			logApexMapPush.Error().
+				Err(err).
+				Msg("failed to add cron")
 			return
 		}
 	}
@@ -118,7 +127,9 @@ func initApexMapPush() {
 	for k, v := range apexMapPushConfig.Specials {
 		gId, err := strconv.Atoi(k)
 		if err != nil {
-			log.Error("[ApexMapPush] failed to parse group id: ", err)
+			logApexMapPush.Error().
+				Err(err).
+				Msg("failed to parse group id")
 			continue
 		}
 		apexMapPushConfig.specials[gId] = v
@@ -134,7 +145,11 @@ func initApexMapPush() {
 	apexMapPushConfig.Start() // 开始监听信号
 	apexMapPushCron.Start()   // 启动 cron
 	for i, ent := range apexMapPushCron.Entries() {
-		log.Debugf("[ApexMapPush] crontab[%d](%d) next: %s", i, ent.ID, ent.Next.Format(time.DateTime))
+		logApexMapPush.Debug().
+			Int("crontab", i).
+			Int("entry", int(ent.ID)).
+			Time("next", ent.Next).
+			Msg("crontab next")
 	}
 
 	if len(apexMapPushConfig.spGroups) == 0 {
@@ -168,7 +183,11 @@ func (ampc *ApexMapPushConfig) Start() {
 		for ctx := range ampc.trigger {
 			go ampc.tryPushApexMapUpdate(ctx)
 			for i, ent := range apexMapPushCron.Entries() {
-				log.Debugf("[ApexMapPush] crontab[%d](%d) next: %s", i, ent.ID, ent.Next.Format(time.DateTime))
+				logApexMapPush.Debug().
+					Int("crontab", i).
+					Int("entry", int(ent.ID)).
+					Time("next", ent.Next).
+					Msg("crontab next")
 			}
 		}
 	}()
@@ -186,11 +205,15 @@ func (ampc *ApexMapPushConfig) tryPushApexMapUpdate(ctx *EasyOnebot.Ctx) {
 	for range 5 { // retry for 5 times
 		resp, err = getApexMapUpdate(ampc.ApiUrl, ampc.Authorization)
 		if err != nil {
-			log.Warn("[ApexMapPush] failed to get map update: ", err)
+			logApexMapPush.Warn().
+				Err(err).
+				Msg("failed to get map update")
 			goto FAILED
 		}
 		if !resp.Success {
-			log.Warn("[ApexMapPush] failed to get map update: ", resp)
+			logApexMapPush.Warn().
+				Any("resp", resp).
+				Msg("failed to get map update")
 			goto FAILED
 		}
 
@@ -211,7 +234,9 @@ func (ampc *ApexMapPushConfig) pushApexMapUpdate(resp ApexMapResp, ctx *EasyOneb
 		if !spGroup { // 跳过 sp
 			_, err := ctx.SendMsgReply(msg)
 			if err != nil {
-				log.Warn("[ApexMapPush] failed to send msg reply: ", err)
+				logApexMapPush.Warn().
+					Err(err).
+					Msg("failed to send msg reply")
 			}
 		}
 	} else { // 定时推送
@@ -234,7 +259,9 @@ func (ampc *ApexMapPushConfig) pushApexMapUpdate(resp ApexMapResp, ctx *EasyOneb
 		segChain.Append(message.Text(resp.AlertMsg))
 		_, err := onebot.Call().Std.SendGroupMsg(gId, segChain)
 		if err != nil {
-			log.Warn("[ApexMapPush] failed to send group msg: ", err)
+			logApexMapPush.Warn().
+				Err(err).
+				Msg("failed to send group msg")
 		}
 	}
 }
@@ -242,7 +269,9 @@ func (ampc *ApexMapPushConfig) pushApexMapUpdate(resp ApexMapResp, ctx *EasyOneb
 func getApexMapUpdate(apiUrl, auth string) (amr ApexMapResp, err error) {
 	req, err := http.NewRequest(http.MethodGet, apiUrl, nil)
 	if err != nil {
-		log.Panic(err)
+		logApexMapPush.Panic().
+			Err(err).
+			Msg("failed to create request")
 	}
 	req.Header.Set("Authorization", auth)
 	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36 Edg/141.0.0.0")
@@ -258,7 +287,9 @@ func getApexMapUpdate(apiUrl, auth string) (amr ApexMapResp, err error) {
 		return
 	}
 
-	log.Debug("[ApexMapPush] resp: ", string(body))
+	logApexMapPush.Debug().
+		Str("resp", string(body)).
+		Msg("resp")
 
 	err = json.Unmarshal(body, &amr)
 	if err != nil {

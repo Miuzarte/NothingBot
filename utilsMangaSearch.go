@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"NothingBot_v4/logger"
 	"github.com/Miuzarte/EasyOnebot"
 	"github.com/Miuzarte/EasyOnebot/message"
 	"golang.org/x/image/webp"
@@ -24,6 +25,9 @@ import (
 	nhApi "github.com/Miuzarte/NHentai-go/api"
 	pc "github.com/Miuzarte/PicaComic-go"
 )
+
+// 本文件的日志 scope
+var logMangaSearch = logger.New("MangaSearch")
 
 type MangaSearchSite int
 
@@ -195,7 +199,10 @@ func (ms *MangaSearch) buildResultsEh(results eh.FSearchResults) []message.Segme
 		result := &results[i]
 		segChain := make(message.SegmentArray, 0, 2)
 		if err != nil {
-			log.Warnf("[EHentai] failed to download search results cover[%d]: %v", i, err)
+			logMangaSearch.Warn().
+				Err(err).
+				Int("index", i).
+				Msg("failed to download search results cover")
 			segChain.Append(message.Text("<COVER DOWNLOAD FAILED>\n"))
 		} else if ehRatingCmp(result.Rating, mangaConfig.EHentaiCoverShowRating) > 0 {
 			segChain.Append(message.Image(salt(cover.Data, mangaConfig.SaltLength)))
@@ -248,7 +255,10 @@ func (ms *MangaSearch) buildResultsNh(search *nhApi.PaginatedResponseGalleryList
 		result := results[i]
 		segChain := make(message.SegmentArray, 0, 2)
 		if err != nil {
-			log.Warnf("[NHentai] failed to download search results cover[%d]: %v", i, err)
+			logMangaSearch.Warn().
+				Err(err).
+				Int("index", i).
+				Msg("failed to download search results cover")
 			segChain.Append(message.Text("<COVER DOWNLOAD FAILED>\n"))
 		} else {
 			segChain.Append(message.Image(salt(cover.Data, mangaConfig.SaltLength)))
@@ -282,7 +292,10 @@ func (ms *MangaSearch) buildResultsJm(search *jm.SearchResp) []message.SegmentAr
 	for cover, err := range jm.DownloadCoversIter(ms.Ctx, search) {
 		segChain := make(message.SegmentArray, 0, 2)
 		if err != nil {
-			log.Warnf("[JmComic] failed to download search results cover[%d]: %v", i, err)
+			logMangaSearch.Warn().
+				Err(err).
+				Int("index", i).
+				Msg("failed to download search results cover")
 			segChain.Append(message.Text("<COVER DOWNLOAD FAILED>\n"))
 		} else {
 			segChain.Append(message.Image(salt(cover.Data, mangaConfig.SaltLength)))
@@ -311,7 +324,10 @@ func (ms *MangaSearch) buildResultsPc(search *pc.SearchResp) []message.SegmentAr
 	for cover, err := range pc.DownloadCoversIter(ms.Ctx, search) {
 		segChain := make(message.SegmentArray, 0, 2)
 		if err != nil {
-			log.Warnf("[PicaComic] failed to download search results cover[%d]: %v", i, err)
+			logMangaSearch.Warn().
+				Err(err).
+				Int("index", i).
+				Msg("failed to download search results cover")
 			segChain.Append(message.Text("<COVER DOWNLOAD FAILED>\n"))
 		} else {
 			segChain.Append(message.Image(salt(cover.Data, mangaConfig.SaltLength)))

@@ -4,12 +4,16 @@ import (
 	"context"
 
 	env "NothingBot_v4/environment"
+	"NothingBot_v4/logger"
 
 	"github.com/Miuzarte/EasyOnebot"
 	"github.com/Miuzarte/EasyOnebot/event"
 
 	sn "github.com/Miuzarte/SauceNAO-go"
 )
+
+// 本文件的日志 scope
+var logSauceNao = logger.New("SauceNao")
 
 type SauceNaoConfig struct {
 	ApiKey       string
@@ -35,7 +39,7 @@ var moduleSauceNao = Module{
 		HelpMsg:    "\"搜图\" / \"/saucenao\"",
 	},
 	Priority: 1, // after [moduleFlareSolverr]
-	Disable: env.Testing,
+	Disable:  env.Testing,
 }
 
 func init() {
@@ -49,7 +53,9 @@ func init() {
 func initSauceNao() {
 	err := config.DecodeModule(sauceNaoMId, &sauceNaoConfig)
 	if err != nil {
-		log.Error(err)
+		logSauceNao.Error().
+			Err(err).
+			Msg("failed to decode config")
 		return
 	}
 

@@ -12,6 +12,7 @@ import (
 	"NothingBot_v4/utils"
 
 	env "NothingBot_v4/environment"
+	"NothingBot_v4/logger"
 
 	"github.com/Miuzarte/EasyOnebot"
 	"github.com/Miuzarte/EasyOnebot/event"
@@ -20,6 +21,9 @@ import (
 	"github.com/Miuzarte/biligo"
 	"github.com/redis/rueidis"
 )
+
+// 本文件的日志 scope
+var logBiliParse = logger.New("BiliParse")
 
 type BiliParseConfig struct {
 	SameParseInterval string // 同一会话重复解析同一链接的间隔 (秒)
@@ -57,7 +61,9 @@ func init() {
 func initBiliParse() {
 	err := config.DecodeModule(biliParseMId, &biliParseConfig)
 	if err != nil {
-		log.Error(err)
+		logBiliParse.Error().
+			Err(err).
+			Msg("failed to decode config")
 		return
 	}
 
@@ -109,7 +115,9 @@ AGAIN:
 			// 尝试获取回复的消息
 			replyed, err := ctx.GetReplyMsg()
 			if err != nil {
-				log.Warn("failed to get reply msg: ", err)
+				logBiliParse.Warn().
+					Err(err).
+					Msg("failed to get reply msg")
 				return
 			}
 			// 使用回复的消息重新解析
@@ -159,13 +167,19 @@ AGAIN:
 
 func ctxBiliParseTrack(ctx *EasyOnebot.Ctx) {
 	if ctx.ReplyId == 0 {
-		log.Warnf("[BiliParse] reply in %d id is 0", ctx.Event.MessageId)
+		logBiliParse.Warn().
+			Int("messageId", ctx.Event.MessageId).
+			Msg("reply id is 0")
 		return
 	}
 	origMsgId, err := biliParseTrackGet(ctx.Event.GroupId, ctx.ReplyId)
 	if err != nil {
 		if !rueidis.IsRedisNil(err) {
-			log.Warnf("[BiliParse] failed to get track for %d in %d: %v", ctx.ReplyId, ctx.Event.GroupId, err)
+			logBiliParse.Warn().
+				Err(err).
+				Int("replyId", ctx.ReplyId).
+				Int("group", ctx.Event.GroupId).
+				Msg("failed to get track")
 		}
 		return
 	}
@@ -182,7 +196,9 @@ func biliAvBvToResults(ids []string) (results []biligo.ParseResult) {
 	for i, id := range ids {
 		aid, err := biligo.AnyToAid(id)
 		if err != nil {
-			log.Warn("[BiliParse] failed to convert av/bv to aid: ", err)
+			logBiliParse.Warn().
+				Err(err).
+				Msg("failed to convert av/bv to aid")
 			continue
 		}
 		ids[i] = aid
@@ -219,13 +235,15 @@ func biliParseWaitAck(ctx *EasyOnebot.Ctx, results []biligo.ParseResult) {
 	}
 
 	if ctx.Event.GroupId == 0 {
-		log.Warn("[BiliParse] groupId is 0")
+		logBiliParse.Warn().Msg("groupId is 0")
 		return
 	}
 
 	resp, err := ctx.SendMsg("识别到 av/bv 号，是否解析？（y/n）")
 	if err != nil {
-		log.Warn("[BiliParse] failed to send msg: ", err)
+		logBiliParse.Warn().
+			Err(err).
+			Msg("failed to send msg")
 		return // 提示消息没发出去
 	}
 
@@ -365,7 +383,9 @@ func biliParseAndSend(ctx *EasyOnebot.Ctx, results []biligo.ParseResult) {
 			if linkTypeSum[biligo.LINK_TYPE_MEDIA] == 1 {
 				ms, err := biligo.FetchMediaSection(ssid)
 				if err != nil {
-					log.Error("[BiliParse] failed to fetch media section: ", err)
+					logBiliParse.Error().
+						Err(err).
+						Msg("failed to fetch media section")
 				} else {
 					mediaSection = &ms
 				}
@@ -384,7 +404,9 @@ func biliParseAndSend(ctx *EasyOnebot.Ctx, results []biligo.ParseResult) {
 			if linkTypeSum[biligo.LINK_TYPE_SPACE] == 1 {
 				sd, err := biligo.FetchDynamicSpaceFix(result.Content)
 				if err != nil {
-					log.Error("[BiliParse] failed to fetch dynamic space: ", err)
+					logBiliParse.Error().
+						Err(err).
+						Msg("failed to fetch dynamic space")
 				} else if len(sd.Items) != 0 {
 					spaceDynamics = &sd
 				}
@@ -444,7 +466,9 @@ func biliParseAndSend(ctx *EasyOnebot.Ctx, results []biligo.ParseResult) {
 
 		resp, err := ctx.SendForwardMsgAuto(forward)
 		if err != nil {
-			log.Error("[BiliParse] failed to send forward msg: ", err)
+			logBiliParse.Error().
+				Err(err).
+				Msg("failed to send forward msg")
 			return
 		}
 		sentMsgId = resp.MessageId
@@ -452,7 +476,9 @@ func biliParseAndSend(ctx *EasyOnebot.Ctx, results []biligo.ParseResult) {
 	} else { // 单条解析
 		resp, err := ctx.SendMsg(replys[0])
 		if err != nil {
-			log.Warn("[BiliParse] failed to send msg: ", err)
+			logBiliParse.Warn().
+				Err(err).
+				Msg("failed to send msg")
 			return
 		}
 		sentMsgId = resp.MessageId
@@ -475,7 +501,9 @@ func biliParseAndSend(ctx *EasyOnebot.Ctx, results []biligo.ParseResult) {
 
 			_, err := ctx.SendForwardMsgAuto(forward)
 			if err != nil {
-				log.Warn("[BiliParse] failed to send forward msg: ", err)
+				logBiliParse.Warn().
+					Err(err).
+					Msg("failed to send forward msg")
 			}
 		}
 
@@ -491,7 +519,9 @@ func biliParseAndSend(ctx *EasyOnebot.Ctx, results []biligo.ParseResult) {
 
 			_, err := ctx.SendForwardMsgAuto(forward)
 			if err != nil {
-				log.Warn("[BiliParse] failed to send forward msg: ", err)
+				logBiliParse.Warn().
+					Err(err).
+					Msg("failed to send forward msg")
 			}
 		}
 
@@ -540,18 +570,24 @@ func biliParseAndSend(ctx *EasyOnebot.Ctx, results []biligo.ParseResult) {
 
 					_, err := ctx.SendForwardMsgAuto(buildConclusionMsgF(desc, topComment, vc))
 					if err != nil {
-						log.Warn("[BiliParse] failed to send forward msg: ", err)
+						logBiliParse.Warn().
+							Err(err).
+							Msg("failed to send forward msg")
 					}
 				}
 			} else {
 				// 没有总结时注册轮询
-				log.Debug("[BiliParse] register video conclusion: ", result.Content)
+				logBiliParse.Debug().
+					Str("content", result.Content).
+					Msg("register video conclusion")
 				tctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 				biligo.RegisterVideoConclusion(tctx, result.Content, "", func(vc biligo.VideoConclusion, err error) {
 					cancel()
 					if err != nil {
 						if !biligo.UnwrapErr(err).Is(biligo.ErrPollNoSummary) {
-							log.Warn("[BiliParse] failed to poll video conclusion: ", err)
+							logBiliParse.Warn().
+								Err(err).
+								Msg("failed to poll video conclusion")
 						}
 						return
 					}
@@ -567,7 +603,9 @@ func biliParseAndSend(ctx *EasyOnebot.Ctx, results []biligo.ParseResult) {
 
 					_, err = ctx.SendForwardMsgAuto(buildConclusionMsgF(desc, topComment, &vc))
 					if err != nil {
-						log.Warn("[BiliParse] failed to send forward msg: ", err)
+						logBiliParse.Warn().
+							Err(err).
+							Msg("failed to send forward msg")
 						return
 					}
 				})
@@ -582,7 +620,7 @@ func biliParseAndSend(ctx *EasyOnebot.Ctx, results []biligo.ParseResult) {
 func biliDownloadAndSend(ctx *EasyOnebot.Ctx, result biligo.ParseResult, pForce bool) {
 	if result.Type != biligo.LINK_TYPE_ARCHIVE {
 		msg := fmt.Sprintf("occured a non-archive link: %s", result.Content)
-		log.Error(msg)
+		logBiliParse.Error().Msg(msg)
 		onebot.Log2Sus.Error(msg)
 		return
 	}
@@ -599,7 +637,9 @@ AGAIN:
 	case biligo.VIDEO_QN_360:
 		qnStr = "360P"
 	default:
-		log.Panicf("unreachable case: qn = %d", qn)
+		logBiliParse.Panic().
+			Int("qn", qn).
+			Msg("unreachable case")
 	}
 
 	vd := biligo.NewDownloadVideoMp4(c, result.Content, "", qn)
@@ -620,7 +660,9 @@ AGAIN:
 
 	dlResp, err := ctx.SendMsgf("(%s)(%s)下载中(%s)...", result.Content, qnStr, utils.FormatBytes(uint64(size)))
 	if err != nil {
-		log.Error("failed to send msg: ", err)
+		logBiliParse.Error().
+			Err(err).
+			Msg("failed to send msg")
 		return
 	}
 
@@ -640,7 +682,9 @@ AGAIN:
 	// respSend, err := ctx.SendMsgf("发送中...\n已为该视频播放量+1，请放心食用")
 	respSend, err := ctx.SendMsgf("(%s)(%s)发送中...", result.Content, qnStr)
 	if err != nil {
-		log.Error("failed to send msg: ", err)
+		logBiliParse.Error().
+			Err(err).
+			Msg("failed to send msg")
 	}
 	_, err = ctx.SendMsg(message.Video(bb.String()))
 	ctx.Std.DeleteMsg(respSend.MessageId)
@@ -675,7 +719,9 @@ func biliParseCleanResults(groupId int, results []biligo.ParseResult) []biligo.P
 		bph, err := biliParseHistoryGet(groupId, r.Content)
 		if err != nil {
 			if !rueidis.IsRedisNil(err) {
-				log.Error("failed to get bili parse history: ", err)
+				logBiliParse.Error().
+					Err(err).
+					Msg("failed to get bili parse history")
 			}
 			cleaned = append(cleaned, r) // 出错时不过滤
 			continue
@@ -686,7 +732,9 @@ func biliParseCleanResults(groupId int, results []biligo.ParseResult) []biligo.P
 		}
 		err = biliParseHistorySet(groupId, r.Content, &BiliParseHistory{r, tn})
 		if err != nil {
-			log.Error("failed to set bili parse history: ", err)
+			logBiliParse.Error().
+				Err(err).
+				Msg("failed to set bili parse history")
 		}
 		cleaned = append(cleaned, r)
 	}

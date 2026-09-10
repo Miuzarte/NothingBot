@@ -10,6 +10,7 @@ import (
 	"NothingBot_v4/qrcode"
 
 	env "NothingBot_v4/environment"
+	"NothingBot_v4/logger"
 
 	"github.com/Miuzarte/EasyOnebot/event"
 	"github.com/Miuzarte/EasyOnebot/message"
@@ -18,6 +19,9 @@ import (
 
 	"github.com/Miuzarte/biligo"
 )
+
+// 本文件的日志 scope
+var logBiliLogin = logger.New("BiliLogin")
 
 const biliLoginMId ModuleId = "BiliLogin"
 
@@ -102,7 +106,9 @@ func ctxBiliLogin(ctx *EasyOnebot.Ctx) {
 		}
 		_, err = ctx.SendMsg(message.Image(qrc))
 		if err != nil {
-			log.Error("[BiliLogin] failed to send qrcode: ", err)
+			logBiliLogin.Error().
+				Err(err).
+				Msg("failed to send qrcode")
 			return
 		}
 
@@ -129,16 +135,20 @@ func loadIdentity() {
 	f, err := os.OpenFile("./bilibili_identity", os.O_RDONLY, 0o666)
 	if err != nil {
 		if os.IsNotExist(err) {
-			log.Info("bilibili_identity not exist, need login")
+			logBiliLogin.Info().Msg("bilibili_identity not exist, need login")
 		} else {
-			log.Error("open file error: ", err)
+			logBiliLogin.Error().
+				Err(err).
+				Msg("open file error")
 		}
 		return
 	}
 	id := biligo.Identity{}
 	err = json.NewDecoder(f).Decode(&id)
 	if err != nil {
-		log.Error("decode error: ", err)
+		logBiliLogin.Error().
+			Err(err).
+			Msg("decode error")
 		return
 	}
 	biligo.ImportIdentity(id)
@@ -148,12 +158,16 @@ func saveIdentity() {
 	id := biligo.ExportIdentity()
 	f, err := os.OpenFile("./bilibili_identity", os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0o666)
 	if err != nil {
-		log.Error("open file error: ", err)
+		logBiliLogin.Error().
+			Err(err).
+			Msg("open file error")
 		return
 	}
 	err = json.NewEncoder(f).Encode(id)
 	if err != nil {
-		log.Error("encode error: ", err)
+		logBiliLogin.Error().
+			Err(err).
+			Msg("encode error")
 		return
 	}
 }

@@ -15,6 +15,7 @@ import (
 	"time"
 
 	env "NothingBot_v4/environment"
+	"NothingBot_v4/logger"
 	"NothingBot_v4/slicesyntax"
 	"NothingBot_v4/utils"
 
@@ -24,6 +25,9 @@ import (
 
 	eh "github.com/Miuzarte/EHentai-go"
 )
+
+// 本文件的日志 scope
+var logEHentai = logger.New("EHentai")
 
 const (
 	// [1]: E / E- / EX
@@ -116,10 +120,14 @@ func initEHentai() {
 				ts := time.Now()
 				err := eh.InitEhTagDb()
 				if err == nil {
-					log.Infof("[EHentai] tag db init done(%s)", time.Since(ts))
+					logEHentai.Info().
+						Dur("cost", time.Since(ts)).
+						Msg("tag db init done")
 					break
 				}
-				log.Warnf("[EHentai] failed to init tag db: %v", err)
+				logEHentai.Warn().
+					Err(err).
+					Msg("failed to init tag db")
 				<-time.After(time.Minute)
 			}
 		}()
@@ -132,35 +140,38 @@ func initEHentai() {
 		onebot.Log2Sus.Info("[EHentai] igneous updated: ", igneous)
 	})
 
-	onebot.AddMatcher(moduleEHentaiSearch.Name.String(), EasyOnebot.NewMatcher().
-		OnTypeL1(event.TYPE_L1_MESSAGE).
-		IsNotCardMsg().
-		OnlyType(message.TYPE_TEXT).
-		OnFunc(func(ctx *EasyOnebot.Ctx) bool {
-			return mangaConfig.EHentaiEnabled && mangaConfig.White(ctx)
-		}).
-		OnRegexpFindAllStringSubmatch(eHentaiSearchReg).
-		Do(moduleEHentai.RWMuWrap(ctxEHentaiSearch)),
+	onebot.AddMatcher(
+		moduleEHentaiSearch.Name.String(), EasyOnebot.NewMatcher().
+			OnTypeL1(event.TYPE_L1_MESSAGE).
+			IsNotCardMsg().
+			OnlyType(message.TYPE_TEXT).
+			OnFunc(func(ctx *EasyOnebot.Ctx) bool {
+				return mangaConfig.EHentaiEnabled && mangaConfig.White(ctx)
+			}).
+			OnRegexpFindAllStringSubmatch(eHentaiSearchReg).
+			Do(moduleEHentai.RWMuWrap(ctxEHentaiSearch)),
 	)
-	onebot.AddMatcher(moduleEHentaiGalleryParse.Name.String(), EasyOnebot.NewMatcher().
-		OnTypeL1(event.TYPE_L1_MESSAGE).
-		IsNotCardMsg().
-		OnlyType(message.TYPE_TEXT).
-		OnFunc(func(ctx *EasyOnebot.Ctx) bool {
-			return mangaConfig.EHentaiEnabled && mangaConfig.White(ctx)
-		}).
-		OnRegexpFindAllStringSubmatch(eHentaiGalleryUrlReg).
-		Do(moduleEHentai.RWMuWrap(ctxEHentaiGalleryParse)),
+	onebot.AddMatcher(
+		moduleEHentaiGalleryParse.Name.String(), EasyOnebot.NewMatcher().
+			OnTypeL1(event.TYPE_L1_MESSAGE).
+			IsNotCardMsg().
+			OnlyType(message.TYPE_TEXT).
+			OnFunc(func(ctx *EasyOnebot.Ctx) bool {
+				return mangaConfig.EHentaiEnabled && mangaConfig.White(ctx)
+			}).
+			OnRegexpFindAllStringSubmatch(eHentaiGalleryUrlReg).
+			Do(moduleEHentai.RWMuWrap(ctxEHentaiGalleryParse)),
 	)
-	onebot.AddMatcher(moduleEHentaiPageParse.Name.String(), EasyOnebot.NewMatcher().
-		OnTypeL1(event.TYPE_L1_MESSAGE).
-		IsNotCardMsg().
-		OnlyType(message.TYPE_TEXT).
-		OnFunc(func(ctx *EasyOnebot.Ctx) bool {
-			return mangaConfig.EHentaiEnabled && mangaConfig.White(ctx)
-		}).
-		OnRegexpFindAllStringSubmatch(eHentaiPageUrlReg).
-		Do(moduleEHentai.RWMuWrap(ctxEHentaiPageParse)),
+	onebot.AddMatcher(
+		moduleEHentaiPageParse.Name.String(), EasyOnebot.NewMatcher().
+			OnTypeL1(event.TYPE_L1_MESSAGE).
+			IsNotCardMsg().
+			OnlyType(message.TYPE_TEXT).
+			OnFunc(func(ctx *EasyOnebot.Ctx) bool {
+				return mangaConfig.EHentaiEnabled && mangaConfig.White(ctx)
+			}).
+			OnRegexpFindAllStringSubmatch(eHentaiPageUrlReg).
+			Do(moduleEHentai.RWMuWrap(ctxEHentaiPageParse)),
 	)
 }
 
@@ -184,7 +195,9 @@ func ctxEHentaiSearch(ctx *EasyOnebot.Ctx) {
 
 	respSearch, err := ctx.SendMsg("[EHentai] 搜索中...")
 	if err != nil {
-		log.Errorf("[EHentai] failed to send msg: %v", err)
+		logEHentai.Error().
+			Err(err).
+			Msg("failed to send msg")
 		return
 	}
 
@@ -248,7 +261,9 @@ func ctxEHentaiGalleryParse(ctx *EasyOnebot.Ctx) {
 
 	respFetch, err := ctx.SendMsg("[EHentai] 获取中...")
 	if err != nil {
-		log.Error("[EHentai] failed to send msg: ", err)
+		logEHentai.Error().
+			Err(err).
+			Msg("failed to send msg")
 		return
 	}
 
@@ -288,7 +303,9 @@ func ctxEHentaiGalleryParse(ctx *EasyOnebot.Ctx) {
 			ctx.Std.DeleteMsg(respFetch.MessageId)
 		}
 		if err != nil {
-			log.Error("[EHentai] failed to send msg: ", err)
+			logEHentai.Error().
+				Err(err).
+				Msg("failed to send msg")
 			return
 		}
 
@@ -307,7 +324,9 @@ func ctxEHentaiGalleryParse(ctx *EasyOnebot.Ctx) {
 			if pDownload {
 				_, err := ctx.SendMsgReplyf("[EHentai] 画廊 %d 下载完成 (%d)", gId, n)
 				if err != nil {
-					log.Error("[EHentai] failed to send msg: ", err)
+					logEHentai.Error().
+						Err(err).
+						Msg("failed to send msg")
 				}
 				continue
 			}
@@ -315,7 +334,9 @@ func ctxEHentaiGalleryParse(ctx *EasyOnebot.Ctx) {
 			respSend, err := ctx.SendMsg(ep.SendingHint(i))
 			ctx.Std.DeleteMsg(respDownload.MessageId)
 			if err != nil {
-				log.Error("[EHentai] failed to send msg: ", err)
+				logEHentai.Error().
+					Err(err).
+					Msg("failed to send msg")
 				return
 			}
 
@@ -347,14 +368,20 @@ func ctxEHentaiGalleryParse(ctx *EasyOnebot.Ctx) {
 			// 发送画廊信息
 			_, err = ctx.SendForwardMsgAuto(forward)
 			if err != nil {
-				log.Errorf("[EHentai] gallery %d failed to send msg: %v", gId, err)
+				logEHentai.Error().
+					Err(err).
+					Int("gId", gId).
+					Msg("failed to send msg")
 				ctx.SendMsgf("[EHentai] 画廊 %d 信息合并转发发送失败", gId)
 			}
 
 			// 发送直链
 			_, err = ctx.SendMsgf("[EHentai] 直接查看：https://ehentai.miuzarte.top/%s", filename)
 			if err != nil {
-				log.Errorf("[EHentai] gallery %d failed to send msg: %v", gId, err)
+				logEHentai.Error().
+					Err(err).
+					Int("gId", gId).
+					Msg("failed to send msg")
 				ctx.SendMsgf("[EHentai] 画廊 %d 直链发送失败", gId)
 			}
 
@@ -368,12 +395,17 @@ func ctxEHentaiGalleryParse(ctx *EasyOnebot.Ctx) {
 				case event.TYPE_L2_MESSAGE_PRIVATE:
 					err = ctx.UploadPrivateFile(filepath, filename)
 				default:
-					log.Warnf("[EHentai] unsupported message type: %s", ctx.Event.MessageType)
+					logEHentai.Warn().
+						Str("type", ctx.Event.MessageType).
+						Msg("unsupported message type")
 					ctx.SendMsgf("[EHentai] 不支持的消息类型：%s", ctx.Event.MessageType)
 					return
 				}
 				if err != nil {
-					log.Errorf("[EHentai] gallery %d failed to upload pdf: %v", gId, err)
+					logEHentai.Error().
+						Err(err).
+						Int("gId", gId).
+						Msg("failed to upload pdf")
 					ctx.SendMsgf("[EHentai] 画廊 %d pdf上传失败：%v", gId, err)
 					return
 				}
@@ -414,7 +446,9 @@ func ctxEHentaiPageParse(ctx *EasyOnebot.Ctx) {
 
 	respFetching, err := ctx.SendMsg("[EHentai] 获取中...")
 	if err != nil {
-		log.Error("[EHentai] failed to send msg: ", err)
+		logEHentai.Error().
+			Err(err).
+			Msg("failed to send msg")
 		return
 	}
 
@@ -442,7 +476,9 @@ func ctxEHentaiPageParse(ctx *EasyOnebot.Ctx) {
 	respDownload, err := ctx.SendMsg("[EHentai] 下载中...")
 	ctx.Std.DeleteMsg(respFetching.MessageId)
 	if err != nil {
-		log.Error("[EHentai] failed to send msg: ", err)
+		logEHentai.Error().
+			Err(err).
+			Msg("failed to send msg")
 		return
 	}
 
@@ -473,7 +509,9 @@ func ctxEHentaiPageParse(ctx *EasyOnebot.Ctx) {
 	if pDownload {
 		_, err := ctx.SendMsg("[EHentai] 下载完成")
 		if err != nil {
-			log.Error("[EHentai] failed to send msg: ", err)
+			logEHentai.Error().
+				Err(err).
+				Msg("failed to send msg")
 		}
 		return
 	}
@@ -481,7 +519,9 @@ func ctxEHentaiPageParse(ctx *EasyOnebot.Ctx) {
 	respSend, err := ctx.SendMsg("[EHentai] 发送中...")
 	ctx.Std.DeleteMsg(respDownload.MessageId)
 	if err != nil {
-		log.Error("[EHentai] failed to send msg: ", err)
+		logEHentai.Error().
+			Err(err).
+			Msg("failed to send msg")
 		return
 	}
 
@@ -489,7 +529,9 @@ func ctxEHentaiPageParse(ctx *EasyOnebot.Ctx) {
 	respSendForward, err := ctx.SendForwardMsgAuto(forward)
 	ctx.Std.DeleteMsg(respSend.MessageId)
 	if err != nil {
-		log.Error("[EHentai] failed to send forward msg: ", err)
+		logEHentai.Error().
+			Err(err).
+			Msg("failed to send forward msg")
 		ctx.SendMsg("[EHentai] 发送失败")
 		return
 	}
@@ -828,7 +870,8 @@ func (ep *EHentaiParse) BuildForward(i int, uid int, name string) (n int, forwar
 	gId := ep.GIds[i]
 	var bp *utils.BatchPacker[eh.PageData]
 	if !ep.Options.DownloadOnly {
-		bp = utils.NewBatchPacker(mangaConfig.ForwardMsgBatchSize,
+		bp = utils.NewBatchPacker(
+			mangaConfig.ForwardMsgBatchSize,
 			eHentaiPackFuncWraper(func(segChain message.SegmentArray) {
 				forward.Append(message.Node3(uid, name, segChain))
 			}),
@@ -890,7 +933,11 @@ func (ep *EHentaiParse) BuildPdf(i int, filename, filepath string) (n int, err e
 		// 调用 qpdf 将 pdf 线性化
 		out, err := exec.Command("qpdf", filepath, "--linearize", "--replace-input").CombinedOutput()
 		if err != nil {
-			log.Warnf("[EHentai] gallery %d failed to linearize pdf: %v, output: %s", gId, err, out)
+			logEHentai.Warn().
+				Err(err).
+				Int("gId", gId).
+				Str("output", string(out)).
+				Msg("failed to linearize pdf")
 		}
 	}
 	return

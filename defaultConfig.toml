@@ -1,12 +1,7 @@
 [log]
 # 控制台日志等级, 值越大输出越少
-# TraceLevel = iota = 0
-# DebugLevel
-# InfoLevel
-# WarnLevel
-# ErrorLevel
-# FatalLevel
-# PanicLevel
+# 0=trace 1=debug 2=info 3=warn 4=error 5=fatal 6=panic
+# 内部换算成 zerolog 等级 (即减 1)
 # level = 0
 # level = 1
 level = 2

@@ -9,22 +9,23 @@ import (
 	"time"
 
 	env "NothingBot_v4/environment"
+	"NothingBot_v4/logger"
 
 	"github.com/Miuzarte/EasyOnebot"
 	"github.com/Miuzarte/EasyOnebot/event"
 
-	"github.com/Miuzarte/SimpleLog"
 	"github.com/fsnotify/fsnotify"
 	"github.com/redis/rueidis"
 	"github.com/spf13/viper"
 )
 
+// 本文件的日志 scope
+var logMain = logger.New("main")
+
 var (
 	runTime  = time.Now() // 运行时间
 	connTime time.Time    // 连接时间
 	stopTime time.Time    // 停止时间
-
-	log = SimpleLog.New("[NothingBot]", true, true)
 
 	config = Config{
 		UpdateChanAdmin:     make(chan int, 1),
@@ -38,27 +39,24 @@ var (
 
 	redisClient RedisClient
 	onebot      = EasyOnebot.New()
+
+	logOnebot = logger.New("EasyOneBot") // 注入给 EasyOnebot, 不直接使用
 )
 
 var logFs *SafeFile
 
 func InitLog() {
-	if config.Log.Level > 6 {
-		config.Log.Level = 6
-	}
-	l := SimpleLog.Level(config.Log.Level)
-	onebot.SetLogLevel(l)
-	log.SetLevel(l)
+	logger.SetLevel(logger.Level(config.Log.Level))
 	if config.Log.Dir != "" && logFs == nil && // 无热更新
 		!env.Testing {
 		logFs = CreateLogFile(config.Log.Dir)
-		log.AddOutput(logFs)
+		logger.AddOutput(logFs)
 	}
 }
 
 func InitRedis() {
 	if config.Global.RedisUrl == "" {
-		log.Fatal("[main] no redis url provided")
+		logMain.Fatal().Msg("no redis url provided")
 	}
 	client, err := rueidis.NewClient(rueidis.ClientOption{
 		InitAddress: []string{config.Global.RedisUrl},
@@ -66,7 +64,9 @@ func InitRedis() {
 	})
 	redisClient.Client = client
 	if err != nil {
-		log.Fatal("[main] failed to init redis: ", err)
+		logMain.Fatal().
+			Err(err).
+			Msg("failed to init redis")
 	}
 }
 
@@ -123,21 +123,29 @@ func configLoop() {
 			}
 			tn := time.Now()
 			if !e.Has(fsnotify.Write) {
-				log.Warn("[main] unexpected config file event: ", e)
+				logMain.Warn().
+					Any("event", e).
+					Msg("unexpected config file event")
 				continue
 			}
 
 			if tn.Sub(config.LastChange) < time.Second {
-				log.Debug("[main] config reload ignored: ", e.Op)
+				logMain.Debug().
+					Str("op", e.Op.String()).
+					Msg("config reload ignored")
 				continue
 			}
 			config.LastChange = tn
 			if !config.AutoReload {
-				log.Debug("[main] config reload skipped: ", e.Op)
+				logMain.Debug().
+					Str("op", e.Op.String()).
+					Msg("config reload skipped")
 				continue
 			}
 
-			log.Info("[main] config reload triggered by file event: ", e.Op)
+			logMain.Info().
+				Str("op", e.Op.String()).
+				Msg("config reload triggered by file event")
 			config.UpdateCount++
 			go ReInit() // 阻塞太久会导致处理下一个信号时超时 time.Second
 
@@ -145,7 +153,9 @@ func configLoop() {
 			if !ok {
 				return
 			}
-			log.Info("[main] config reload triggered by admin: ", msg)
+			logMain.Info().
+				Int("mid", msg).
+				Msg("config reload triggered by admin")
 			config.UpdateCount++
 			go ReInit()
 
@@ -190,16 +200,23 @@ func Init() {
 		}
 
 		if !m.RWMutex.TryLock() {
-			log.Panicf("[main] [FIXME] module %s failed to lock in initialization", name)
+			logMain.Panic().
+				Str("module", string(name)).
+				Msg("[FIXME] module failed to lock in initialization")
 		}
 
 		if m.Init != nil {
 			t = time.Now()
 			m.Init()
 			if ts = time.Since(t); ts >= time.Millisecond {
-				log.Debugf("[main] module %s initialized in %s", name, ts)
+				logMain.Debug().
+					Str("module", string(name)).
+					Dur("cost", ts).
+					Msg("module initialized")
 			} else {
-				log.Debugf("[main] module %s initialized", name)
+				logMain.Debug().
+					Str("module", string(name)).
+					Msg("module initialized")
 			}
 		}
 
@@ -218,16 +235,23 @@ func AfterInit() {
 		}
 
 		if !m.RWMutex.TryLock() {
-			log.Panicf("[main] [FIXME] module %s failed to lock in after-initialization", name)
+			logMain.Panic().
+				Str("module", string(name)).
+				Msg("[FIXME] module failed to lock in after-initialization")
 		}
 
 		if m.AfterInit != nil {
 			t = time.Now()
 			m.AfterInit()
 			if ts = time.Since(t); ts >= time.Millisecond {
-				log.Debugf("[main] module %s after-initialized in %s", name, ts)
+				logMain.Debug().
+					Str("module", string(name)).
+					Dur("cost", ts).
+					Msg("module after-initialized")
 			} else {
-				log.Debugf("[main] module %s after-initialized", name)
+				logMain.Debug().
+					Str("module", string(name)).
+					Msg("module after-initialized")
 			}
 		}
 
@@ -248,7 +272,9 @@ func ReInit() {
 		}
 
 		if !m.RWMutex.TryLock() {
-			log.Infof("[main] module %s is still busy...", name)
+			logMain.Info().
+				Str("module", string(name)).
+				Msg("module is still busy")
 			m.RWMutex.Lock()
 		}
 
@@ -256,9 +282,14 @@ func ReInit() {
 			t = time.Now()
 			m.ReInit()
 			if ts = time.Since(t); ts >= time.Millisecond {
-				log.Debugf("[main] module %s re-initialized in %s", name, ts)
+				logMain.Debug().
+					Str("module", string(name)).
+					Dur("cost", ts).
+					Msg("module re-initialized")
 			} else {
-				log.Debugf("[main] module %s re-initialized", name)
+				logMain.Debug().
+					Str("module", string(name)).
+					Msg("module re-initialized")
 			}
 		}
 
@@ -274,7 +305,9 @@ func AtExit() {
 		m := modules.M[name]
 
 		if !m.RWMutex.TryLock() {
-			log.Infof("[main] module %s is still working...", name)
+			logMain.Info().
+				Str("module", string(name)).
+				Msg("module is still working")
 			m.RWMutex.Lock()
 		}
 
@@ -282,9 +315,14 @@ func AtExit() {
 			t = time.Now()
 			m.AtExit()
 			if ts = time.Since(t); ts >= time.Millisecond {
-				log.Debugf("[main] module %s exited in %s", name, ts)
+				logMain.Debug().
+					Str("module", string(name)).
+					Dur("cost", ts).
+					Msg("module exited")
 			} else {
-				log.Debugf("[main] module %s exited", name)
+				logMain.Debug().
+					Str("module", string(name)).
+					Msg("module exited")
 			}
 		}
 
@@ -294,7 +332,7 @@ func AtExit() {
 
 func InitBot() *EasyOnebot.Bot {
 	if config.Onebot.WsUrl == "" {
-		log.Fatal("[main] no wsurl provided")
+		logMain.Fatal().Msg("no wsurl provided")
 	}
 	onebot.SetRedisClient(redisClient.Client)
 	if config.Onebot.RedisExpire != "" {
@@ -303,14 +341,17 @@ func InitBot() *EasyOnebot.Bot {
 			if dur >= 0 {
 				onebot.SetRedisExpire(dur, dur/7/24)
 			} else {
-				log.Error("[main] redis expire should be positive")
+				logMain.Error().Msg("redis expire should be positive")
 			}
 		} else {
-			log.Error("[main] failed to parse redis expire: ", err)
+			logMain.Error().
+				Err(err).
+				Msg("failed to parse redis expire")
 		}
 	}
 
 	return onebot.
+		SetLogger(&logOnebot).
 		SetWsUrl(config.Onebot.WsUrl).
 		SetToken(config.Onebot.Token).
 		SetOnlineNotify(config.Onebot.OnlineNotify).
@@ -326,13 +367,17 @@ func InitBot() *EasyOnebot.Bot {
 
 // for unit testing
 func runBot() {
-	log.Debug("[main] total init time: ", time.Since(runTime))
+	logMain.Debug().
+		Dur("cost", time.Since(runTime)).
+		Msg("total init time")
 	InitBot().Run()
 	connTime = time.Now() // TODO: move to redis (?
 	modules.IsRunning.Store(true)
 	AfterInit()
 	onebot.SetMsgProcessEnabled(true)
-	log.Debug("[main] after-initialized time: ", time.Since(connTime))
+	logMain.Debug().
+		Dur("cost", time.Since(connTime)).
+		Msg("after-initialized time")
 }
 
 func main() {
@@ -348,9 +393,11 @@ func main() {
 	signal.Notify(signalCh, syscall.SIGINT, syscall.SIGQUIT, syscall.SIGTERM)
 	sig, ok := <-signalCh
 	if !ok {
-		log.Panic("[main] signalCh closed unexpectedly")
+		logMain.Panic().Msg("signalCh closed unexpectedly")
 	}
-	log.Debug("[main] signal received: ", sig)
+	logMain.Debug().
+		Any("signal", sig).
+		Msg("signal received")
 	signal.Stop(signalCh) // 再次按下时强制退出, 避免长时间无法结束
 
 	config.OnConfigChange(nil)
@@ -359,20 +406,38 @@ func main() {
 
 	stopTime = time.Now()
 	AtExit()
-	log.Debug("[main] exited in ", time.Since(stopTime))
+	logMain.Debug().
+		Dur("cost", time.Since(stopTime)).
+		Msg("exited")
 
 	stopTime = time.Now()
 	onebot.Stop()
-	log.Debug("[main] stopped in ", time.Since(stopTime))
+	logMain.Debug().
+		Dur("cost", time.Since(stopTime)).
+		Msg("stopped")
 
 	connDuration, connectCount, hbCount, lostCount := onebot.Statistics()
-	log.Debug("[main] 此次连接持续: ", connDuration)
-	log.Debug("[main] 连接次数: ", connectCount)
-	log.Debug("[main] 心跳包: ", hbCount)
-	log.Debug("[main] 心跳丢包: ", lostCount)
+	logMain.Debug().
+		Dur("connDuration", connDuration).
+		Msg("connection duration")
+	logMain.Debug().
+		Int("connectCount", connectCount).
+		Msg("connect count")
+	logMain.Debug().
+		Int("hbCount", hbCount).
+		Msg("heartbeat count")
+	logMain.Debug().
+		Int("lostCount", lostCount).
+		Msg("heartbeat lost count")
 
 	tn := time.Now()
-	log.Debug("[main] 运行时长: ", tn.Sub(runTime))
-	log.Debug("[main] 连接时长: ", tn.Sub(connTime))
-	log.Debug("[main] 配置重载计数: ", config.UpdateCount)
+	logMain.Debug().
+		Dur("uptime", tn.Sub(runTime)).
+		Msg("uptime")
+	logMain.Debug().
+		Dur("connDuration", tn.Sub(connTime)).
+		Msg("connection duration")
+	logMain.Debug().
+		Int("configReloads", config.UpdateCount).
+		Msg("config reload count")
 }

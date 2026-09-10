@@ -14,6 +14,7 @@ import (
 	"time"
 
 	env "NothingBot_v4/environment"
+	"NothingBot_v4/logger"
 	"NothingBot_v4/slicesyntax"
 	"NothingBot_v4/utils"
 
@@ -25,6 +26,9 @@ import (
 	nhApi "github.com/Miuzarte/NHentai-go/api"
 	nhDl "github.com/Miuzarte/NHentai-go/downloader"
 )
+
+// 本文件的日志 scope
+var logNHentai = logger.New("NHentai")
 
 const (
 	// [1]: site // unused
@@ -147,7 +151,9 @@ func ctxNHentaiSearch(ctx *EasyOnebot.Ctx) {
 
 	respSearch, err := ctx.SendMsg("[NHentai] 搜索中...")
 	if err != nil {
-		log.Errorf("[NHentai] failed to send msg: %v", err)
+		logNHentai.Error().
+			Err(err).
+			Msg("failed to send msg")
 		return
 	}
 
@@ -207,7 +213,9 @@ func ctxNHentaiGalleryParse(ctx *EasyOnebot.Ctx) {
 
 	respFetch, err := ctx.SendMsg("[NHentai] 获取中...")
 	if err != nil {
-		log.Error("[NHentai] failed to send msg: ", err)
+		logNHentai.Error().
+			Err(err).
+			Msg("failed to send msg")
 		return
 	}
 
@@ -247,7 +255,9 @@ func ctxNHentaiGalleryParse(ctx *EasyOnebot.Ctx) {
 			ctx.Std.DeleteMsg(respFetch.MessageId)
 		}
 		if err != nil {
-			log.Error("[NHentai] failed to send msg: ", err)
+			logNHentai.Error().
+				Err(err).
+				Msg("failed to send msg")
 			return
 		}
 
@@ -266,7 +276,9 @@ func ctxNHentaiGalleryParse(ctx *EasyOnebot.Ctx) {
 			if pDownload {
 				_, err := ctx.SendMsgReplyf("[NHentai] 画廊 %d 下载完成 (%d)", gId, n)
 				if err != nil {
-					log.Error("[NHentai] failed to send msg: ", err)
+					logNHentai.Error().
+						Err(err).
+						Msg("failed to send msg")
 				}
 				continue
 			}
@@ -274,7 +286,9 @@ func ctxNHentaiGalleryParse(ctx *EasyOnebot.Ctx) {
 			respSend, err := ctx.SendMsg(np.SendingHint(i))
 			ctx.Std.DeleteMsg(respDownload.MessageId)
 			if err != nil {
-				log.Error("[NHentai] failed to send msg: ", err)
+				logNHentai.Error().
+					Err(err).
+					Msg("failed to send msg")
 				return
 			}
 
@@ -306,14 +320,20 @@ func ctxNHentaiGalleryParse(ctx *EasyOnebot.Ctx) {
 			// 发送画廊信息
 			_, err = ctx.SendForwardMsgAuto(forward)
 			if err != nil {
-				log.Errorf("[NHentai] gallery %d failed to send msg: %v", gId, err)
+				logNHentai.Error().
+					Err(err).
+					Int("gId", gId).
+					Msg("failed to send msg")
 				ctx.SendMsgf("[NHentai] 画廊 %d 信息合并转发发送失败", gId)
 			}
 
 			// 发送直链
 			_, err = ctx.SendMsgf("[NHentai] 直接查看: https://nhentai.miuzarte.top/%s", filename)
 			if err != nil {
-				log.Errorf("[NHentai] gallery %d failed to send msg: %v", gId, err)
+				logNHentai.Error().
+					Err(err).
+					Int("gId", gId).
+					Msg("failed to send msg")
 				ctx.SendMsgf("[NHentai] 画廊 %d 直链发送失败", gId)
 			}
 
@@ -327,12 +347,17 @@ func ctxNHentaiGalleryParse(ctx *EasyOnebot.Ctx) {
 				case event.TYPE_L2_MESSAGE_PRIVATE:
 					err = ctx.UploadPrivateFile(filepath, filename)
 				default:
-					log.Warnf("[NHentai] unsupported message type: %s", ctx.Event.MessageType)
+					logNHentai.Warn().
+						Str("type", ctx.Event.MessageType).
+						Msg("unsupported message type")
 					ctx.SendMsgf("[NHentai] 不支持的消息类型：%s", ctx.Event.MessageType)
 					return
 				}
 				if err != nil {
-					log.Errorf("[NHentai] gallery %d failed to upload pdf: %v", gId, err)
+					logNHentai.Error().
+						Err(err).
+						Int("gId", gId).
+						Msg("failed to upload pdf")
 					ctx.SendMsgf("[NHentai] 画廊 %d pdf上传失败：%v", gId, err)
 					return
 				}
@@ -373,7 +398,9 @@ func ctxNHentaiPageParse(ctx *EasyOnebot.Ctx) {
 
 	respFetching, err := ctx.SendMsg("[NHentai] 获取中...")
 	if err != nil {
-		log.Error("[NHentai] failed to send msg: ", err)
+		logNHentai.Error().
+			Err(err).
+			Msg("failed to send msg")
 		return
 	}
 
@@ -401,7 +428,9 @@ func ctxNHentaiPageParse(ctx *EasyOnebot.Ctx) {
 	respDownload, err := ctx.SendMsg("[NHentai] 下载中...")
 	ctx.Std.DeleteMsg(respFetching.MessageId)
 	if err != nil {
-		log.Error("[NHentai] failed to send msg: ", err)
+		logNHentai.Error().
+			Err(err).
+			Msg("failed to send msg")
 		return
 	}
 
@@ -432,7 +461,9 @@ func ctxNHentaiPageParse(ctx *EasyOnebot.Ctx) {
 	if pDownload {
 		_, err := ctx.SendMsg("[NHentai] 下载完成")
 		if err != nil {
-			log.Error("[NHentai] failed to send msg: ", err)
+			logNHentai.Error().
+				Err(err).
+				Msg("failed to send msg")
 		}
 		return
 	}
@@ -440,7 +471,9 @@ func ctxNHentaiPageParse(ctx *EasyOnebot.Ctx) {
 	respSend, err := ctx.SendMsg("[NHentai] 发送中...")
 	ctx.Std.DeleteMsg(respDownload.MessageId)
 	if err != nil {
-		log.Error("[NHentai] failed to send msg: ", err)
+		logNHentai.Error().
+			Err(err).
+			Msg("failed to send msg")
 		return
 	}
 
@@ -448,7 +481,9 @@ func ctxNHentaiPageParse(ctx *EasyOnebot.Ctx) {
 	respSendForward, err := ctx.SendForwardMsgAuto(forward)
 	ctx.Std.DeleteMsg(respSend.MessageId)
 	if err != nil {
-		log.Error("[NHentai] failed to send forward msg: ", err)
+		logNHentai.Error().
+			Err(err).
+			Msg("failed to send forward msg")
 		ctx.SendMsg("[NHentai] 发送失败")
 		return
 	}
@@ -823,7 +858,11 @@ func (np *NHentaiParse) BuildPdf(i int, filename, filepath string) (n int, err e
 		// 调用 qpdf 将 pdf 线性化
 		out, err := exec.Command("qpdf", filepath, "--linearize", "--replace-input").CombinedOutput()
 		if err != nil {
-			log.Warnf("[NHentai] gallery %d failed to linearize pdf: %v, output: %s", gId, err, out)
+			logNHentai.Warn().
+				Err(err).
+				Int("gId", gId).
+				Str("output", string(out)).
+				Msg("failed to linearize pdf")
 		}
 	}
 	return

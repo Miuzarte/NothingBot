@@ -11,10 +11,14 @@ import (
 	"time"
 
 	env "NothingBot_v4/environment"
+	"NothingBot_v4/logger"
 	"NothingBot_v4/utils"
 
 	"codeberg.org/go-pdf/fpdf"
 )
+
+// 本文件的日志 scope
+var logUtils = logger.New("utils")
 
 func NoBuildPrintFile(s string) {
 	if env.NoBuild {
@@ -91,23 +95,33 @@ func CreateLogFile(dir string) *SafeFile {
 		if os.IsNotExist(err) {
 			err = os.MkdirAll(dir, 0o755)
 			if err != nil {
-				log.Fatal("failed to create log directory: ", err)
+				logUtils.Fatal().
+					Err(err).
+					Msg("failed to create log directory")
 			}
 		} else {
-			log.Fatal("failed to access log directory: ", err)
+			logUtils.Fatal().
+				Err(err).
+				Msg("failed to access log directory")
 		}
 	}
 	if !fi.IsDir() {
-		log.Fatal(dir, " is not a directory")
+		logUtils.Fatal().
+			Str("dir", dir).
+			Msg("not a directory")
 	}
 
 	fileName := time.Now().Format("20060102150405") + ".log"
 	path := filepath.Join(dir, fileName)
 	f, err := os.OpenFile(path, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o666)
 	if err != nil {
-		log.Fatal("failed to create log file: ", err)
+		logUtils.Fatal().
+			Err(err).
+			Msg("failed to create log file")
 	}
-	log.Info("saving log to: ", path)
+	logUtils.Info().
+		Str("path", path).
+		Msg("saving log")
 	return NewSafeFile(f)
 }
 

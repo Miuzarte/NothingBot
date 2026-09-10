@@ -10,9 +10,13 @@ import (
 	"time"
 
 	env "NothingBot_v4/environment"
+	"NothingBot_v4/logger"
 
 	"github.com/Miuzarte/EasyOnebot/message"
 )
+
+// 本文件的日志 scope
+var logWebhook = logger.New("Webhook")
 
 type Webhook struct {
 	Path  string
@@ -56,7 +60,9 @@ func initWebhook() {
 	var webhookConfigs []Webhook
 	err := config.DecodeModule(webhookMId, &webhookConfigs)
 	if err != nil {
-		log.Error(err)
+		logWebhook.Error().
+			Err(err).
+			Msg("failed to decode config")
 		return
 	}
 
@@ -68,7 +74,9 @@ func reInitWebhook() {
 	var webhookConfigs []Webhook
 	err := config.DecodeModule(webhookMId, &webhookConfigs)
 	if err != nil {
-		log.Error(err)
+		logWebhook.Error().
+			Err(err).
+			Msg("failed to decode config")
 		return
 	}
 
@@ -78,21 +86,29 @@ func reInitWebhook() {
 
 func decodeWebhook(input []Webhook) (output []Webhook) {
 	output = make([]Webhook, 0, len(input))
-	log.Debug("[Webhook] found configs: ", len(input))
+	logWebhook.Debug().
+		Int("configs", len(input)).
+		Msg("found configs")
 	for i, webhook := range input {
 		if webhook.Path == "" {
-			log.Warnf("[Webhook] invalid webhook config [%d]: path is empty", i)
+			logWebhook.Warn().
+				Int("index", i).
+				Msg("invalid webhook config: path is empty")
 			continue
 		}
 
 		if webhook.GroupId == 0 && webhook.UserId == 0 {
-			log.Warnf("[Webhook] invalid webhook config [%d]: both GroupId and UserId are empty", i)
+			logWebhook.Warn().
+				Int("index", i).
+				Msg("invalid webhook config: both GroupId and UserId are empty")
 			continue
 		}
 
 		// 如果不使用 body，则 reply 字段必须非空
 		if !webhook.UseBody && webhook.Reply == "" {
-			log.Warnf("[Webhook] invalid webhook config [%d]: reply is empty and UseBody is false", i)
+			logWebhook.Warn().
+				Int("index", i).
+				Msg("invalid webhook config: reply is empty and UseBody is false")
 			continue
 		}
 
@@ -106,7 +122,7 @@ func startWebhookServer() {
 	defer serverLock.Unlock()
 
 	if httpServer != nil {
-		log.Debug("[Webhook] server already running")
+		logWebhook.Debug().Msg("server already running")
 		return
 	}
 
@@ -119,10 +135,14 @@ func startWebhookServer() {
 	})
 
 	go func() {
-		log.Infof("[Webhook] starting server on %s", httpServer.Addr)
+		logWebhook.Info().
+			Str("addr", httpServer.Addr).
+			Msg("starting server")
 		err := httpServer.ListenAndServe()
 		if err != nil && err != http.ErrServerClosed {
-			log.Errorf("[Webhook] server error: %v", err)
+			logWebhook.Error().
+				Err(err).
+				Msg("server error")
 		}
 	}()
 }
@@ -148,7 +168,9 @@ func updateWebhookRoutesUnsafe() {
 		newMux.HandleFunc(fullPath, func(w http.ResponseWriter, r *http.Request) {
 			handleWebhook(w, r, webhook)
 		})
-		log.Debugf("[Webhook] registered route: %s", fullPath)
+		logWebhook.Debug().
+			Str("path", fullPath).
+			Msg("registered route")
 	}
 
 	serverMux = newMux
@@ -160,43 +182,56 @@ func updateWebhookRoutesUnsafe() {
 func handleWebhook(w http.ResponseWriter, r *http.Request, webhook Webhook) {
 	// 获取真实源 IP（支持 Cloudflare + Caddy）
 	clientIP := getClientIP(r)
-	log.Infof("[Webhook] received request: %s from %s", r.URL.Path, clientIP)
+	logWebhook.Info().
+		Str("path", r.URL.Path).
+		Str("ip", clientIP).
+		Msg("received request")
 
 	// Bearer Token 认证
 	if webhook.Token != "" {
 		authHeader := r.Header.Get("Authorization")
 
 		if authHeader == "" {
-			log.Warnf("[Webhook] authentication failed from %s: invalid or missing token: %v", clientIP, r.Header)
+			logWebhook.Warn().
+				Str("ip", clientIP).
+				Any("header", r.Header).
+				Msg("authentication failed: invalid or missing token")
 		}
 
 		expectedAuth := "Bearer " + webhook.Token
 
 		if authHeader != expectedAuth {
-			log.Warnf("[Webhook] authentication failed from %s: invalid or missing token: %q", clientIP, authHeader)
+			logWebhook.Warn().
+				Str("ip", clientIP).
+				Str("auth", authHeader).
+				Msg("authentication failed: invalid or missing token")
 			w.WriteHeader(http.StatusUnauthorized)
 			fmt.Fprintf(w, "Unauthorized: invalid or missing token")
 			return
 		}
-		log.Debugf("[Webhook] authentication successful")
+		logWebhook.Debug().Msg("authentication successful")
 	}
 
 	// 读取并打印 body
 	body, err := io.ReadAll(r.Body)
 	if err != nil {
-		log.Errorf("[Webhook] failed to read body: %v", err)
+		logWebhook.Error().
+			Err(err).
+			Msg("failed to read body")
 	} else {
-		log.Debugf("[Webhook] request body: %s", string(body))
+		logWebhook.Debug().
+			Str("body", string(body)).
+			Msg("request body")
 	}
 
 	// 决定发送的内容：如果 UseBody 为 true 且 body 不为空，发送 body；否则发送 reply
 	var messageText string
 	if webhook.UseBody && len(body) > 0 {
 		messageText = string(body)
-		log.Debugf("[Webhook] using body as message content")
+		logWebhook.Debug().Msg("using body as message content")
 	} else {
 		messageText = webhook.Reply
-		log.Debugf("[Webhook] using reply field as message content")
+		logWebhook.Debug().Msg("using reply field as message content")
 	}
 
 	// 发送消息
@@ -207,7 +242,9 @@ func handleWebhook(w http.ResponseWriter, r *http.Request, webhook Webhook) {
 	}
 
 	if err != nil {
-		log.Errorf("[Webhook] failed to send message: %v", err)
+		logWebhook.Error().
+			Err(err).
+			Msg("failed to send message")
 		w.WriteHeader(http.StatusInternalServerError)
 		fmt.Fprintf(w, "Failed to send message: %v", err)
 		return
@@ -246,7 +283,7 @@ func stopWebhookServer() {
 	defer serverLock.Unlock()
 
 	if httpServer != nil {
-		log.Info("[Webhook] stopping server")
+		logWebhook.Info().Msg("stopping server")
 
 		// 创建一个带超时的 context，给服务器 5 秒时间来优雅关闭
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -255,14 +292,18 @@ func stopWebhookServer() {
 		// 使用 Shutdown 而不是 Close，这样可以等待现有连接完成
 		err := httpServer.Shutdown(ctx)
 		if err != nil {
-			log.Errorf("[Webhook] failed to shutdown server gracefully: %v", err)
+			logWebhook.Error().
+				Err(err).
+				Msg("failed to shutdown server gracefully")
 			// 如果优雅关闭失败，强制关闭
 			err = httpServer.Close()
 			if err != nil {
-				log.Errorf("[Webhook] failed to close server: %v", err)
+				logWebhook.Error().
+					Err(err).
+					Msg("failed to close server")
 			}
 		} else {
-			log.Info("[Webhook] server stopped gracefully")
+			logWebhook.Info().Msg("server stopped gracefully")
 		}
 
 		httpServer = nil

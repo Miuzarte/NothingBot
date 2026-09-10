@@ -8,8 +8,12 @@ import (
 	"sync"
 	"sync/atomic"
 
+	"NothingBot_v4/logger"
 	"github.com/Miuzarte/EasyOnebot"
 )
+
+// 本文件的日志 scope
+var logModule = logger.New("module")
 
 type Condition int
 
@@ -130,13 +134,17 @@ type Modules struct {
 
 func (ms *Modules) Add(m *Module) {
 	if ms.IsRunning.Load() {
-		log.Panicf("trying to add module (%s) at runtime", m.Name)
+		logModule.Panic().
+			Str("module", string(m.Name)).
+			Msg("trying to add module at runtime")
 	}
 	if m.Name == "" {
-		log.Panic("empty module name")
+		logModule.Panic().Msg("empty module name")
 	}
 	if _, ok := ms.M[m.Name]; ok {
-		log.Panicf("duplicate module name: %s", m.Name)
+		logModule.Panic().
+			Str("module", string(m.Name)).
+			Msg("duplicate module name")
 	}
 	ms.M[m.Name] = m
 }
@@ -145,7 +153,10 @@ func (ms *Modules) Sort() {
 	modulesTmp := make([]*Module, 0, len(ms.M))
 	for k, v := range ms.M {
 		if k != v.Name {
-			log.Panicf("k(%s) != v.Name(%s)", k, v.Name)
+			logModule.Panic().
+				Str("key", string(k)).
+				Str("module", string(v.Name)).
+				Msg("map key mismatch with module name")
 		}
 		modulesTmp = append(modulesTmp, v)
 	}

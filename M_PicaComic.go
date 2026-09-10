@@ -14,6 +14,7 @@ import (
 	"time"
 
 	env "NothingBot_v4/environment"
+	"NothingBot_v4/logger"
 	"NothingBot_v4/slicesyntax"
 	"NothingBot_v4/utils"
 
@@ -23,6 +24,9 @@ import (
 
 	pc "github.com/Miuzarte/PicaComic-go"
 )
+
+// 本文件的日志 scope
+var logPicaComic = logger.New("PicaComic")
 
 const (
 	// [1]: site // unused
@@ -93,13 +97,17 @@ func initPicaComic() {
 	} else if mangaConfig.PicaComicCookie.Account != "" && mangaConfig.PicaComicCookie.Password != "" {
 		resp, err := pc.SignIn(context.Background(), mangaConfig.PicaComicCookie.Account, mangaConfig.PicaComicCookie.Password)
 		if err != nil {
-			log.Warnf("[PicaComic] failed to sign in: %v", err)
+			logPicaComic.Warn().
+				Err(err).
+				Msg("failed to sign in")
 			return
 		} else {
-			log.Infof("[PicaComic] account token: %s", resp.Token)
+			logPicaComic.Info().
+				Str("token", resp.Token).
+				Msg("account token")
 		}
 	} else {
-		log.Warn("[PicaComic] not signed in")
+		logPicaComic.Warn().Msg("not signed in")
 		return
 	}
 
@@ -134,7 +142,9 @@ func ctxPicaComicSearch(ctx *EasyOnebot.Ctx) {
 
 	respSearch, err := ctx.SendMsg("[PicaComic] 搜索中...")
 	if err != nil {
-		log.Errorf("[PicaComic] failed to send msg: %v", err)
+		logPicaComic.Error().
+			Err(err).
+			Msg("failed to send msg")
 		return
 	}
 
@@ -211,7 +221,9 @@ func ctxPicaComicParse(ctx *EasyOnebot.Ctx) {
 
 	respFetch, err := ctx.SendMsg("[PicaComic] 获取中...")
 	if err != nil {
-		log.Error("[PicaComic] failed to send msg: ", err)
+		logPicaComic.Error().
+			Err(err).
+			Msg("failed to send msg")
 		return
 	}
 
@@ -251,7 +263,9 @@ func ctxPicaComicParse(ctx *EasyOnebot.Ctx) {
 			ctx.Std.DeleteMsg(respFetch.MessageId)
 		}
 		if err != nil {
-			log.Error("[PicaComic] failed to send msg: ", err)
+			logPicaComic.Error().
+				Err(err).
+				Msg("failed to send msg")
 			return
 		}
 
@@ -276,7 +290,9 @@ func ctxPicaComicParse(ctx *EasyOnebot.Ctx) {
 			if pDownload {
 				_, err := ctx.SendMsgReplyf("[PicaComic] 漫画 %s/%d 下载完成 (%d)", pcs.PcId, pcs.EpId, n)
 				if err != nil {
-					log.Error("[PicaComic] failed to send msg: ", err)
+					logPicaComic.Error().
+						Err(err).
+						Msg("failed to send msg")
 				}
 				continue
 			}
@@ -284,7 +300,9 @@ func ctxPicaComicParse(ctx *EasyOnebot.Ctx) {
 			respSend, err := ctx.SendMsg(pp.SendingHint(i))
 			ctx.Std.DeleteMsg(respDownload.MessageId)
 			if err != nil {
-				log.Error("[PicaComic] failed to send msg: ", err)
+				logPicaComic.Error().
+					Err(err).
+					Msg("failed to send msg")
 				return
 			}
 
@@ -316,14 +334,22 @@ func ctxPicaComicParse(ctx *EasyOnebot.Ctx) {
 			// 发送漫画信息
 			_, err = ctx.SendForwardMsgAuto(forward)
 			if err != nil {
-				log.Errorf("[PicaComic] comic %s/%d failed to send msg: %v", pcs.PcId, pcs.EpId, err)
+				logPicaComic.Error().
+					Err(err).
+					Str("pcId", pcs.PcId).
+					Int("epId", pcs.EpId).
+					Msg("failed to send msg")
 				ctx.SendMsgf("[PicaComic] 漫画 %s/%d 信息合并转发发送失败", pcs.PcId, pcs.EpId)
 			}
 
 			// 发送直链
 			_, err = ctx.SendMsgf("[PicaComic] 直接查看：https://picacomic.miuzarte.top/%s", filename)
 			if err != nil {
-				log.Errorf("[PicaComic] comic %s/%d failed to send msg: %v", pcs.PcId, pcs.EpId, err)
+				logPicaComic.Error().
+					Err(err).
+					Str("pcId", pcs.PcId).
+					Int("epId", pcs.EpId).
+					Msg("failed to send msg")
 				ctx.SendMsgf("[PicaComic] 漫画 %s/%d 直链发送失败", pcs.PcId, pcs.EpId)
 			}
 
@@ -337,12 +363,18 @@ func ctxPicaComicParse(ctx *EasyOnebot.Ctx) {
 				case event.TYPE_L2_MESSAGE_PRIVATE:
 					err = ctx.UploadPrivateFile(filepath, filename)
 				default:
-					log.Warnf("[PicaComic] unsupported message type: %s", ctx.Event.MessageType)
+					logPicaComic.Warn().
+						Str("type", ctx.Event.MessageType).
+						Msg("unsupported message type")
 					ctx.SendMsgf("[PicaComic] 不支持的消息类型：%s", ctx.Event.MessageType)
 					return
 				}
 				if err != nil {
-					log.Errorf("[PicaComic] comic %s/%d failed to upload pdf: %v", pcs.PcId, pcs.EpId, err)
+					logPicaComic.Error().
+						Err(err).
+						Str("pcId", pcs.PcId).
+						Int("epId", pcs.EpId).
+						Msg("failed to upload pdf")
 					ctx.SendMsgf("[PicaComic] 漫画 %s/%d pdf上传失败：%v", pcs.PcId, pcs.EpId, err)
 					return
 				}
@@ -667,7 +699,12 @@ func (pp *PicaComicParse) BuildPdf(i int, filename, filepath string) (n int, err
 		// 调用 qpdf 将 pdf 线性化
 		out, err := exec.Command("qpdf", filepath, "--linearize", "--replace-input").CombinedOutput()
 		if err != nil {
-			log.Warnf("[PicaComic] comic %s/%d failed to linearize pdf: %v, output: %s", pcs.PcId, pcs.EpId, err, out)
+			logPicaComic.Warn().
+				Err(err).
+				Str("pcId", pcs.PcId).
+				Int("epId", pcs.EpId).
+				Str("output", string(out)).
+				Msg("failed to linearize pdf")
 		}
 	}
 	return

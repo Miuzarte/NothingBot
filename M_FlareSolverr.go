@@ -5,6 +5,7 @@ import (
 	"regexp"
 
 	env "NothingBot_v4/environment"
+	"NothingBot_v4/logger"
 
 	"github.com/Miuzarte/EasyOnebot"
 	"github.com/Miuzarte/EasyOnebot/event"
@@ -12,6 +13,9 @@ import (
 
 	fs "github.com/Miuzarte/FlareSolverr-go"
 )
+
+// 本文件的日志 scope
+var logFlareSolverr = logger.New("FlareSolverr")
 
 const FLARESOLVERR_SCREENSHOT_REGEXP = `(?i)(?:网页截图)\s*(https?://[^\s]+)`
 
@@ -49,7 +53,9 @@ func init() {
 func initFlareSolverr() {
 	err := config.DecodeModule(flareSolverrMId, &flareSolverrConfig)
 	if err != nil {
-		log.Error(err)
+		logFlareSolverr.Error().
+			Err(err).
+			Msg("failed to decode config")
 		return
 	}
 

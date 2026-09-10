@@ -9,6 +9,7 @@ import (
 	"time"
 
 	env "NothingBot_v4/environment"
+	"NothingBot_v4/logger"
 
 	"github.com/Miuzarte/EasyOnebot"
 	"github.com/Miuzarte/EasyOnebot/event"
@@ -16,6 +17,9 @@ import (
 
 	"github.com/redis/rueidis"
 )
+
+// 本文件的日志 scope
+var logGroup = logger.New("Group")
 
 const (
 	GROUP_AT_REGEXP     = `(?i)谁(?:@|at|艾特)了?\s*(我|\[CQ:at,qq=(\d+).*?])\s*$`
@@ -95,7 +99,9 @@ func ctxGroup(ctx *EasyOnebot.Ctx, op uint8) {
 	case M_GROUP_RECALL:
 		submatches = ctx.Submatches.Get(moduleGroupRecall.Name.String())[0]
 	default:
-		log.Panicf("invalid op: %d", op)
+		logGroup.Panic().
+			Int("op", int(op)).
+			Msg("invalid op")
 	}
 
 	var uin int
@@ -160,9 +166,13 @@ func ctxGroup(ctx *EasyOnebot.Ctx, op uint8) {
 	_, err = ctx.SendForwardMsgAuto(forward)
 	if err != nil {
 		ctx.SendMsg("合并转发发送失败")
-		log.Error(err)
+		logGroup.Error().
+			Err(err).
+			Msg("failed to send forward msg")
 		dbg, _ := json.Marshal(forward)
-		log.Error(string(dbg))
+		logGroup.Error().
+			Str("content", string(dbg)).
+			Msg("failed to send forward msg")
 		return
 	}
 }

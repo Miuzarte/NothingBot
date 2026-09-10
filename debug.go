@@ -5,7 +5,11 @@ import (
 	_ "net/http/pprof"
 
 	env "NothingBot_v4/environment"
+	"NothingBot_v4/logger"
 )
+
+// 本文件的日志 scope
+var logDebug = logger.New("debug")
 
 func init() {
 	if env.NoBuild && !env.Testing {
@@ -13,7 +17,9 @@ func init() {
 		go func() {
 			err := http.ListenAndServe("localhost:6060", nil)
 			if err != nil {
-				log.Warnf("failed to http.ListenAndServe: %v", err)
+				logDebug.Warn().
+					Err(err).
+					Msg("failed to http.ListenAndServe")
 			}
 		}()
 	}

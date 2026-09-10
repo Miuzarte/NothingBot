@@ -14,11 +14,15 @@ import (
 	"github.com/Miuzarte/EasyOnebot/message"
 
 	env "NothingBot_v4/environment"
+	"NothingBot_v4/logger"
 
 	"github.com/Miuzarte/openai-go/v3"
 	"github.com/Miuzarte/openai-go/v3/option"
 	"github.com/redis/rueidis"
 )
+
+// 本文件的日志 scope
+var logDeepSeek = logger.New("DeepSeek")
 
 const (
 	DEEPSEEK_URL = "https://api.deepseek.com/v1"
@@ -74,7 +78,9 @@ func init() {
 func initDeepSeek() {
 	err := config.DecodeModule(deepSeekMId, &deepSeekConfig)
 	if err != nil {
-		log.Error(err)
+		logDeepSeek.Error().
+			Err(err).
+			Msg("failed to decode config")
 		return
 	}
 
@@ -126,7 +132,7 @@ func ctxDeepSeekChat(ctx *EasyOnebot.Ctx) {
 	case "deepseekv3":
 		i := strings.Index(text, "dsv3")
 		if i == -1 {
-			log.Warn("failed to find \"dsv3\"")
+			logDeepSeek.Warn().Msg("failed to find \"dsv3\"")
 		} else {
 			text = text[i+2:]
 		}
@@ -134,7 +140,7 @@ func ctxDeepSeekChat(ctx *EasyOnebot.Ctx) {
 	case "deepseekr1":
 		i := strings.Index(text, "dsr1")
 		if i == -1 {
-			log.Warn("failed to find \"dsr1\"")
+			logDeepSeek.Warn().Msg("failed to find \"dsr1\"")
 		} else {
 			text = text[i+3:]
 		}
@@ -159,7 +165,9 @@ func ctxDeepSeekChat(ctx *EasyOnebot.Ctx) {
 
 	resp, err = ctx.SendMsgf("%s正在思考...", model)
 	if err != nil {
-		log.Warn(errDeepSeekFailedToSendMsg, err)
+		logDeepSeek.Warn().
+			Err(err).
+			Msg(errDeepSeekFailedToSendMsg.Error())
 		return
 	}
 	defer ctx.Std.DeleteMsg(resp.MessageId)
@@ -190,7 +198,9 @@ func ctxDeepSeekChat(ctx *EasyOnebot.Ctx) {
 	}
 	resp, err = ctx.SendMsgReply(content)
 	if err != nil {
-		log.Warn(errDeepSeekFailedToSendMsg, err)
+		logDeepSeek.Warn().
+			Err(err).
+			Msg(errDeepSeekFailedToSendMsg.Error())
 		return
 	}
 
@@ -273,7 +283,9 @@ func deepSeekSaveHistory(ch chatHistory) {
 
 	data, err := json.Marshal(ch)
 	if err != nil {
-		log.Panic("failed to marshal chat history: ", err)
+		logDeepSeek.Panic().
+			Err(err).
+			Msg("failed to marshal chat history")
 		return
 	}
 
@@ -281,7 +293,10 @@ func deepSeekSaveHistory(ch chatHistory) {
 	userIndexKey := "chat_history:user_index:" + Itoa(ch.User.MessageId)
 	assistantIndexKey := "chat_history:assistant_index:" + Itoa(ch.Assistant.MessageId)
 
-	log.Debugf("[DeepSeek] write to redis: %q: %q", key, data)
+	logDeepSeek.Debug().
+		Str("key", key).
+		Str("data", string(data)).
+		Msg("write to redis")
 
 	results := redisClient.Client.DoMulti(ctx,
 		// 储存对话
@@ -293,7 +308,9 @@ func deepSeekSaveHistory(ch chatHistory) {
 
 	for _, result := range results {
 		if err := result.Error(); err != nil {
-			log.Error("failed to save chat history: ", err)
+			logDeepSeek.Error().
+				Err(err).
+				Msg("failed to save chat history")
 			return
 		}
 	}
@@ -313,7 +330,9 @@ func deepSeekQueryHistory(msgId int) (ch *chatHistory) {
 	for _, result := range results {
 		if err := result.Error(); err != nil {
 			if !rueidis.IsRedisNil(err) {
-				log.Error("failed to access redis: ", err)
+				logDeepSeek.Error().
+					Err(err).
+					Msg("failed to access redis")
 				return nil
 			}
 		}
@@ -330,18 +349,25 @@ func deepSeekQueryHistory(msgId int) (ch *chatHistory) {
 	err := resp.Error()
 	if err != nil {
 		if !rueidis.IsRedisNil(err) {
-			log.Error("failed to access redis: ", err)
+			logDeepSeek.Error().
+				Err(err).
+				Msg("failed to access redis")
 		}
 		return nil
 	}
 	respStr := resp.String()
 
-	log.Debug("[DeepSeek] get from redis: ", key, "\n", respStr)
+	logDeepSeek.Debug().
+		Str("key", key).
+		Str("resp", respStr).
+		Msg("get from redis")
 
 	ch = &chatHistory{}
 	err = json.Unmarshal([]byte(respStr), ch)
 	if err != nil {
-		log.Error("failed to unmarshal data: ", err)
+		logDeepSeek.Error().
+			Err(err).
+			Msg("failed to unmarshal data")
 		return nil
 	}
 	return
@@ -358,7 +384,9 @@ func deepSeekGetHistory(ctx *EasyOnebot.Ctx) (ch *chatHistory) {
 	}
 	replyMsg, err := ctx.GetReplyMsg()
 	if err != nil {
-		log.Error("failed to call onebot api: ", err)
+		logDeepSeek.Error().
+			Err(err).
+			Msg("failed to call onebot api")
 		return nil
 	}
 
@@ -426,7 +454,11 @@ func deepSeekCompletion(model string, messages []openai.ChatCompletionMessagePar
 	}
 	reasoning = chatCompletion.Choices[0].Message.ReasoningContent
 	content = chatCompletion.Choices[0].Message.Content
-	log.Debug("[DeepSeek] rc: ", reasoning)
-	log.Debug("[DeepSeek] c: ", content)
+	logDeepSeek.Debug().
+		Str("reasoning", reasoning).
+		Msg("chat completion reasoning")
+	logDeepSeek.Debug().
+		Str("content", content).
+		Msg("chat completion content")
 	return
 }

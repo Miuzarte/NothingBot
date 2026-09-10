@@ -5,12 +5,16 @@ import (
 	"encoding/json"
 
 	env "NothingBot_v4/environment"
+	"NothingBot_v4/logger"
 
 	"github.com/Miuzarte/EasyOnebot"
 	"github.com/Miuzarte/EasyOnebot/event"
 
 	a2d "github.com/Miuzarte/Ascii2d-go"
 )
+
+// 本文件的日志 scope
+var logAscii2d = logger.New("Ascii2d")
 
 type Ascii2dConfig struct {
 	OverrideHost string
@@ -45,7 +49,9 @@ func init() {
 func initAscii2d() {
 	err := config.DecodeModule(ascii2dMId, &ascii2dConfig)
 	if err != nil {
-		log.Error(err)
+		logAscii2d.Error().
+			Err(err).
+			Msg("failed to decode config")
 		return
 	}
 

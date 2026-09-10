@@ -5,6 +5,7 @@ import (
 	"regexp"
 
 	env "NothingBot_v4/environment"
+	"NothingBot_v4/logger"
 
 	"github.com/Miuzarte/EasyOnebot"
 	"github.com/Miuzarte/EasyOnebot/event"
@@ -12,6 +13,9 @@ import (
 
 	"github.com/Miuzarte/biligo"
 )
+
+// 本文件的日志 scope
+var logBiliSearch = logger.New("BiliSearch")
 
 const (
 	BILI_SEARCH_TYPE                    = `(视频|番剧|电影|直播间|直播|主播|专栏|用户)`
@@ -65,7 +69,9 @@ func ctxBiliSearch(ctx *EasyOnebot.Ctx) {
 
 	resp, err := ctx.SendMsgf("正在执行%s搜索...", searchTypeRaw)
 	if err != nil {
-		log.Error("[BiliSearch] failed to send message: ", err)
+		logBiliSearch.Error().
+			Err(err).
+			Msg("failed to send message")
 		return
 	}
 	defer ctx.Std.DeleteMsg(resp.MessageId)

@@ -9,6 +9,7 @@ import (
 	"time"
 
 	env "NothingBot_v4/environment"
+	"NothingBot_v4/logger"
 
 	"github.com/Miuzarte/biligo"
 
@@ -16,6 +17,9 @@ import (
 	"github.com/coder/websocket"
 	"github.com/tidwall/gjson"
 )
+
+// 本文件的日志 scope
+var logBiliPush = logger.New("BiliPush")
 
 const (
 	BILIPUSH_DYNAMIC_UPDATE_INTERVAL_MIN = time.Second
@@ -60,7 +64,9 @@ func initBiliPush() {
 	newConfig := BiliPushConfig{}
 	err := config.DecodeModule(biliPushMId, &newConfig)
 	if err != nil {
-		log.Error(err)
+		logBiliPush.Error().
+			Err(err).
+			Msg("failed to decode config")
 		return
 	}
 
@@ -69,17 +75,23 @@ func initBiliPush() {
 
 	biliPushConfig.dynamicUpdateInterval, err = time.ParseDuration(biliPushConfig.DynamicUpdateInterval)
 	if err != nil {
-		log.Error("[BiliPush] failed to parse dynamic update interval: ", err)
+		logBiliPush.Error().
+			Err(err).
+			Msg("failed to parse dynamic update interval")
 		biliPushConfig.dynamicUpdateInterval = time.Second * 3
 	}
 	if biliPushConfig.dynamicUpdateInterval < BILIPUSH_DYNAMIC_UPDATE_INTERVAL_MIN {
-		log.Warnf("[BiliPush] dynamic update interval too short, set to %s", BILIPUSH_DYNAMIC_UPDATE_INTERVAL_MIN)
+		logBiliPush.Warn().
+			Dur("minimum", BILIPUSH_DYNAMIC_UPDATE_INTERVAL_MIN).
+			Msg("dynamic update interval too short, set to minimum")
 		biliPushConfig.dynamicUpdateInterval = BILIPUSH_DYNAMIC_UPDATE_INTERVAL_MIN
 	}
 
 	biliPushConfig.liveMinimumInterval, err = time.ParseDuration(biliPushConfig.LiveMinimumInterval)
 	if err != nil {
-		log.Error("[BiliPush] failed to parse live minimum interval: ", err)
+		logBiliPush.Error().
+			Err(err).
+			Msg("failed to parse live minimum interval")
 		biliPushConfig.liveMinimumInterval = time.Second * 300
 	}
 
@@ -92,7 +104,9 @@ func initBiliPush() {
 
 	err = biliPushConfig.GetInfo()
 	if err != nil {
-		log.Error("[BiliPush] failed to get info: ", err)
+		logBiliPush.Error().
+			Err(err).
+			Msg("failed to get info")
 	}
 
 	// go biliPushConfig.RunLive()
@@ -103,8 +117,14 @@ func (bpc *BiliPushConfig) GetInfo() (err error) {
 	for i, list := range bpc.List {
 		err = list.GetInfo()
 		if err != nil {
-			log.Errorf("[BiliPush] failed to get info for [%d]%d: %s", i, list.Uid, err)
-			log.Debugf("%+v", list)
+			logBiliPush.Error().
+				Err(err).
+				Int("index", i).
+				Int("uid", list.Uid).
+				Msg("failed to get info")
+			logBiliPush.Debug().
+				Any("list", list).
+				Msg("bili push list")
 			return err
 		}
 	}
@@ -119,11 +139,15 @@ func (bpc *BiliPushConfig) RunLive() {
 			go list.ListenLive()
 		}
 	}
-	log.Info("[BiliPush] live listening: ", l)
+	logBiliPush.Info().
+		Int("count", l).
+		Msg("live listening")
 }
 
 func (bpc *BiliPushConfig) RunDynamic() {
-	log.Info("[BiliPush] dynamic listening: ", len(bpc.List))
+	logBiliPush.Info().
+		Int("count", len(bpc.List)).
+		Msg("dynamic listening")
 	if len(bpc.List) == 0 {
 		return
 	}
@@ -142,7 +166,9 @@ func (bpc *BiliPushConfig) RunDynamic() {
 	for { // 无限尝试获取 baseline
 		da, err = biligo.FetchDynamicAll()
 		if err != nil {
-			log.Error("[BiliPush] failed to fetch dynamic all: ", err)
+			logBiliPush.Error().
+				Err(err).
+				Msg("failed to fetch dynamic all")
 			select {
 			case <-time.After(time.Second * 10):
 				continue
@@ -151,7 +177,7 @@ func (bpc *BiliPushConfig) RunDynamic() {
 			}
 		}
 		if da.UpdateBaseline == "" {
-			log.Error("[BiliPush] update baseline is empty")
+			logBiliPush.Error().Msg("update baseline is empty")
 			select {
 			case <-time.After(time.Second * 10):
 				continue
@@ -165,20 +191,24 @@ func (bpc *BiliPushConfig) RunDynamic() {
 	for { // 拉取更新
 		if da.UpdateBaseline == "" {
 			go biliPushConfig.RunDynamic() // 重新拉取 baseline
-			log.Warn("[BiliPush] update baseline is empty, restarting dynamic loop")
+			logBiliPush.Warn().Msg("update baseline is empty, restarting dynamic loop")
 			return
 		}
 
 		dau, err = biligo.FetchDynamicAllUpdate(da.UpdateBaseline)
 		if err != nil {
-			log.Error("[BiliPush] failed to fetch dynamic all update: ", err)
+			logBiliPush.Error().
+				Err(err).
+				Msg("failed to fetch dynamic all update")
 			goto FAILED
 		}
 		if dau.UpdateNum == 0 {
 			goto WAIT
 		}
 
-		log.Debug("[BiliPush] new dynamic: ", dau.UpdateNum)
+		logBiliPush.Debug().
+			Int("count", dau.UpdateNum).
+			Msg("new dynamic")
 		for range 3 { // 失败 3 次放弃推送
 			da, err = biligo.FetchDynamicAll()
 			if err == nil {
@@ -187,11 +217,13 @@ func (bpc *BiliPushConfig) RunDynamic() {
 			<-time.After(time.Second * 10)
 		}
 		if err != nil {
-			log.Error("[BiliPush] failed to fetch dynamic all: ", err)
+			logBiliPush.Error().
+				Err(err).
+				Msg("failed to fetch dynamic all")
 			goto FAILED
 		}
 		if len(da.Items) == 0 {
-			log.Error("[BiliPush] dynamic items is empty")
+			logBiliPush.Error().Msg("dynamic items is empty")
 			goto FAILED
 		}
 
@@ -203,21 +235,34 @@ func (bpc *BiliPushConfig) RunDynamic() {
 			mid := da.Items[i].Modules.Author.Mid
 			list, ok := bpc.listMap[mid]
 			if !ok || !list.pushDynamic {
-				log.Debug("[BiliPush] skipping dynamic: ", mid, ok, list)
+				logBiliPush.Debug().
+					Int("mid", mid).
+					Bool("ok", ok).
+					Any("list", list).
+					Msg("skipping dynamic")
 				continue
 			}
 			if len(list.Filter) > 0 &&
 				!slices.Contains(list.Filter, da.Items[i].Type) {
-				log.Debug("[BiliPush] skipping dynamic: ", da.Items[i].Type, list.Filter)
+				logBiliPush.Debug().
+					Str("type", da.Items[i].Type).
+					Any("filter", list.Filter).
+					Msg("skipping dynamic")
 				continue
 			}
 			if biliPushHistoryDynamic.Query(da.Items[i].IdStr) {
-				log.Debug("[BiliPush] skipping dynamic: ", da.Items[i].IdStr)
+				logBiliPush.Debug().
+					Str("id", da.Items[i].IdStr).
+					Msg("skipping dynamic")
 				continue
 			}
 			biliPushHistoryDynamic.Add(da.Items[i].IdStr)
 
-			log.Debugf("[BiliPush] pushing dynamic %s to %v %v", da.Items[i].IdStr, list.Groups, list.Users)
+			logBiliPush.Debug().
+				Str("id", da.Items[i].IdStr).
+				Any("groups", list.Groups).
+				Any("users", list.Users).
+				Msg("pushing dynamic")
 			PushMsg(da.Items[i].DoTemplate(), list.Users, list.Groups)
 		}
 
@@ -308,8 +353,16 @@ func (bpl *BiliPushConfigList) GetInfo() (err error) {
 }
 
 func (bpl *BiliPushConfigList) ListenLive() {
-	log.Debugf("[BiliPush] listening live msg: %s %d %d", bpl.name, bpl.Uid, bpl.Live)
-	defer log.Debugf("[BiliPush] live msg stream closed: %s %d %d", bpl.name, bpl.Uid, bpl.Live)
+	logBiliPush.Debug().
+		Str("name", bpl.name).
+		Int("uid", bpl.Uid).
+		Int("live", bpl.Live).
+		Msg("listening live msg")
+	defer logBiliPush.Debug().
+		Str("name", bpl.name).
+		Int("uid", bpl.Uid).
+		Int("live", bpl.Live).
+		Msg("live msg stream closed")
 	bpl.lms = biligo.NewLiveMsgStream(bpl.Live)
 	for body, err := range bpl.lms.RunIter() {
 		if err != nil {
@@ -318,7 +371,9 @@ func (bpl *BiliPushConfigList) ListenLive() {
 				websocket.StatusAbnormalClosure:
 				return
 			}
-			log.Error("[BiliPush] failed to listen live msg: ", err)
+			logBiliPush.Error().
+				Err(err).
+				Msg("failed to listen live msg")
 			<-time.After(time.Second * 10)
 			go bpl.ListenLive() // 重连
 			return
@@ -349,12 +404,17 @@ func (bpl *BiliPushConfigList) LiveMsgHandler(body string) {
 		bpl.PushCutOff(&pkt)
 
 	default:
-		// log.Debugf("[BiliPush] unknown live msg cmd: %s\n%s", cmd, body)
+		// logBiliPush.Debug().Msgf("unknown live msg cmd: %s\n%s", cmd, body)
 		miss = true
 	}
 
 	if !miss {
-		log.Debugf("[BiliPush] %s(%d %d) live %s", bpl.name, bpl.Uid, bpl.Live, cmd)
+		logBiliPush.Debug().
+			Str("name", bpl.name).
+			Int("uid", bpl.Uid).
+			Int("live", bpl.Live).
+			Str("cmd", cmd).
+			Msg("live msg")
 	}
 }
 
@@ -369,7 +429,9 @@ func (bpl *BiliPushConfigList) PushOnline(pkt *gjson.Result) {
 
 	live, err := biligo.FetchLiveStatus(Itoa(bpl.Uid))
 	if err != nil {
-		log.Error("[BiliPush] failed to fetch format live uid: ", err)
+		logBiliPush.Error().
+			Err(err).
+			Msg("failed to fetch format live uid")
 		return
 	}
 	msg := bpl.name + "开播了\n" + live[Itoa(bpl.Uid)].DoTemplate()
@@ -384,7 +446,9 @@ func (bpl *BiliPushConfigList) PushOffline(pkt *gjson.Result) {
 
 	live, err := biligo.FetchLiveStatus(Itoa(bpl.Uid))
 	if err != nil {
-		log.Error("[BiliPush] failed to fetch format live uid: ", err)
+		logBiliPush.Error().
+			Err(err).
+			Msg("failed to fetch format live uid")
 		return
 	}
 	msg := bpl.name + "下播了\n" + live[Itoa(bpl.Uid)].DoTemplate()

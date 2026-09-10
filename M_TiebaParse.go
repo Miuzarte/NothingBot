@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	env "NothingBot_v4/environment"
+	"NothingBot_v4/logger"
 
 	"github.com/Miuzarte/EasyOnebot"
 	"github.com/Miuzarte/EasyOnebot/event"
@@ -15,6 +16,9 @@ import (
 
 	"github.com/tidwall/gjson"
 )
+
+// 本文件的日志 scope
+var logTiebaParse = logger.New("TiebaParse")
 
 const TIEBA_URL_REGEXP = `tieba\.baidu\.com/p/(\d+)`
 
@@ -128,12 +132,16 @@ func unmarshalTiebaPost(s string) (tp *TiebaPost, err error) {
 	}
 	j := gjson.Parse(s)
 	if j.Get("code").Int() != 0 {
-		log.Warn("[TiebaParse] non-zero code: ", s)
+		logTiebaParse.Warn().
+			Str("body", s).
+			Msg("non-zero code")
 		return nil, errors.New(s)
 	}
 	postList := j.Get("post_list").Array()
 	if len(postList) == 0 {
-		log.Warn("[TiebaParse] empty post_list: ", s)
+		logTiebaParse.Warn().
+			Str("body", s).
+			Msg("empty post_list")
 		return nil, errors.New(s)
 	}
 	tp = &TiebaPost{

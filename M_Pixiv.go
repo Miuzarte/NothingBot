@@ -16,6 +16,7 @@ import (
 	"time"
 
 	env "NothingBot_v4/environment"
+	"NothingBot_v4/logger"
 	"NothingBot_v4/slicesyntax"
 	"NothingBot_v4/utils"
 
@@ -25,6 +26,9 @@ import (
 
 	"github.com/everpcpc/pixiv"
 )
+
+// 本文件的日志 scope
+var logPixiv = logger.New("Pixiv")
 
 // [1]: pid
 // [2]: slice syntax
@@ -78,7 +82,9 @@ func init() {
 func initPixivParse() {
 	err := config.DecodeModule(pixivMId, &pixivConfig)
 	if err != nil {
-		log.Error(err)
+		logPixiv.Error().
+			Err(err).
+			Msg("failed to decode config")
 		return
 	}
 
@@ -87,7 +93,7 @@ func initPixivParse() {
 	}
 
 	if pixivConfig.AccessToken == "" || pixivConfig.RefreshToken == "" {
-		log.Error("[Pixiv] access token or refresh token not set")
+		logPixiv.Error().Msg("access token or refresh token not set")
 		return
 	}
 
@@ -95,14 +101,16 @@ func initPixivParse() {
 
 	_, err = pixiv.LoadAuth(pixivConfig.AccessToken, pixivConfig.RefreshToken, time.Time{})
 	if err != nil {
-		log.Error("[Pixiv] failed to load auth: ", err)
+		logPixiv.Error().
+			Err(err).
+			Msg("failed to load auth")
 		return
 	}
 
 	// if pixivCache.Root == nil { // 更新需要重启
 	// 	err := pixivCache.Init(pixivConfig.CacheDir)
 	// 	if err != nil {
-	// 		log.Error("[Pixiv] failed to init cache: ", err)
+	// 		logPixiv.Error().Err(err).Msg("failed to init cache")
 	// 		return
 	// 	}
 	// }
@@ -151,7 +159,9 @@ func ctxPixivParse(ctx *EasyOnebot.Ctx) {
 
 	respFetch, err := ctx.SendMsg("[Pixiv] 获取中...")
 	if err != nil {
-		log.Error("[Pixiv] failed to send msg: ", err)
+		logPixiv.Error().
+			Err(err).
+			Msg("failed to send msg")
 		return
 	}
 
@@ -191,7 +201,9 @@ func ctxPixivParse(ctx *EasyOnebot.Ctx) {
 			ctx.Std.DeleteMsg(respFetch.MessageId)
 		}
 		if err != nil {
-			log.Error("[Pixiv] failed to send msg: ", err)
+			logPixiv.Error().
+				Err(err).
+				Msg("failed to send msg")
 			return
 		}
 
@@ -212,7 +224,9 @@ func ctxPixivParse(ctx *EasyOnebot.Ctx) {
 			if pDownload {
 				_, err := ctx.SendMsgReplyf("[Pixiv] 作品 %d 下载完成 (%d)", pId, n)
 				if err != nil {
-					log.Error("[Pixiv] failed to send msg: ", err)
+					logPixiv.Error().
+						Err(err).
+						Msg("failed to send msg")
 				}
 				continue
 			}
@@ -220,7 +234,9 @@ func ctxPixivParse(ctx *EasyOnebot.Ctx) {
 			respSend, err := ctx.SendMsg(pp.SendingHint(i))
 			ctx.Std.DeleteMsg(respDownload.MessageId)
 			if err != nil {
-				log.Error("[Pixiv] failed to send msg: ", err)
+				logPixiv.Error().
+					Err(err).
+					Msg("failed to send msg")
 				return
 			}
 
@@ -252,14 +268,20 @@ func ctxPixivParse(ctx *EasyOnebot.Ctx) {
 			// 发送作品信息
 			_, err = ctx.SendForwardMsgAuto(forward)
 			if err != nil {
-				log.Errorf("[Pixiv] illust %d failed to send msg: %v", pId, err)
+				logPixiv.Error().
+					Err(err).
+					Uint64("pId", pId).
+					Msg("failed to send msg")
 				ctx.SendMsgf("[Pixiv] 作品 %d 信息合并转发发送失败", pId)
 			}
 
 			// 发送直链
 			_, err = ctx.SendMsgf("[Pixiv] 直接查看：https://pixiv.miuzarte.top/%s", filename)
 			if err != nil {
-				log.Errorf("[Pixiv] illust %d failed to send msg: %v", pId, err)
+				logPixiv.Error().
+					Err(err).
+					Uint64("pId", pId).
+					Msg("failed to send msg")
 				ctx.SendMsgf("[Pixiv] 作品 %d 直链发送失败", pId)
 			}
 
@@ -273,12 +295,17 @@ func ctxPixivParse(ctx *EasyOnebot.Ctx) {
 				case event.TYPE_L2_MESSAGE_PRIVATE:
 					err = ctx.UploadPrivateFile(filepath, filename)
 				default:
-					log.Warnf("[Pixiv] unsupported message type: %s", ctx.Event.MessageType)
+					logPixiv.Warn().
+						Str("type", ctx.Event.MessageType).
+						Msg("unsupported message type")
 					ctx.SendMsgf("[Pixiv] 不支持的消息类型：%s", ctx.Event.MessageType)
 					return
 				}
 				if err != nil {
-					log.Errorf("[Pixiv] illust %d failed to upload pdf: %v", pId, err)
+					logPixiv.Error().
+						Err(err).
+						Uint64("pId", pId).
+						Msg("failed to upload pdf")
 					ctx.SendMsgf("[Pixiv] 作品 %d pdf上传失败：%v", pId, err)
 					return
 				}
@@ -570,7 +597,11 @@ func (pp *PixivParse) BuildPdf(i int, filename, filepath string) (n int, err err
 		// 调用 qpdf 将 pdf 线性化
 		out, err := exec.Command("qpdf", filepath, "--linearize", "--replace-input").CombinedOutput()
 		if err != nil {
-			log.Warnf("[Pixiv] illust %d failed to linearize pdf: %v, output: %s", pId, err, out)
+			logPixiv.Warn().
+				Err(err).
+				Uint64("pId", pId).
+				Str("output", string(out)).
+				Msg("failed to linearize pdf")
 		}
 	}
 	return

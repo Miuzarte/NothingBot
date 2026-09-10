@@ -3,10 +3,14 @@ package main
 import (
 	"sync"
 
+	"NothingBot_v4/logger"
 	"github.com/Miuzarte/EasyOnebot/api"
 	"github.com/Miuzarte/EasyOnebot/event"
 	"github.com/Miuzarte/EasyOnebot/message"
 )
+
+// 本文件的日志 scope
+var logGroupNotice = logger.New("GroupNotice")
 
 func init() {
 	NoBuildPrintFile("MO_GroupNotice.go")
@@ -47,7 +51,7 @@ func handleGroupMemberChange(notice any) {
 		operatorId = n.OperatorId
 		subType = n.SubType
 	default:
-		log.Panic("unreachable")
+		logGroupNotice.Panic().Msg("unreachable")
 	}
 
 	var uSi *api.StrangerInfo
@@ -62,12 +66,18 @@ func handleGroupMemberChange(notice any) {
 	}
 
 	if uErr != nil || uSi == nil {
-		log.Warnf("failed to get stranger info for user %d: %v", userId, uErr)
+		logGroupNotice.Warn().
+			Err(uErr).
+			Int("user", userId).
+			Msg("failed to get stranger info")
 		return
 	}
 	if operatorId != 0 {
 		if opErr != nil || opSi == nil {
-			log.Warnf("failed to get stranger info for operator %d: %v", operatorId, opErr)
+			logGroupNotice.Warn().
+				Err(opErr).
+				Int("operator", operatorId).
+				Msg("failed to get stranger info")
 			return
 		}
 	}
@@ -87,12 +97,14 @@ func handleGroupMemberChange(notice any) {
 		msg = message.Textf("%s(%d) 被 %s(%d) 移出了群", uSi.Nickname, userId, opSi.Nickname, operatorId)
 
 	default:
-		log.Warn("handleGroupMemberChange: unknown sub_type: ", subType)
+		logGroupNotice.Warn().
+			Str("subType", subType).
+			Msg("unknown sub_type")
 		return
 	}
 
 	_, err := onebot.Call().Std.SendGroupMsg(groupId, msg)
 	if err != nil {
-		log.Warn("failed to send group member change notification")
+		logGroupNotice.Warn().Msg("failed to send group member change notification")
 	}
 }

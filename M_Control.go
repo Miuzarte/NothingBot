@@ -4,10 +4,14 @@ import (
 	"regexp"
 	"strings"
 
+	"NothingBot_v4/logger"
 	"github.com/Miuzarte/EasyOnebot"
 	"github.com/Miuzarte/EasyOnebot/event"
 	"github.com/Miuzarte/EasyOnebot/message"
 )
+
+// 本文件的日志 scope
+var logControl = logger.New("Control")
 
 var regAdminRepeat = regexp.MustCompile(`(?si)(?:--\S+\s*)*(\S+)\s*([\s\S]+)`) // (.+) 不能匹配换行符
 
@@ -59,6 +63,8 @@ func ctxControl(ctx *EasyOnebot.Ctx) {
 		_, err = ctx.SendMsgReply(msg)
 	}
 	if err != nil {
-		log.Warn("[Control] failed to SendMsg: ", err)
+		logControl.Warn().
+			Err(err).
+			Msg("failed to SendMsg")
 	}
 }

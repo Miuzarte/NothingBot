@@ -9,6 +9,7 @@ import (
 	"NothingBot_v4/slicesyntax"
 
 	env "NothingBot_v4/environment"
+	"NothingBot_v4/logger"
 
 	"github.com/Miuzarte/EasyOnebot"
 	"github.com/Miuzarte/EasyOnebot/event"
@@ -16,6 +17,9 @@ import (
 
 	"github.com/go-viper/mapstructure/v2"
 )
+
+// 本文件的日志 scope
+var logForwardSlice = logger.New("ForwardSlice")
 
 // [0]: [SliceSyntaxes]
 var forwardSliceReg = regexp.MustCompile(`\[(?:-?\d*:?)*\](?:\[(?:-?\d*:?)*\])*`)
@@ -166,12 +170,16 @@ func httpsToHttp(msg message.SegmentArray) {
 			for i := range contents {
 				contentJ, ok := contents[i].(map[string]any)
 				if !ok {
-					log.Warnf("node content[%d] not map[string]any", i)
+					logForwardSlice.Warn().
+						Int("index", i).
+						Msg("node content is not map[string]any")
 					continue
 				}
 				data, ok := contentJ["data"].(map[string]any)
 				if !ok {
-					log.Warnf("node content[%d].data not map[string]any", i)
+					logForwardSlice.Warn().
+						Int("index", i).
+						Msg("node content data is not map[string]any")
 					continue
 				}
 				file, ok := data["file"].(string)

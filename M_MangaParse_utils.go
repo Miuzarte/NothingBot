@@ -8,8 +8,12 @@ import (
 	"sync"
 
 	env "NothingBot_v4/environment"
+	"NothingBot_v4/logger"
 	"NothingBot_v4/utils"
 )
+
+// 本文件的日志 scope
+var logManga = logger.New("Manga")
 
 func writePageNum(w io.Writer, start, end int) {
 	if start == end {
@@ -93,7 +97,9 @@ func init() {
 func initManga() {
 	err := config.DecodeModule(mangaMId, &mangaConfig)
 	if err != nil {
-		log.Error(err)
+		logManga.Error().
+			Err(err).
+			Msg("failed to decode config")
 		return
 	}
 }

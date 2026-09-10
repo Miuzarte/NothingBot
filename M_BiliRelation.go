@@ -8,9 +8,13 @@ import (
 	"time"
 
 	env "NothingBot_v4/environment"
+	"NothingBot_v4/logger"
 
 	"github.com/Miuzarte/biligo"
 )
+
+// 本文件的日志 scope
+var logBiliRelation = logger.New("BiliRelation")
 
 type BiliRelationConfig struct {
 	Uid    int // 主要判断
@@ -51,7 +55,9 @@ func initBiliRelation() {
 	newConfigs := BiliRelationConfigs{}
 	err := config.DecodeModule(biliRelationMId, &newConfigs)
 	if err != nil {
-		log.Error(err)
+		logBiliRelation.Error().
+			Err(err).
+			Msg("failed to decode config")
 		return
 	}
 	if len(newConfigs) == 0 {
@@ -105,7 +111,7 @@ func (brc *BiliRelationConfigs) RunAll() {
 		j, err := biligo.FetchSpaceCard(config.uid)
 		if err != nil {
 			msg := fmt.Sprintf("[BiliRelation] %s failed to fetch name: %v", config.uid, err)
-			log.Error(msg)
+			logBiliRelation.Error().Msg(msg)
 			continue
 		}
 		config.name = j.Card.Name
@@ -120,29 +126,45 @@ func (brc *BiliRelationConfigs) RunAll() {
 			for {
 				rs, err = biligo.FetchRelationStat(config.uid)
 				if err != nil {
-					log.Errorf("[BiliRelation] %s(%s) failed to fetch relation stat: %v", config.name, config.uid, err)
+					logBiliRelation.Error().
+						Err(err).
+						Str("name", config.name).
+						Str("uid", config.uid).
+						Msg("failed to fetch relation stat")
 					goto FAILED
 				}
 
 				go func() {
 					err := relationAppendToCsv(config.name, config.uid, time.Now(), rs.Follower)
 					if err != nil {
-						log.Error("[BiliRelation] failed to append to csv: ", err)
+						logBiliRelation.Error().
+							Err(err).
+							Msg("failed to append to csv")
 					}
 				}()
 
 				if rs.Follower >= config.Target {
-					log.Info("[BiliRelation] target reached: ", config.uid, " ", rs.Follower)
+					logBiliRelation.Info().
+						Str("uid", config.uid).
+						Int("follower", rs.Follower).
+						Msg("target reached")
 					t := time.Now().Format("2006-01-02 15:04:05")
 					msg := fmt.Sprintf("[BiliRelation] %s(%s) 在 %s 达成 %d 粉丝数", config.name, config.uid, t, rs.Follower)
-					log.Info(msg)
+					logBiliRelation.Info().Msg(msg)
 					PushMsg(msg, nil, config.Groups)
 					config.cancel()
 					break mainLoop
 				}
 
 				duration = time.Second * time.Duration(config.Target-rs.Follower)
-				log.Infof("[BiliRelation] %s(%s): %d/%d(%d), next check after %s", config.name, config.uid, rs.Follower, config.Target, rs.Follower-config.Target, duration)
+				logBiliRelation.Info().
+					Str("name", config.name).
+					Str("uid", config.uid).
+					Int("follower", rs.Follower).
+					Int("target", config.Target).
+					Int("diff", rs.Follower-config.Target).
+					Dur("next", duration).
+					Msg("bili relation progress")
 
 				select {
 				case <-time.After(duration):

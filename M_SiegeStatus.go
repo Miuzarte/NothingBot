@@ -12,6 +12,7 @@ import (
 	"time"
 
 	env "NothingBot_v4/environment"
+	"NothingBot_v4/logger"
 
 	"github.com/Miuzarte/EasyOnebot"
 	"github.com/Miuzarte/EasyOnebot/event"
@@ -19,6 +20,9 @@ import (
 	"github.com/Miuzarte/SiegeStatus"
 	"github.com/redis/rueidis"
 )
+
+// 本文件的日志 scope
+var logSiegeStatus = logger.New("SiegeStatus")
 
 const SIEGE_STATUS_REGEXP = `(?i)(当前)?(彩虹?六号?|围攻)服务器状态|/siegeStatus|rainbow-six/siege/status`
 
@@ -88,7 +92,9 @@ func initSiegeStatus() {
 	newConfig := &SiegeStatusConfig{}
 	err := config.DecodeModule(siegeStatusMId, newConfig)
 	if err != nil {
-		log.Error(err)
+		logSiegeStatus.Error().
+			Err(err).
+			Msg("failed to decode config")
 		return
 	}
 
@@ -104,7 +110,9 @@ func initSiegeStatus() {
 
 	siegeStatusConfig.pollingInterval, _ = time.ParseDuration(siegeStatusConfig.PollingInterval)
 	if siegeStatusConfig.pollingInterval < time.Second*30 {
-		log.Warnf("[SiegeStatus] polling interval too short: %s", siegeStatusConfig.pollingInterval)
+		logSiegeStatus.Warn().
+			Dur("interval", siegeStatusConfig.pollingInterval).
+			Msg("polling interval too short")
 		siegeStatusConfig.pollingInterval = time.Minute
 	}
 	siegeStatusConfig.ticker = time.NewTicker(siegeStatusConfig.pollingInterval)
@@ -116,7 +124,9 @@ func initSiegeStatus() {
 		} else {
 			id, ok := siegeStatusQueryIdsMap[strings.ToLower(queryId)]
 			if !ok {
-				log.Warnf("[SiegeStatus] unknown platform type: %q", queryId)
+				logSiegeStatus.Warn().
+					Str("type", queryId).
+					Msg("unknown platform type")
 				continue
 			}
 			siegeStatusConfig.queryIds = append(siegeStatusConfig.queryIds, id)
@@ -148,11 +158,11 @@ func (ssc *SiegeStatusConfig) Start() {
 				return
 
 			case ctx := <-ssc.trigger:
-				// log.Debug("[SiegeStatus] ctx := <-ssc.trigger: go ssc.PushCurr(ctx)")
+				// logSiegeStatus.Debug().Msg("ctx := <-ssc.trigger: go ssc.PushCurr(ctx)")
 				go ssc.PushCurr(ctx)
 
 			case <-ssc.ticker.C:
-				// log.Debug("[SiegeStatus] <-ssc.ticker.C: go ssc.PushDiff()")
+				// logSiegeStatus.Debug().Msg("<-ssc.ticker.C: go ssc.PushDiff()")
 				go ssc.PushDiff()
 
 			}
@@ -167,7 +177,9 @@ func (ssc *SiegeStatusConfig) Stop() {
 func (ssc *SiegeStatusConfig) PushCurr(ctx *EasyOnebot.Ctx) {
 	resp, err := SiegeStatus.Get(ssc.ctx, ssc.queryIds...)
 	if err != nil {
-		log.Warnf("[SiegeStatus] failed to get siege status: %v", err)
+		logSiegeStatus.Warn().
+			Err(err).
+			Msg("failed to get siege status")
 		return
 	}
 
@@ -178,7 +190,9 @@ func (ssc *SiegeStatusConfig) PushCurr(ctx *EasyOnebot.Ctx) {
 		err = PushMsg(msg, ssc.Users, ssc.Groups)
 	}
 	if err != nil {
-		log.Warnf("[SiegeStatus] failed to push siege status curr: %v", err)
+		logSiegeStatus.Warn().
+			Err(err).
+			Msg("failed to push siege status curr")
 		return
 	}
 }
@@ -186,7 +200,9 @@ func (ssc *SiegeStatusConfig) PushCurr(ctx *EasyOnebot.Ctx) {
 func (ssc *SiegeStatusConfig) PushDiff() {
 	new, err := SiegeStatus.Get(ssc.ctx, ssc.queryIds...)
 	if err != nil {
-		log.Warnf("[SiegeStatus] failed to get siege status: %v", err)
+		logSiegeStatus.Warn().
+			Err(err).
+			Msg("failed to get siege status")
 		return
 	}
 	old := siegeStatusCacheRead()
@@ -199,7 +215,9 @@ func (ssc *SiegeStatusConfig) PushDiff() {
 
 	err = PushMsg(msg, ssc.Users, ssc.Groups)
 	if err != nil {
-		log.Warnf("[SiegeStatus] failed to push siege status diff: %v", err)
+		logSiegeStatus.Warn().
+			Err(err).
+			Msg("failed to push siege status diff")
 		return
 	}
 }
@@ -244,10 +262,10 @@ func siegeStatusFormatGameStatus(old, new *SiegeStatus.GameStatus) string {
 
 	switch {
 	case old == nil && new == nil:
-		log.Panic("old == nil && new == nil")
+		logSiegeStatus.Panic().Msg("old == nil && new == nil")
 		panic("unreachable")
 	case new == nil:
-		log.Panic("new == nil")
+		logSiegeStatus.Panic().Msg("new == nil")
 		panic("unreachable")
 
 	case old == nil:
@@ -292,7 +310,7 @@ func siegeStatusesDiffIter(gs1, gs2 []SiegeStatus.GameStatus) iter.Seq[int] {
 	return func(yield func(int) bool) {
 		if len(gs1) != len(gs2) {
 			// unimplemented
-			log.Warnf("[SiegeStatus] [TODO] len(gs1) != len(gs2)")
+			logSiegeStatus.Warn().Msg("[TODO] len(gs1) != len(gs2)")
 			return
 		}
 
@@ -321,10 +339,12 @@ func siegeStatusEqual(g1, g2 *SiegeStatus.GameStatus) bool {
 	}
 
 	if g1.ApplicationId != g2.ApplicationId {
-		log.Warnf(
-			"[SiegeStatus] weird status comparison: g1(%s).ApplicationId(%q) != g2(%s).ApplicationId(%s)",
-			g1.Name, g1.ApplicationId, g2.Name, g2.ApplicationId,
-		)
+		logSiegeStatus.Warn().
+			Str("name1", g1.Name).
+			Str("appId1", g1.ApplicationId).
+			Str("name2", g2.Name).
+			Str("appId2", g2.ApplicationId).
+			Msg("weird status comparison")
 		return false
 	}
 	if g1.Status != g2.Status {
@@ -350,16 +370,20 @@ func siegeStatusCacheWrite(resp SiegeStatus.Response) {
 
 	v, err := json.Marshal(resp)
 	if err != nil {
-		log.Panicf("[SiegeStatus] failed to marshal response: %v", err)
+		logSiegeStatus.Panic().
+			Err(err).
+			Msg("failed to marshal response")
 		return
 	}
 
-	// log.Debugf("[SiegeStatus] write to redis: %q: %q", SIEGE_STATUS_REDIS_KEY, v)
+	// logSiegeStatus.Debug().Msgf("write to redis: %q: %q", SIEGE_STATUS_REDIS_KEY, v)
 	result := redisClient.Client.Do(ctx,
 		redisClient.Client.B().Set().Key(SIEGE_STATUS_REDIS_KEY).Value(string(v)).Ex(expire).Build(),
 	)
 	if err := result.Error(); err != nil {
-		log.Errorf("[SiegeStatus] failed to write redis: %v", err)
+		logSiegeStatus.Error().
+			Err(err).
+			Msg("failed to write redis")
 		return
 	}
 }
@@ -371,20 +395,28 @@ func siegeStatusCacheRead() (resp SiegeStatus.Response) {
 	result := redisClient.Client.Do(ctx, redisClient.Client.B().Get().Key(SIEGE_STATUS_REDIS_KEY).Build())
 	if err := result.Error(); err != nil {
 		if !rueidis.IsRedisNil(err) {
-			log.Errorf("[SiegeStatus] failed to query redis: %v", err)
+			logSiegeStatus.Error().
+				Err(err).
+				Msg("failed to query redis")
 		}
 		return
 	}
 
 	s, err := result.ToString()
 	if err != nil {
-		log.Errorf("[SiegeStatus] failed to convert redis result(%v) to string: %v", result, err)
+		logSiegeStatus.Error().
+			Any("result", result).
+			Err(err).
+			Msg("failed to convert redis result to string")
 		return
 	}
 
 	err = json.Unmarshal([]byte(s), &resp)
 	if err != nil {
-		log.Errorf("[SiegeStatus] failed to unmarshal redis result(%s): %v", s, err)
+		logSiegeStatus.Error().
+			Str("result", s).
+			Err(err).
+			Msg("failed to unmarshal redis result")
 		return
 	}
 
