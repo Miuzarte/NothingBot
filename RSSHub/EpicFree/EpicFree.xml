@@ -1,0 +1,47 @@
+<rss xmlns:atom="http://www.w3.org/2005/Atom" version="2.0">
+    <channel>
+        <title>Epic Games Store - Free Games</title>
+        <link>https://store.epicgames.com/zh-CN/free-games?lang=zh-CN</link>
+        <atom:link href="http://rsshub.miuzarte.top/epicgames/freegames/zh-CN/CN?key=114514"
+            rel="self" type="application/rss+xml" />
+        <description>Epic Games Store - Free Games - Powered by RSSHub</description>
+        <generator>RSSHub</generator>
+        <webMaster>contact@rsshub.app (RSSHub)</webMaster>
+        <language>en</language>
+        <lastBuildDate>Tue, 30 Sep 2025 06:47:38 GMT</lastBuildDate>
+        <ttl>5</ttl>
+        <item>
+            <title>斩妖行</title>
+            <description>
+                <p>化身为“斩妖人”一路斩妖前行，体味凶残的妖魔与人类难填的欲壑无尽的纠葛，一幕幕的众生百态。</p>
+                <img
+                    src="https://cdn1.epicgames.com/spt-assets/aa3726b6b8a14b148b58992e8d2700b1/eastern-exorcist-5x86f.png"
+                    referrerpolicy="no-referrer">
+                <p>Free Now to 2025-10-02T15:00:00.000Z</p>
+            </description>
+            <link>https://store.epicgames.com/zh-CN/p/eastern-exorcist-d49923</link>
+            <guid isPermaLink="false">https://store.epicgames.com/zh-CN/p/eastern-exorcist-d49923</guid>
+            <pubDate>Thu, 25 Sep 2025 15:00:00 GMT</pubDate>
+            <author>Thermite Games</author>
+        </item>
+        <item>
+            <title>Jorel’s Brother and The Most Important Game of the Galaxy</title>
+            <description>
+                <p>“Jorel’s Brother and The Most Important Game of the Galaxy” is a point-and-click
+                    adventure about an eight-year-old boy who lives with his eccentric family in the
+                    shadow of Jorel, his handsome and popular brother. Based on the award-winning
+                    Brazilian animation “Jorel’s Brother”.</p>
+                <img
+                    src="https://cdn1.epicgames.com/spt-assets/6d5a003f768f4957b4ed48b373f86b32/jorels-brother-and-the-most-important-game-of-the-galaxy-liq5n.png"
+                    referrerpolicy="no-referrer">
+                <p>Free Now to 2025-10-02T15:00:00.000Z</p>
+            </description>
+            <link>
+                https://store.epicgames.com/zh-CN/p/jorels-brother-and-the-most-important-game-of-the-galaxy-47435f</link>
+            <guid isPermaLink="false">
+                https://store.epicgames.com/zh-CN/p/jorels-brother-and-the-most-important-game-of-the-galaxy-47435f</guid>
+            <pubDate>Thu, 25 Sep 2025 15:00:00 GMT</pubDate>
+            <author>Double Dash Studios</author>
+        </item>
+    </channel>
+</rss>

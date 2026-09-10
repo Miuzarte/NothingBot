@@ -1,0 +1,38 @@
+# 编辑器 / 系统
+.idea/
+.DS_Store
+Thumbs.db
+*.swp
+
+# 敏感信息
+config.toml
+bilibili_identity
+.env
+.env.*
+*.pem
+*.key
+*.p12
+
+_python/
+_temp/
+_test/
+
+# 编译产物
+/NothingBot_v4*
+*.exe
+*.test
+*.out
+__debug_bin*
+
+# 运行期数据
+BotPixivCache/
+BotEHentaiCache/
+BotNHentaiCache/
+BotJmComicCache/
+BotPicaComicCache/
+BotPermanentLink/
+bili_relation.csv
+
+# 日志
+*.log
+logs/

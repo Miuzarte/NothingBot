@@ -1,0 +1,152 @@
+[log]
+# 控制台日志等级, 值越大输出越少
+# TraceLevel = iota = 0
+# DebugLevel
+# InfoLevel
+# WarnLevel
+# ErrorLevel
+# FatalLevel
+# PanicLevel
+# level = 0
+# level = 1
+level = 2
+dir = '' # 本地日志存储文件夹, 留空则不存储
+
+[global]
+redisUrl = '127.0.0.1:6379' # redis
+proxy = '' # http / https, 就是 os.Setenv
+
+# bot 主配置
+[onebot]
+wsurl = '127.0.0.1:8081' # onebot websocket
+token = ''
+redisExpire = '168h' # redis 过期时间 "ns", "us" (or "µs"), "ms", "s", "m", "h"
+onlineNotify = true # 上线通知
+offlineNotify = true # 下线通知
+superusers = [ # 超级用户 QQ 号
+]
+nicknames = [ # 机器人别称, 用于判断是否提到了机器人, 解决假 at
+    'rurudo',
+    'ruru',
+]
+
+# bot 消息过滤
+[onebot.filter]
+users = [ #
+]
+groups = [ #
+]
+
+[modules]
+# PLACEHOLDER
+
+# deepseek ai chat
+[modules.deepseek]
+enabled = false
+apiKey = ''
+whitelist.groups = [ #
+]
+whitelist.users = [ #
+]
+
+[modules.pixivparse]
+enabled = false
+accessToken = ''
+refreshToken = ''
+scaledLongest = 2560 # 长边缩放到指定像素
+cacheDir = 'BotPixivCache' # 缓存文件夹, 重启更新
+whitelist.groups = [ #
+]
+whitelist.users = [ #
+]
+
+[modules.ehentai]
+enabled = false
+saltLength = 8
+maxForwardImages = 60
+# maxForwardImages = 80
+forwardMsgBatchSize = 20
+# forwardMsgBatchSize = 16
+coverShowRating = 4 # 评分大于等于此值时显示封面
+cookie.ipbmemberid = ''
+cookie.ipbpasshash = ''
+cookie.igneous = ''
+cookie.sk = '' # 不给的话搜索结果只有英文
+threads = 8 # 并发线程数
+useDomainFronting = false
+useEnvProxy = true
+useEhTagDB = true
+galleryCache = true # 画廊缓存
+cacheDir = 'BotEHentaiCache' # 缓存文件夹, 重启更新
+whitelist.groups = [ #
+]
+whitelist.users = [ #
+]
+
+[modules.bilibili]
+# PLACEHOLDER
+
+# bilibili 链接解析
+[modules.biliparse]
+sameParseInterval = '1m' # 同一会话重复解析同一链接的间隔 "ns", "us" (or "µs"), "ms", "s", "m", "h"
+
+# bilibili 粉丝数变动提醒
+[[modules.bilirelation]]
+# 岁己SUI
+uid = 1954091502
+target = 60000
+groups = [ #
+]
+
+[modules.bilipush]
+dynamicUpdateInterval = '3s' # 动态更新拉取间隔
+liveMinimumInterval = '300s' # 同一直播间多次开播推送的最小间隔, 用于解决某些主播因网络问题频繁重新推流导致多次推送
+# cookie = '' # 弃用, 改用扫码登录 # 通过拉取动态流进行推送, 必须设置B站cookie, 且需要关注想要推送的up
+
+# [[modules.bilipush.list]]
+# # 模板
+# uid = 0 # uid
+# live = 0 # 直播间号, 存在则监听并推送直播
+# users = [] # 推送的用户
+# groups = [] # 推送的群组
+# filter = [
+#     'DYNAMIC_TYPE_FORWARD',       # 转发
+#     'DYNAMIC_TYPE_NONE',          # 转发的动态已被删除
+#     'DYNAMIC_TYPE_WORD',          # 纯文字
+#     'DYNAMIC_TYPE_DRAW',          # 图文
+#     'DYNAMIC_TYPE_AV',            # 视频
+#     'DYNAMIC_TYPE_ARTICLE',       # 文章
+#     'DYNAMIC_TYPE_MUSIC',         # 音频
+#     'DYNAMIC_TYPE_LIVE',          # 直播间分享
+#     'DYNAMIC_TYPE_LIVE_RCMD',     # 直播开播(动态流拿不到更新)
+#     'DYNAMIC_TYPE_COMMON_SQUARE', # 装扮 / 剧集点评 / 普通分享
+# ]
+
+# [[modules.corpus]] # 模板
+# regexp = ''  # 正则表达式
+# reply = ''   # 回复内容 string / []string, 多于一条则发送合并转发消息, 内容可以为空字符串, 但是会被发送函数跳过
+# scene = ''   # 触发场景 'a'|'all' / 'g'|'group' / 'p'|'private'
+# delay = '0s' # 延迟回复
+
+#  ┌──分（0 - 59）
+#  │ ┌──时（0 - 23）
+#  │ │ ┌──日（1 - 31）
+#  │ │ │ ┌─月（1 - 12）
+#  │ │ │ │ ┌─星期（0 - 6，表示从周日到周六）
+#  │ │ │ │ │
+# '* * * * *'
+
+# [[modules.crontab]] # 模板
+# crontab = '' # 定时任务表达式, 如上
+# msg = ''     # 发送内容 string / []string, 多于一条则发送合并转发消息
+# users = []   # 发送目标用户 int / []int
+# groups = []  # 发送目标群组 int / []int
+
+# webhook 配置
+# [[modules.webhook]]
+# path = 'test'   # webhook 路径（代码会自动添加 /webhook/ 前缀）
+# token = ''      # Bearer Token 用于认证（为空则不验证），请求时需要在 Header 中添加: Authorization: Bearer <token>
+# useBody = false # 是否使用请求 body 作为消息内容（为 true 且 body 不为空时，发送 body 而不是 reply）
+# reply = 'Webhook 触发了！'  # 回复内容（当 useBody 为 false 或 body 为空时使用）
+# groupId = 0     # 发送到的群组 ID（groupId 和 userId 至少填一个）
+# userId = 0      # 发送到的用户 ID
